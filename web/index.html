@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FI/CO — Financial Accounting</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- Shell bar -->
+  <header class="shell">
+    <div class="shell-left">
+      <button id="navToggle" class="icon-btn" title="Menu">&#9776;</button>
+      <span class="shell-logo">FI<span>/</span>CO</span>
+      <span class="shell-title">Financial Accounting &amp; Controlling</span>
+    </div>
+    <div class="shell-right">
+      <span id="ccBadge" class="badge">—</span>
+      <span id="dbBadge" class="badge badge-muted">db</span>
+      <span class="avatar" title="SYSTEM">SY</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- Side navigation -->
+    <nav id="sidenav" class="sidenav">
+      <a class="nav-item" href="#/dashboard" data-view="dashboard"><i>&#9632;</i> Dashboard</a>
+      <a class="nav-item" href="#/post" data-view="post"><i>&#43;</i> Post Document</a>
+      <a class="nav-item" href="#/documents" data-view="documents"><i>&#9776;</i> Documents</a>
+      <div class="nav-sep">Reporting</div>
+      <a class="nav-item" href="#/trial-balance" data-view="trial-balance"><i>&#8801;</i> Trial Balance</a>
+      <a class="nav-item" href="#/open-items" data-view="open-items"><i>&#8942;</i> Open Items</a>
+      <div class="nav-sep">Asset &amp; Bank</div>
+      <a class="nav-item" href="#/assets" data-view="assets"><i>&#9974;</i> Fixed Assets</a>
+      <a class="nav-item" href="#/bank" data-view="bank"><i>&#127974;</i> Bank Statements</a>
+      <div class="nav-sep">Master Data</div>
+      <a class="nav-item" href="#/gl-accounts" data-view="gl-accounts"><i>&#8942;</i> G/L Accounts</a>
+      <a class="nav-item" href="#/partners" data-view="partners"><i>&#128100;</i> Business Partners</a>
+    </nav>
+
+    <!-- Content -->
+    <main id="content" class="content">
+      <div class="loading">Loading…</div>
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -3,60 +3,40 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>FI/CO — Financial Accounting</title>
+  <title>Business One — Demo Trading Ltd</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- Shell bar -->
   <header class="shell">
     <div class="shell-left">
-      <button id="navToggle" class="icon-btn" title="Menu">&#9776;</button>
-      <span class="shell-logo">FI<span>/</span>CO</span>
-      <span class="shell-title">Financial Accounting &amp; Controlling</span>
+      <button id="navToggle" class="icon-btn" title="Main menu">&#9776;</button>
+      <span class="shell-logo">B<span>1</span></span>
+      <span class="shell-title">Business One</span>
     </div>
     <div class="shell-right">
-      <span id="ccBadge" class="badge">—</span>
+      <span id="companyBadge" class="badge">—</span>
       <span id="dbBadge" class="badge badge-muted">db</span>
-      <span class="avatar" title="SYSTEM">SY</span>
+      <span class="avatar" title="manager">MG</span>
     </div>
   </header>
 
   <div class="layout">
-    <!-- Side navigation -->
     <nav id="sidenav" class="sidenav">
-      <a class="nav-item" href="#/dashboard" data-view="dashboard"><i>&#9632;</i> Dashboard</a>
-      <a class="nav-item" href="#/post" data-view="post"><i>&#43;</i> Post Document</a>
-      <a class="nav-item" href="#/documents" data-view="documents"><i>&#9776;</i> Documents</a>
-      <a class="nav-item" href="#/payments" data-view="payments"><i>&#8644;</i> Payments &amp; Clearing</a>
-      <a class="nav-item" href="#/payment-run" data-view="payment-run"><i>&#8635;</i> Payment Run (F110)</a>
-      <a class="nav-item" href="#/recurring" data-view="recurring"><i>&#8634;</i> Recurring Entries</a>
-      <a class="nav-item" href="#/dunning" data-view="dunning"><i>&#9993;</i> Dunning (F150)</a>
-      <a class="nav-item" href="#/fx" data-view="fx"><i>&#36;</i> Exchange Rates &amp; FX Valuation</a>
-      <div class="nav-sep">Reporting</div>
-      <a class="nav-item" href="#/trial-balance" data-view="trial-balance"><i>&#8801;</i> Trial Balance</a>
-      <a class="nav-item" href="#/open-items" data-view="open-items"><i>&#8942;</i> Open Items</a>
-      <a class="nav-item" href="#/financial-statement" data-view="financial-statement"><i>&#9878;</i> Balance Sheet / P&amp;L</a>
-      <a class="nav-item" href="#/partner-balances" data-view="partner-balances"><i>&#931;</i> Customer / Vendor Balances</a>
-      <div class="nav-sep">Controlling</div>
-      <a class="nav-item" href="#/controlling" data-view="controlling"><i>&#9707;</i> Cost Centers &amp; Orders</a>
-      <a class="nav-item" href="#/copa" data-view="copa"><i>&#9650;</i> Profitability (CO-PA)</a>
-      <div class="nav-sep">Asset &amp; Bank</div>
-      <a class="nav-item" href="#/assets" data-view="assets"><i>&#9974;</i> Fixed Assets</a>
-      <a class="nav-item" href="#/bank" data-view="bank"><i>&#127974;</i> Bank Statements</a>
-      <div class="nav-sep">Master Data</div>
-      <a class="nav-item" href="#/gl-accounts" data-view="gl-accounts"><i>&#8942;</i> G/L Accounts</a>
-      <a class="nav-item" href="#/partners" data-view="partners"><i>&#128100;</i> Business Partners</a>
+      <a class="nav-item" href="#/cockpit" data-view="cockpit"><i>&#9632;</i> Cockpit</a>
+      <div class="nav-sep">Financials</div>
+      <a class="nav-item" href="#/accounts" data-view="accounts"><i>&#8801;</i> Chart of Accounts</a>
+      <a class="nav-item" href="#/journal-entry" data-view="journal-entry"><i>&#43;</i> Journal Entry</a>
+      <a class="nav-item" href="#/journal" data-view="journal"><i>&#9776;</i> Journal Entries</a>
+      <div class="nav-sep">Financial Reports</div>
+      <a class="nav-item" href="#/trial-balance" data-view="trial-balance"><i>&#9878;</i> Trial Balance</a>
+      <a class="nav-item" href="#/balance-sheet" data-view="balance-sheet"><i>&#9636;</i> Balance Sheet</a>
+      <a class="nav-item" href="#/profit-loss" data-view="profit-loss"><i>&#9650;</i> Profit and Loss</a>
+      <div class="nav-sep">Administration</div>
+      <a class="nav-item" href="#/setup" data-view="setup"><i>&#9881;</i> Company &amp; Periods</a>
     </nav>
-
-    <!-- Content -->
-    <main id="content" class="content">
-      <div class="loading">Loading…</div>
-    </main>
+    <main id="content" class="content"><div class="loading">Loading…</div></main>
   </div>
-
-  <!-- Toast -->
   <div id="toast" class="toast"></div>
-
   <script src="/app.js"></script>
 </body>
 </html>

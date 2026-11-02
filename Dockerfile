@@ -16,7 +16,7 @@ COPY web ./web
 COPY scripts ./scripts
 
 # SQLite lives on a volume so data survives container restarts.
-ENV DATABASE_URL=sqlite:////data/sapfico.db
+ENV DATABASE_URL=sqlite:////data/b1.db
 RUN mkdir -p /data
 VOLUME ["/data"]
 

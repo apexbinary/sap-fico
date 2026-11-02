@@ -147,3 +147,15 @@ input[readonly] { background: #f3f3f3; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 .help { color: var(--muted); font-size: 12px; margin-top: 4px; }
 .sub-row td { padding-top: 3px; padding-bottom: 3px; background: #fcfcfc; }
+/* B1 additions */
+.shell { background: linear-gradient(90deg, #2b4a6f, #3b6a98); }
+.nav-group { margin-top: 4px; }
+.nav-group > .nav-sep { cursor: default; }
+.sub-row td { padding-top: 3px; padding-bottom: 3px; background: #fcfcfc; }
+.tree-title td { font-weight: 600; background: #fafafa; }
+.status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.status.O { background: #e6f3ea; color: var(--good); }
+.status.C { background: #eee; color: var(--muted); }
+.status.X { background: #fce8e8; color: var(--bad); }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }

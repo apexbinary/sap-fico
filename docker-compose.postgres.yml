@@ -4,25 +4,25 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: sap-fico-db
+    container_name: sap-b1-db
     environment:
-      POSTGRES_USER: sapfico
-      POSTGRES_PASSWORD: sapfico
-      POSTGRES_DB: sapfico
+      POSTGRES_USER: sapb1
+      POSTGRES_PASSWORD: sapb1
+      POSTGRES_DB: sapb1
     volumes:
-      - sapfico-pg:/var/lib/postgresql/data
+      - b1-pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sapfico -d sapfico"]
+      test: ["CMD-SHELL", "pg_isready -U sapb1 -d sapb1"]
       interval: 3s
       retries: 20
     restart: unless-stopped
 
   app:
     environment:
-      DATABASE_URL: postgresql+psycopg://sapfico:sapfico@db:5432/sapfico
+      DATABASE_URL: postgresql+psycopg://sapb1:sapb1@db:5432/sapb1
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
-  sapfico-pg:
+  b1-pg:

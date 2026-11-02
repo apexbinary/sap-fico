@@ -1,12 +1,12 @@
 services:
   app:
     build: .
-    container_name: sap-fico
+    container_name: sap-b1
     ports:
       - "8000:8000"
     volumes:
-      - sapfico-data:/data
+      - b1-data:/data
     restart: unless-stopped
 
 volumes:
-  sapfico-data:
+  b1-data:

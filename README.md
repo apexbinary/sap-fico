@@ -1,80 +1,27 @@
-# SAP FI/CO Clone — Finance Core
+# SAP Business One Clone
 
-A from-scratch ERP **Financial Accounting (FI)** and **Controlling (CO)** engine,
-modeled closely on SAP ECC / S/4HANA conventions. Table and field names mirror the
-real SAP data dictionary (e.g. `BUKRS`, `BKPF`, `BSEG`, `SKA1`, `HKONT`, `KOSTL`)
-so the model is recognizable to anyone who knows SAP FICO.
+An ERP for small and midsize companies modelled on **SAP Business One**: financials,
+business partners, sales (A/R), purchasing (A/P), inventory and banking. Database
+tables and fields use B1's names (OACT, OJDT/JDT1, OCRD, OITM, ORDR/RDR1, OINV/INV1,
+ORCT, ...). Independent clean-room implementation; "SAP" and "SAP Business One" are
+trademarks of SAP SE.
 
-> This is an independent, clean-room implementation inspired by SAP's published
-> data-model conventions. It contains **no SAP source code**. "SAP", "FI", "CO",
-> "S/4HANA" are trademarks of SAP SE, used here only for interoperability/reference.
-
-## Stack
-
-- **Python 3.12**, **FastAPI** (REST API), **SQLAlchemy 2.0** (ORM)
-- **SQLite** by default (zero-setup dev); **PostgreSQL 16** via `DATABASE_URL` or the compose override
-- **Alembic** migrations (`migrations/`), applied automatically on startup
-
-## Modules (SAP terminology)
-
-| Area | SAP component | Status |
-|------|---------------|--------|
-| Enterprise structure | Client, Company Code, Chart of Accounts, Fiscal Year Variant, Controlling Area | ✅ |
-| General Ledger | G/L master (SKA1/SKB1/SKAT), posting, GLT0 totals | ✅ |
-| Accounting documents | BKPF / BSEG, document types, posting keys | ✅ |
-| Taxes | Tax codes (T007A), account determination (T030K) | 🚧 |
-| Accounts Receivable | Customer master (KNA1/KNB1), open items | 🚧 |
-| Accounts Payable | Vendor master (LFA1/LFB1), open items | 🚧 |
-| Controlling | Cost centers, internal orders, CO documents (COBK), actual cost reports, assessment/distribution cycles, order settlement, account-based CO-PA | ✅ |
-| Asset Accounting | Asset master (ANLA/ANLB/ANLC), acquisition, straight-line depreciation run | ✅ |
-| Bank Accounting | House banks (T012/T012K), electronic statements (FEBKO/FEBEP), auto-reconcile | ✅ |
-| Payments & clearing | Terms of payment (T052), F-28/F-53 payments, F-32/F-44/F-03 clearing, cash discount with tax adjustment, tolerances (T043G), partial/residual items | ✅ |
-| Automatic payment program | F110 parameters (REGUV), proposal and payment run (REGUH/REGUP), SEPA transfers (pain.001) and direct debits with mandates (pain.008), bank clearing account flow | ✅ |
-| Reporting | Trial balance, account balances, open items (net due date) | ✅ |
-| Foreign currency | TCURR translation, realized FX on clearing (T030H), FX valuation FAGL_FCV with reversal | ✅ |
-| Dunning | Procedures/levels/charges (T047A/B/C), dunning run F150 (MAHNV/MHNK/MHND), notices | ✅ |
-| Document lifecycle | Parked documents (park / post / delete), reversal FB08, reset clearing FBRA, recurring entries FBD1 / F.14 | ✅ |
-| Financial statements | FSV (T011/FAGL_011PC/FAGL_011ZC), balance sheet / P&L with comparison year, balance carryforward | ✅ |
-
-### Web UI
-
-A SAP Fiori-style single-page app (`web/`, vanilla JS, no build step) is served by
-the same FastAPI process at `/`: Dashboard, Post Document (live balance + auto-tax),
-Documents, Payments & Clearing, Payment Run (F110), Recurring Entries, Dunning, Exchange Rates & FX Valuation, Trial Balance, Cost Centers & Orders, Profitability (CO-PA), Balance Sheet / P&L, Open Items, Fixed Assets, Bank Statements, and master-data
-browsers. Open http://localhost:8000/ after starting the server.
+| Module | Status |
+|---|---|
+| Administration — company, currencies, exchange rates, posting periods, numbering series, tax groups, payment terms | ✅ |
+| Financials — chart of accounts (tree), journal entries, reversal, trial balance, balance sheet, P&L | ✅ |
+| Business partners | planned |
+| Sales A/R and purchasing A/P documents | planned |
+| Inventory | planned |
+| Banking | planned |
 
 ## Run
 
-### Docker
-
 ```bash
-docker compose up -d --build     # http://localhost:8000/  (SQLite in volume sapfico-data)
-docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build   # PostgreSQL
+docker compose up -d --build        # http://localhost:8000  (API docs: /docs)
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build   # on PostgreSQL
 ```
 
-### Local Python
-
-```bash
-cd sap-fico
-python -m venv .venv
-. .venv/Scripts/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-# seed the demo client/company code/chart of accounts
-python -m app.seed
-
-# start the API
-uvicorn app.main:app --reload
-```
-
-Open http://127.0.0.1:8000/docs for the interactive OpenAPI UI.
-
-## Key SAP concepts implemented
-
-- **Double-entry posting** enforced at the document level (sum of debits = sum of
-  credits per currency), mirroring SAP's `BKPF`/`BSEG` structure.
-- **Posting keys** (`TBSL`) drive debit/credit indicator and account type.
-- **Posting periods** validated against the fiscal year variant and open-period table.
-- **Reconciliation accounts** link sub-ledgers (AR/AP) to the G/L.
-- **Document / line item numbering** via SAP-style number ranges (`BELNR` per
-  company code + fiscal year).
+Locally: `pip install -r requirements.txt`, `python -m app.seed`,
+`python -m uvicorn app.main:app --reload`. Checks: `python -m app.verify_all`
+(on a scratch database).

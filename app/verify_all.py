@@ -1,7 +1,6 @@
 """Run every end-to-end check in order (after app.seed):  python -m app.verify_all
 
-Each check posts its own documents, so run this against a scratch database,
-not the one you work in.
+Each check posts its own documents, so run this against a scratch database.
 """
 
 from __future__ import annotations
@@ -9,10 +8,7 @@ from __future__ import annotations
 import importlib
 import time
 
-CHECKS = [
-    "verify", "verify_assets", "verify_payments", "verify_payment_run", "verify_fsv",
-    "verify_documents", "verify_recurring", "verify_dunning", "verify_fx", "verify_controlling",
-]
+CHECKS = ["verify_finance"]
 
 
 def main() -> None:

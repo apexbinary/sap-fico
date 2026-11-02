@@ -71,6 +71,8 @@ app/
                       FC G/L accounts permanent), OEXR/EXR1 runs (models/finance.py)
   services/cockpit.py cockpit data (KPIs, 12-month chart, aging, top 5, open documents, alerts);
                       api_cockpit.py with the per-user widget layout (OCPT)
+  services/printing.py print data of sales / purchasing documents (GST layout, amount in words);
+                      GET /api/documents/{obj}/{entry}/print; web/print.js renders the A4 page
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

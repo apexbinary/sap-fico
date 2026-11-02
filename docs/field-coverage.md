@@ -450,6 +450,18 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Printed documents (Print / PDF)
+| Element | Source | Status |
+|---|---|---|
+| Title by type: Quotation, Sales Order, Delivery Challan, Sales Return, Tax Invoice, Credit Note, Request for Quotation, Purchase Order, Goods Receipt Note, Purchase Return, Purchase Invoice, Debit Note | ObjType | ✅ |
+| Company with address, GSTIN, state and state code | OADM, OCST | ✅ |
+| No., date, due / delivery date, customer reference, place of supply (intra / inter-state), currency and rate | document header | ✅ |
+| Bill to / ship to with address, GSTIN and state | CRD1 | ✅ |
+| Lines: description, item, HSN / SAC, quantity, UoM, rate, discount, taxable value, CGST + SGST or IGST (rate, amount), total | lines, OITM ChapterID, STC1 | ✅ delivery challans, receipts and returns print quantities only |
+| HSN / SAC-wise tax summary; totals; amount in words (Indian lakh / crore, rupees and paise) | | ✅ |
+| Payment terms, bank details (house bank), remarks, authorised signatory | OCTG, DSC1 | ✅ A4 print styling; PDF through the browser |
+| Print Layout Designer / Crystal templates, several layouts per document type, logo, e-mailing, e-invoice IRN / QR code | | ⏸ |
+
 ## Inventory documents (goods receipt OIGN, goods issue OIGE, inventory transfer OWTR)
 | Field | Column | Type | Status |
 |---|---|---|---|

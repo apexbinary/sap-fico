@@ -152,6 +152,14 @@ class CancelIn(BaseModel):
     cancel_date: date | None = None
 
 
+@router.get("/documents/{obj}/{doc_entry}/print", tags=["Documents"], summary="Print data (GST layout) of a document")
+def print_document(obj: str, doc_entry: int, s: Session = Depends(get_session)) -> dict:
+    from app.services import printing
+
+    _check(obj)
+    return run(lambda: printing.print_data(s, obj, doc_entry))
+
+
 @router.post("/documents/{obj}/{doc_entry}/cancel", tags=["Documents"], summary="Cancel a document")
 def cancel_document(obj: str, doc_entry: int, body: CancelIn, s: Session = Depends(get_session)) -> dict:
     _check(obj)

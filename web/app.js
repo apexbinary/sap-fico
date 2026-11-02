@@ -409,7 +409,8 @@ async function docDetail(el, t, entry) {
       ${targets.map((x) => `<a class="btn small" href="#/doc?obj=${x}&from=${t.obj}:${d.doc_entry}">Copy to ${esc(types[x].name)}</a>`).join("")}
       ${open && ["quotation", "order"].includes(t.kind) ? '<button class="btn small secondary" id="doc-close">Close</button>' : ""}
       ${!d.canceled ? '<button class="btn small secondary" id="doc-cancel">Cancel</button>' : ""}
-      ${d.trans_id ? `<a class="btn small ghost" href="#/journal?id=${d.trans_id}">Journal entry ${d.trans_id} &#8599;</a>` : ""}</span></div>
+      ${d.trans_id ? `<a class="btn small ghost" href="#/journal?id=${d.trans_id}">Journal entry ${d.trans_id} &#8599;</a>` : ""}
+      ${t.side !== "I" ? `<a class="btn small secondary" href="#/print?obj=${t.obj}&entry=${d.doc_entry}">Print / PDF</a>` : ""}</span></div>
     <div class="card-body"><div class="form-grid">${fieldsHtml(defs, values, "dv")}</div></div>
     <div style="overflow-x:auto"><table><thead><tr><th>#</th>${cols.map(([h, , n]) => `<th${n ? ' class="num"' : ""}>${h}</th>`).join("")}<th>Base</th><th>Status</th></tr></thead>
     <tbody>${d.lines.map((l) => `<tr><td>${l.line_num + 1}</td>${cols.map(([, f, n]) => `<td${n ? ' class="num"' : ""}>${f(l)}</td>`).join("")}

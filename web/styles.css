@@ -211,3 +211,28 @@ h3.section { margin: 16px 0 6px; font-size: 0.85em; text-transform: uppercase; l
 .login-msg { color: var(--bad); min-height: 1.2em; font-size: 0.9em; }
 .user-menu { position: fixed; top: 46px; right: 12px; z-index: 50; min-width: 200px; display: flex; flex-direction: column; gap: 8px; padding: 12px;
   border-radius: 6px; background: var(--card, #1d1d1d); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); }
+/* printed documents (A4) */
+.print-page { color-scheme: light; background: #fff; color: #111; max-width: 210mm; margin: 0 auto 24px; padding: 14mm 12mm; border-radius: 4px; font-size: 12px; }
+.print-page .help { color: #555; }
+.pp-head { display: flex; justify-content: space-between; gap: 16px; border-bottom: 2px solid #222; padding-bottom: 8px; margin-bottom: 10px; }
+.pp-company { font-size: 18px; font-weight: 700; }
+.pp-title { font-size: 20px; font-weight: 700; text-transform: uppercase; text-align: right; }
+.pp-cancel { color: #c00; font-size: 14px; border: 2px solid #c00; padding: 2px 6px; margin-top: 6px; display: inline-block; }
+.pp-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.pp-grid2 { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; margin-top: 10px; }
+.pp-box { border: 1px solid #bbb; padding: 6px 8px; }
+.pp-label { font-size: 10px; text-transform: uppercase; color: #555; margin-bottom: 3px; }
+.print-page table { width: 100%; border-collapse: collapse; color: #111; background: transparent; }
+.pp-lines th, .pp-lines td { border: 1px solid #bbb; padding: 4px 5px; vertical-align: top; background: transparent; color: #111; }
+.pp-lines th { background: #eee; font-size: 10px; text-transform: uppercase; }
+.pp-kv td { padding: 2px 4px; border: none; color: #111; }
+.pp-totals td { border-bottom: 1px solid #ddd; }
+.pp-grand td { font-weight: 700; font-size: 14px; border-top: 2px solid #222; }
+.pp-words { margin-top: 8px; padding: 6px 8px; border: 1px solid #bbb; }
+.pp-foot { margin-top: 16px; align-items: end; }
+.pp-sign { text-align: right; }
+@media print {
+  body { background: #fff; }
+  .print-page { max-width: none; margin: 0; padding: 0; border-radius: 0; }
+  @page { size: A4; margin: 12mm; }
+}

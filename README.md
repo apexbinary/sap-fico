@@ -16,6 +16,7 @@ trademarks of SAP SE.
 | Inventory — goods receipt / issue / transfer, moving-average cost, inventory audit report (OINM) | ✅ |
 | Foreign currency — documents and journal entries in foreign currencies, open FC amounts, realized exchange differences on payment and reconciliation | ✅ |
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
+| Printed documents — GST layout (tax invoice, credit note, delivery challan, orders ...) with HSN summary and amount in words, print / PDF | ✅ |
 | Users and authorizations — login, users, superusers, full / read-only / no authorization per area, enforced on every API call | ✅ |
 | Cockpit — KPI tiles, sales / purchase chart, aging, top 5, open documents, alerts, common functions, per-user layout | ✅ |
 | Payment wizard — batch payment of due vendor items or collection from customers, transfer or check, cash discount, selection | ✅ |

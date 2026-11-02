@@ -48,6 +48,10 @@ class Account(Base):
     act_curr: Mapped[str] = mapped_column("ActCurr", String(3), default="##")  # Account currency (## all)
     curr_total: Mapped[Decimal] = mapped_column("CurrTotal", AMOUNT, default=Decimal("0"))  # Balance (LC)
     frozen: Mapped[str] = mapped_column("FrozenFor", String(1), default="N")  # Inactive
+    frgn_name: Mapped[str | None] = mapped_column("FrgnName", String(100))  # Foreign name
+    details: Mapped[str | None] = mapped_column("Details", String(254))  # Remarks
+    bloc_man_pos: Mapped[str] = mapped_column("BlocManPos", String(1), default="N", server_default="N")  # Block manual posting
+    project: Mapped[str | None] = mapped_column("Project", String(20))  # Default project
 
 
 class JournalEntry(Base):
@@ -63,6 +67,11 @@ class JournalEntry(Base):
     memo: Mapped[str | None] = mapped_column("Memo", String(50))  # Remarks
     ref1: Mapped[str | None] = mapped_column("Ref1", String(100))  # Reference 1 (source DocNum)
     ref2: Mapped[str | None] = mapped_column("Ref2", String(100))  # Reference 2
+    ref3: Mapped[str | None] = mapped_column("Ref3", String(27))  # Reference 3
+    trans_code: Mapped[str | None] = mapped_column("TransCode", String(4))  # Transaction code (OTRC)
+    project: Mapped[str | None] = mapped_column("Project", String(20))
+    series: Mapped[int | None] = mapped_column("Series")  # Numbering series (NNM1)
+    storno_date: Mapped[date | None] = mapped_column("StornoDate")  # Reversal date (Reverse checkbox)
     trans_type: Mapped[str] = mapped_column("TransType", String(20))  # Source object type (30 manual, 13 A/R invoice ...)
     base_ref: Mapped[str | None] = mapped_column("BaseRef", String(11))  # Source document number
     created_by: Mapped[int | None] = mapped_column("CreatedBy")  # Source DocEntry
@@ -102,6 +111,9 @@ class JournalLine(Base):
     base_ref: Mapped[str | None] = mapped_column("BaseRef", String(11))  # Source DocNum
     vat_group: Mapped[str | None] = mapped_column("VatGroup", String(8))  # Tax group of a tax line
     project: Mapped[str | None] = mapped_column("Project", String(20))
+    ref1: Mapped[str | None] = mapped_column("Ref1", String(100))  # Line reference 1
+    ref2: Mapped[str | None] = mapped_column("Ref2", String(100))  # Line reference 2
+    ref3_line: Mapped[str | None] = mapped_column("Ref3Line", String(27))  # Line reference 3
 
     entry: Mapped["JournalEntry"] = relationship(back_populates="lines")
 

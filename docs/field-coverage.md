@@ -1,0 +1,390 @@
+# Field coverage register — SAP Business One forms
+
+This register lists, form by form, the standard SAP Business One fields of every
+feature built so far: the B1 table column, the **input type** (the UI keeps B1's
+type: number fields are numeric inputs, B1 dropdowns are dropdowns, B1 checkboxes
+are checkboxes, dates are date pickers, choose-from-list fields are selection
+lists) and the status.
+
+Status: **✅** implemented (stored, shown and editable where B1 allows it) ·
+**🔒** shown read-only (system-maintained in B1 too) · **⏸** not built yet, with
+the reason (see also *Excluded B1 functions* at the end).
+
+Types: `text` · `number` · `date` · `dropdown` · `checkbox` · `choose` (choose-from
+list: BP, item, G/L account) · `textarea`.
+
+Keep this file current: when a feature is added, add its form here; when a ⏸ field
+is built, change its status.
+
+---
+
+## Administration
+
+### Company details (OADM)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Company name | CompnyName | text | ✅ |
+| Address | CompnyAddr | text | ✅ |
+| Country | Country (OCRY) | dropdown | ✅ |
+| Federal tax ID | TaxIdNum | text | ✅ |
+| Telephone 1 / 2 | Phone1 / Phone2 | text | ✅ |
+| Fax | Fax | text | ✅ |
+| E-mail | E_Mail | text | ✅ |
+| Manager | Manager | text | ✅ |
+| Local currency | MainCurncy | dropdown | 🔒 fixed after setup (as in B1) |
+| System currency | SysCurrncy | dropdown | 🔒 fixed after setup (as in B1) |
+| Printing header, logo, alias name, accounting/basic-init tabs | various | — | ⏸ printing and localization settings are not in scope |
+
+### Currencies (OCRN) and exchange rates (ORTT)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Currency code / name / ISO code / decimals | CurrCode, CurrName, ISOCurrCod, Decimals | text / number | ✅ (seeded; rates maintained) |
+| Rate date / currency / rate | RateDate, Currency, Rate | date / dropdown / number | ✅ |
+
+### Posting periods (OFPR)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Period code / name | Code, Name | text | 🔒 created by the system (monthly) |
+| Posting date from / to | F_RefDate / T_RefDate | date | 🔒 |
+| Due date from / to | F_DueDate / T_DueDate | date | ✅ enforced on postings |
+| Document date from / to | F_TaxDate / T_TaxDate | date | ✅ enforced on postings |
+| Fiscal year | Category | dropdown (filter) | ✅ |
+| Period status | PeriodStat (N unlocked, C closing, Y locked) | dropdown | ✅ (closing period blocks postings like a lock; B1's authorization-based posting in closing periods is not built) |
+
+### Numbering series (NNM1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Series / name / first / next / last number / default | Series, SeriesName, InitialNum, NextNumber, LastNum, IsDefault | — | 🔒 one default series "Primary" per document type; shown as the **Series** dropdown on every document and journal entry. ⏸ maintaining additional series |
+
+### Tax groups (OVTG)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Code / name / category / rate / tax account / inactive | Code, Name, Category, Rate, Account, Inactive | text / dropdown / number / choose / checkbox | ✅ (seeded, shown) |
+| Effective from | EffecDate | date | ✅ column; ⏸ rate history (VTG1) |
+
+### Payment terms (OCTG)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Payment terms code | PymntGroup | text | ✅ |
+| Due date based on (posting / document / system date) | BslineDate | dropdown | ✅ used in due dates |
+| Start from (month start / half month / month end) | PayDuMonth | dropdown | ✅ used in due dates |
+| + Months / + Days | ExtraMonth / ExtraDays | number | ✅ |
+| Tolerance days | TolDays | number | ✅ |
+| Total discount % | VolumDscnt | number | ✅ |
+| Price list | ListNum | dropdown | ✅ |
+| Max. credit / commitment limit | CredLimit / ObligLimit | number | ✅ |
+| No. of installments, open incoming payment, cash discount, interest on arrears | InstNum, OpenRcpt, CdcCode, … | — | ⏸ banking phase (payments) |
+
+### Sales employees / buyers (OSLP)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Name / commission % / telephone / e-mail / remarks / active | SlpName, Commission, Telephone, Email, Memo, Active | text / number / checkbox | ✅ |
+| Commission group, employee link | GroupCode, EmpID | — | ⏸ commission groups and HR (OHEM) not in scope |
+
+### Projects (OPRJ), manufacturers (OMRC), transaction codes (OTRC), countries (OCRY), states (OCST)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Project code / name / valid from / to / active | PrjCode, PrjName, ValidFrom, ValidTo, Active | text / date / checkbox | ✅ validated on postings |
+| Manufacturer name | FirmName | text | ✅ |
+| Transaction code / description | TrnsCode, TrnsCodDsc | text | ✅ |
+| Country code / name; state code / name / country | Code, Name; Code, Name, Country | dropdown sources | ✅ (seeded) |
+
+---
+
+## Financials
+
+### Chart of accounts — G/L account (OACT)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Level / drawer | Levels / GroupMask | — | 🔒 from the tree |
+| G/L account | AcctCode | text | ✅ |
+| Name / foreign name | AcctName / FrgnName | text | ✅ |
+| Title / active account | Postable | checkbox | ✅ |
+| Parent (title account) | FatherNum | dropdown | ✅ |
+| Account type (sales / expenditure / other) | ActType | dropdown | ✅ |
+| Currency | ActCurr | dropdown | ✅ |
+| Control account | LocManTran | checkbox | ✅ |
+| Cash account | Finanse | checkbox | ✅ |
+| Block manual posting | BlocManPos | checkbox | ✅ enforced on manual JEs |
+| Inactive | FrozenFor | checkbox | ✅ |
+| Project | Project | dropdown | ✅ |
+| Remarks | Details | textarea | ✅ |
+| Balance | CurrTotal | number | 🔒 |
+| Confidential, revaluation, relevant for cost accounting, dimensions, external code, valid/frozen date ranges | Protected, RevalMatch, Dim1Relvnt, ExportCode, … | — | ⏸ cost accounting and exchange-rate revaluation not in scope |
+
+### Journal entry — header (OJDT)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Series | Series | dropdown | 🔒 default series |
+| Number | Number | — | 🔒 |
+| Posting date / due date / document date | RefDate / DueDate / TaxDate | date | ✅ |
+| Remarks | Memo | text | ✅ |
+| Trans. code | TransCode (OTRC) | dropdown | ✅ |
+| Ref. 1 / 2 / 3 | Ref1 / Ref2 / Ref3 | text | ✅ |
+| Project | Project | dropdown | ✅ |
+| Origin / origin no. / trans. no. | TransType / BaseRef / TransId | text | 🔒 (link to the source document) |
+| Reverse / reversal date | AutoStorno / StornoDate | checkbox / date | ✅ the reversal is posted on the reversal date |
+| Reversal link | StornoToTr | — | 🔒 |
+| Total (LC / FC) | LocTotal / FcTotal | number | 🔒 |
+| Indicator, template (recurring / percentage), blanket agreement, stamp tax, fixed exchange rate, foreign-currency entries | Indicator, … | — | ⏸ localization, recurring postings and FC journal entries not built yet |
+
+### Journal entry — lines (JDT1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| G/L acct / BP code | Account / ShortName | choose | ✅ |
+| G/L acct / BP name | — | text | 🔒 |
+| Control account (BP lines) | Account | — | 🔒 |
+| Debit / credit (LC) | Debit / Credit | number | ✅ |
+| Due date | DueDate | date | ✅ |
+| Line remarks | LineMemo | text | ✅ |
+| Ref. 1 / 2 / 3 (line) | Ref1 / Ref2 / Ref3Line | text | ✅ (Ref. 3 line via API) |
+| Project | Project | dropdown | ✅ |
+| Contra account | ContraAct | — | 🔒 |
+| Tax group | VatGroup | — | 🔒 set on automatic tax lines |
+| Open amount (BP lines) | BalDueDeb / BalDueCred | — | 🔒 |
+| Debit / credit (FC), distribution rules, tax amount, base amount | FCDebit, OcrCode, … | — | ⏸ FC entries and cost accounting not built yet |
+
+### Financial reports
+Trial balance, balance sheet, profit and loss: period / as-of selection (date), account tree with title accounts — ✅.
+
+---
+
+## Business partners
+
+### Business partner master data — header (OCRD)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| BP code | CardCode | text | ✅ |
+| Type (customer / vendor / lead) | CardType | dropdown | ✅ |
+| Name / foreign name | CardName / CardFName | text | ✅ |
+| Group | GroupCode (OCRG) | dropdown | ✅ |
+| Currency | Currency | dropdown | ✅ |
+| Federal tax ID | LicTradNum | text | ✅ |
+| Account balance / deliveries / orders | Balance / DNotesBal / OrdersBal | number | 🔒 |
+
+### General tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Tel 1 / Tel 2 / mobile / fax | Phone1 / Phone2 / Cellular / Fax | text | ✅ |
+| E-mail / web site | E_Mail / IntrntSite | text | ✅ |
+| Contact person | CntctPrsn | dropdown | ✅ |
+| Sales employee / buyer | SlpCode (OSLP) | dropdown | ✅ default on documents |
+| BP project | ProjectCod | dropdown | ✅ default on documents |
+| Remarks | Notes | text | ✅ |
+| Active / inactive | FrozenFor | checkbox | ✅ |
+| Shipping type, password, industry, territory, BP channel, language, alias, factoring, technician, valid/frozen date ranges | ShipType, Password, IndustryC, Territory, … | — | ⏸ sales-opportunity / service / shipping master data not in scope |
+
+### Addresses tab (CRD1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Type (bill to / ship to) | AdresType | dropdown | ✅ |
+| Address ID | Address | text | ✅ |
+| Street / block / building / zip / city / county | Street, Block, Building, ZipCode, City, County | text | ✅ |
+| Country / state | Country (OCRY) / State (OCST) | dropdown (state follows country) | ✅ |
+| Default bill-to / ship-to | BillToDef / ShipToDef | dropdown | ✅ default on documents |
+| Street no., GLN, tax office | StreetNo, GlbLocNum, TaxOffice | — | ⏸ localization |
+
+### Contact persons tab (OCPR)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Contact ID | Name | text | ✅ |
+| Title / first / middle / last name | Title, FirstName, MiddleName, LastName | text | ✅ |
+| Position / address | Position / Address | text | ✅ |
+| Tel 1 / Tel 2 / mobile / fax / e-mail | Tel1, Tel2, Cellolar, Fax, E_MailL | text | ✅ |
+| Remarks 1 | Notes1 | text | ✅ |
+| Active | Active | checkbox | ✅ |
+| Date of birth, gender, profession, place of birth, password | BirthDate, Gender, Profession, … | — | ⏸ CRM personal data not in scope |
+
+### Payment terms tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Payment terms | GroupNum (OCTG) | dropdown | ✅ due dates on invoices |
+| Price list | ListNum (OPLN) | dropdown | ✅ default prices |
+| Total discount % | Discount | number | ✅ default document discount |
+| Credit limit / commitment limit | CreditLine / DebtLine | number | ✅ stored; ⏸ credit-limit warning on documents |
+| Interest on arrears, dunning term, priority, effective discount groups, bank details, payment methods | IntrstRate, DunTerm, … | — | ⏸ dunning and banking phase |
+
+### Accounting tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Control account (A/R or A/P) | DebPayAcct | choose | ✅ |
+| Tax group | VatGroup | dropdown | ✅ |
+| Down payment clearing accounts, consolidating BP, withholding tax | DpmClear, FatherCard, WTLiable | — | ⏸ down payments, consolidation, withholding tax not built |
+
+### Remarks tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Remarks | Free_Text | textarea | ✅ |
+
+Properties (64 checkbox properties), attachments and user-defined fields — ⏸ (not in scope).
+
+---
+
+## Inventory
+
+### Item master data — header (OITM)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Item No. / description / foreign name | ItemCode / ItemName / FrgnName | text | ✅ |
+| Item type (items / labor / travel) | ItemType | dropdown | ✅ |
+| Item group | ItmsGrpCod (OITB) | dropdown | ✅ |
+| Inventory / sales / purchase item | InvntItem / SellItem / PrchseItem | checkbox | ✅ (inventory item fixed after creation, as in B1) |
+| Bar code | CodeBars | text | ✅ |
+| UoM group, price list + unit price in the header | UgpEntry | — | ⏸ UoM groups; prices are maintained in the Prices grid |
+
+### General tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Manufacturer | FirmCode (OMRC) | dropdown | ✅ |
+| Manage serial / batch numbers | ManSerNum / ManBtchNum | checkbox | 🔒 "No" (serial/batch management not built) |
+| Active / inactive | frozenFor | checkbox | ✅ |
+| Additional identifier, shipping type, tax type, withholding liable, valid/frozen date ranges | SWW, ShipType, … | — | ⏸ |
+
+### Purchasing data tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Preferred vendor | CardCode | choose | ✅ |
+| Mfr catalog no. | SuppCatNum | text | ✅ |
+| Purchasing UoM name / items per purchase unit | BuyUnitMsr / NumInBuy | text / number | ✅ stored, UoM shown on purchasing documents; ⏸ quantity conversion (documents are in inventory units) |
+| Tax group | VatGroupPu | dropdown | ✅ |
+| Packaging UoM, quantity per package, customs group, dimensions / weight | PurPackMsr, PurPackUn, CstGrpCode, BLength1, … | — | ⏸ |
+
+### Sales data tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Sales UoM name / items per sales unit | SalUnitMsr / NumInSale | text / number | ✅ stored, UoM shown on sales documents; ⏸ quantity conversion |
+| Tax group | VatGourpSa | dropdown | ✅ |
+| Packaging UoM, quantity per package, dimensions / weight | SalPackMsr, SalPackUn, … | — | ⏸ |
+
+### Inventory data tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Set G/L accounts by | GLMethod | dropdown | 🔒 item group |
+| Inventory UoM | InvntryUom | text | ✅ |
+| Default warehouse | DfltWH | dropdown | ✅ |
+| Manage inventory by warehouse | ByWh | checkbox | ✅ |
+| Minimum / maximum / required inventory | MinLevel / MaxLevel / ReorderQty | number | ✅ |
+| Valuation method | EvalSystem | dropdown | 🔒 moving average (FIFO / standard ⏸) |
+| Item cost / inventory value / last purchase price | AvgPrice / StockValue / LastPurPrc | number | 🔒 |
+| Warehouse grid: in stock / committed / ordered / available | OITW OnHand / IsCommited / OnOrder | number | 🔒 |
+| Warehouse grid: minimum / maximum / locked | OITW MinStock / MaxStock / Locked | number / checkbox | ✅ |
+
+### Planning data tab
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Lead time | LeadTime | number | ✅ |
+| Minimum order quantity | MinOrdrQty | number | ✅ |
+| Planning method, procurement method, order interval, order multiple, tolerance days | PlaningSys, PrcrmntMtd, OrdrIntrvl, OrdrMulti, … | — | ⏸ MRP not in scope |
+
+### Remarks
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Remarks | UserText | textarea | ✅ |
+
+Production data, properties, attachments, picture — ⏸.
+
+### Prices (ITM1) and price lists (OPLN)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Item price per price list | ITM1 Price | number | ✅ |
+| Price list name | ListName | text | ✅ |
+| Base price list | BASE_NUM | dropdown | ✅ |
+| Factor | Factor | number | ✅ |
+| Primary currency | PrimCurr | dropdown | ✅ |
+| Active | ValidFor | checkbox | ✅ inactive lists cannot be assigned |
+| Rounding method, group, additional currencies, valid from/to, authorization | RoundSys, GroupCode, AddCurr1, … | — | ⏸ |
+
+### Warehouses (OWHS)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Warehouse code / name | WhsCode / WhsName | text | ✅ |
+| Street / block / building / zip / city / county | Street, Block, Building, ZipCode, City, County | text | ✅ |
+| Country / state | Country / State | dropdown | ✅ |
+| Drop-ship | DropShip | checkbox | ✅ |
+| Nettable | Nettable | checkbox | ✅ |
+| Location, warehouse accounts tab, bin locations, use tax | Location, BalInvntAc (per whs), BinActivat, … | — | ⏸ accounts are set by item group; bin locations not built |
+
+### Item groups (OITB)
+Group name and its G/L accounts (inventory, COGS, revenue, expense, price difference) — 🔒 seeded, shown on the item; ⏸ item group maintenance screen and the further OITB accounts (exchange rate differences, goods clearing, …).
+
+---
+
+## Marketing documents (sales A/R and purchasing A/P)
+
+Applies to sales quotation, order, delivery, return, A/R invoice, A/R credit memo,
+purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P credit memo.
+
+### Header, Logistics and Accounting tabs, footer (OQUT … ORPC)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Customer / vendor | CardCode | choose | ✅ |
+| Name | CardName | — | 🔒 |
+| Contact person | CntctCode (OCPR) | dropdown | ✅ default from the BP |
+| Customer / vendor ref. no. | NumAtCard | text | ✅ |
+| Currency | DocCur / DocRate | — | 🔒 local currency (⏸ foreign-currency documents) |
+| No. / series | DocNum / Series | dropdown | 🔒 |
+| Status | DocStatus / CANCELED | — | 🔒 |
+| Posting date / delivery (due) date / document date | DocDate / DocDueDate / TaxDate | date | ✅ due date from payment terms |
+| Item / service type | DocType | dropdown | ✅ |
+| Sales employee / buyer | SlpCode | dropdown | ✅ default from the BP |
+| Project | Project | dropdown | ✅ default from the BP |
+| Bill to (address ID) / bill-to address | PayToCode / Address | dropdown / textarea | ✅ |
+| Ship to (address ID) / ship-to address | ShipToCode / Address2 | dropdown / textarea | ✅ |
+| Payment terms | GroupNum | dropdown | 🔒 from the BP (⏸ changing terms per document) |
+| Federal tax ID | LicTradNum | text | 🔒 from the BP |
+| Journal remark | JrnlMemo | text | ✅ |
+| Remarks | Comments | textarea | ✅ |
+| Total before discount / discount % / discount / tax / total | — / DiscPrcnt / DiscSum / VatSum / DocTotal | number | ✅ discount % default from the BP |
+| Applied amount / balance due (invoices, credit memos) | PaidToDate | number | 🔒 |
+| Freight (additional expenses), rounding, down payment, owner, shipping type, payment method, installments, indicator, cancellation date | TotalExpns, RoundDif, DpmAmnt, OwnerCode, TrnspCode, PeyMethod, Installmnt, Indicator, … | — | ⏸ freight/expenses, down payments, HR owner and payment wizard not built |
+
+### Contents tab — lines (QUT1 … RPC1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Item No. / description | ItemCode / Dscription | choose / text | ✅ |
+| Quantity / open quantity | Quantity / OpenQty | number | ✅ / 🔒 |
+| UoM name | unitMsr | text | 🔒 sales / purchasing UoM of the item |
+| Unit price / discount % / price after discount | PriceBefDi / DiscPrcnt / Price | number | ✅ / ✅ / 🔒 |
+| Tax code / tax amount | VatGroup / VatSum | dropdown / number | ✅ / 🔒 |
+| Total (LC) / gross price / gross total | LineTotal / PriceAfVAT / GTotal | number | 🔒 |
+| Warehouse | WhsCode | dropdown | ✅ |
+| Delivery date (line) | ShipDate | date | ✅ |
+| Project (line) | Project | dropdown | ✅ |
+| Free text | FreeTxt | text | ✅ |
+| Sales employee (line) | SlpCode | dropdown | ✅ via API (defaults to the header) |
+| G/L account (service documents) | AcctCode | choose | ✅ |
+| Item cost / gross profit | StockPrice / GrssProfit | number | 🔒 |
+| Base document / target document | BaseType, BaseEntry, BaseLine, BaseRef / TargetType, TrgetEntry | — | 🔒 copy-from / copy-to |
+| Row status | LineStatus | — | 🔒 |
+| Distribution rules, tax only, blanket agreement, serial/batch numbers, BOM, alternative items | OcrCode, TaxOnly, AgrNo, … | — | ⏸ |
+
+## Inventory documents (goods receipt OIGN, goods issue OIGE, inventory transfer OWTR)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| No. / series | DocNum / Series | dropdown | 🔒 |
+| Posting date / document date | DocDate / TaxDate | date | ✅ |
+| Ref. 2 | Ref2 | text | ✅ |
+| Price list (goods receipt / issue) | — | dropdown | ✅ sets the default unit cost |
+| From / to warehouse (transfer) | Filler / ToWhsCode, line FromWhsCod / WhsCode | dropdown | ✅ |
+| Journal remark / remarks | JrnlMemo / Comments | text / textarea | ✅ |
+| Lines: item, description, quantity, UoM, warehouse, unit cost, total, G/L account (offset), project | ItemCode, Dscription, Quantity, unitMsr, WhsCode, Price, LineTotal, AcctCode, Project | choose / text / number / dropdown | ✅ |
+| Transfer: business partner, contact, ship-to, sales employee | CardCode, … | — | ⏸ |
+
+## Inventory audit report (OINM)
+Document, date, item, warehouse, in/out quantity, price, value change, item cost after, BP, journal entry — ✅ (filter by item: dropdown).
+
+---
+
+## Excluded B1 functions (not part of the agreed scope or of a later phase)
+
+| B1 function | Why not (yet) |
+|---|---|
+| Incoming / outgoing payments, payment terms installments, payment methods, dunning | **Phase 4 (banking)** |
+| Foreign-currency documents and journal entries, exchange-rate revaluation | planned with banking (multi-currency payments) |
+| Freight / additional expenses (OEXD), document rounding, down payments | not in the agreed scope |
+| Units of measure groups and quantity conversion on documents | not in the agreed scope; UoM names are stored and shown |
+| Serial and batch numbers, bin locations, FIFO / standard costing, inventory counting | not in the agreed scope |
+| Cost accounting (dimensions, distribution rules, profit centers) | not in the agreed scope |
+| Production, MRP, bills of materials, service, CRM opportunities, HR (employees, owners) | not in the agreed scope |
+| Properties, attachments, pictures, user-defined fields, document printing / layouts, approval procedures, drafts, authorizations | not in the agreed scope |
+| Localization fields (indicator, stamp tax, withholding tax, GLN, tax office) | not in the agreed scope |

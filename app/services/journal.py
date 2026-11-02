@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.finance import Account, JournalEntry, JournalLine
-from app.services.admin import B1Error, next_number, posting_period
+from app.services.admin import B1Error, check_project, default_series, next_number, posting_period
 
 ZERO = Decimal("0")
 CENT = Decimal("0.01")
@@ -49,6 +49,10 @@ class JournalLineRequest:
     vat_group: str | None = None
     control_account: str | None = None  # Explicit control account for a partner line (else the partner's)
     due_date: date | None = None
+    project: str | None = None
+    ref1: str | None = None  # Line references
+    ref2: str | None = None
+    ref3_line: str | None = None
 
 
 @dataclass
@@ -60,6 +64,11 @@ class JournalRequest:
     memo: str | None = None
     ref1: str | None = None
     ref2: str | None = None
+    ref3: str | None = None
+    trans_code: str | None = None  # Transaction code (OTRC)
+    project: str | None = None
+    auto_storno: bool = False  # "Reverse" checkbox: reverse automatically on storno_date
+    storno_date: date | None = None
     trans_type: str = "30"  # 30 = manual journal entry
     base_ref: str | None = None  # Source document number
     created_by: int | None = None  # Source DocEntry
@@ -95,6 +104,13 @@ def post_entry(session: Session, req: JournalRequest, *, commit: bool = True) ->
     """Validate and post a journal entry; returns the OJDT header."""
     try:
         entry = _post(session, req)
+        if req.auto_storno:  # B1 posts the reversal on the reversal date
+            if req.storno_date is None or req.storno_date <= req.ref_date:
+                raise B1Error("Enter a reversal date after the posting date")
+            rev = _reverse(session, entry, req.storno_date)
+            session.flush()
+            entry.auto_storno, entry.storno_date = "Y", req.storno_date
+            rev.storno_date = req.storno_date
         if commit:
             session.commit()
         else:
@@ -118,13 +134,21 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
     credit = sum((money(l.credit) for l in lines), ZERO)
     if debit != credit:
         raise B1Error(f"The journal entry is not balanced: debit {debit}, credit {credit}")
-    posting_period(session, req.ref_date)
+    posting_period(session, req.ref_date, req.due_date, req.tax_date)
+    if req.manual:  # documents and reversals validate their own references
+        check_project(session, req.project, req.ref_date)
+    if req.manual and req.trans_code:
+        from app.models.admin import TransactionCode
+
+        if session.get(TransactionCode, req.trans_code) is None:
+            raise B1Error(f"Transaction code {req.trans_code} does not exist")
 
     trans_id = (session.scalar(select(func.max(JournalEntry.trans_id))) or 0) + 1
     entry = JournalEntry(
         trans_id=trans_id, number=next_number(session, "30"), ref_date=req.ref_date,
         due_date=req.due_date or req.ref_date, tax_date=req.tax_date or req.ref_date, memo=req.memo,
-        ref1=req.ref1, ref2=req.ref2, trans_type=req.trans_type, base_ref=req.base_ref,
+        ref1=req.ref1, ref2=req.ref2, ref3=req.ref3, trans_code=req.trans_code, project=req.project,
+        series=default_series(session, "30"), trans_type=req.trans_type, base_ref=req.base_ref,
         created_by=req.created_by, loc_total=debit, trans_curr=req.trans_curr, user_sign=req.user_sign,
         fc_total=sum((l.fc_debit for l in lines), ZERO),
     )
@@ -145,6 +169,8 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
             acct = _account(session, l.account)
             if req.manual and acct.loc_man_tran == "Y":
                 raise B1Error(f"G/L account {acct.acct_code} is a control account; post the business partner instead")
+            if req.manual and acct.bloc_man_pos == "Y":
+                raise B1Error(f"G/L account {acct.acct_code} is blocked for manual posting")
             short_name = acct.acct_code
         acct.curr_total = (acct.curr_total or ZERO) + amount_d - amount_c
         entry.lines.append(JournalLine(
@@ -154,7 +180,10 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
             bal_due_deb=amount_d if l.card_code else ZERO, bal_due_cred=amount_c if l.card_code else ZERO,
             line_memo=(l.line_memo or req.memo), ref_date=req.ref_date, due_date=l.due_date or req.due_date or req.ref_date,
             trans_type=req.trans_type, created_by=req.created_by, base_ref=req.base_ref, vat_group=l.vat_group,
+            project=l.project or req.project, ref1=l.ref1, ref2=l.ref2, ref3_line=l.ref3_line,
         ))
+        if req.manual:
+            check_project(session, l.project, req.ref_date)
     session.flush()
     return entry
 
@@ -169,27 +198,34 @@ def reverse_entry(session: Session, trans_id: int, *, ref_date: date | None = No
     for line in orig.lines:
         if line.short_name != line.account and (line.bal_due_deb != line.debit or line.bal_due_cred != line.credit):
             raise B1Error(f"Journal entry {orig.number} is partly paid or reconciled and cannot be reversed")
-    req = JournalRequest(
-        ref_date=ref_date or orig.ref_date, memo=f"Reversal of JE {orig.number}"[:50], trans_type=orig.trans_type,
-        ref1=orig.ref1, base_ref=orig.base_ref, created_by=orig.created_by, manual=False,
-        lines=[JournalLineRequest(
-            account=None if l.short_name != l.account else l.account,
-            card_code=l.short_name if l.short_name != l.account else None,
-            control_account=l.account if l.short_name != l.account else None,
-            debit=l.credit, credit=l.debit, fc_debit=l.fc_credit, fc_credit=l.fc_debit, fc_currency=l.fc_currency,
-            line_memo=l.line_memo, vat_group=l.vat_group,
-        ) for l in orig.lines],
-    )
     try:
-        rev = _post(session, req)
-        rev.storno_to_tr, rev.auto_storno = orig.trans_id, "Y"
-        orig.storno_to_tr = rev.trans_id
-        for o, r in zip(orig.lines, rev.lines):  # the reversal settles the open partner amounts
-            if o.short_name != o.account:
-                o.bal_due_deb = o.bal_due_cred = r.bal_due_deb = r.bal_due_cred = ZERO
+        rev = _reverse(session, orig, ref_date or orig.ref_date)
         if commit:
             session.commit()
         return rev
     except Exception:
         session.rollback()
         raise
+
+
+def _reverse(session: Session, orig: JournalEntry, ref_date: date) -> JournalEntry:
+    req = JournalRequest(
+        ref_date=ref_date, memo=f"Reversal of JE {orig.number}"[:50], trans_type=orig.trans_type,
+        ref1=orig.ref1, ref2=orig.ref2, ref3=orig.ref3, trans_code=orig.trans_code, project=orig.project,
+        base_ref=orig.base_ref, created_by=orig.created_by, manual=False,
+        lines=[JournalLineRequest(
+            account=None if l.short_name != l.account else l.account,
+            card_code=l.short_name if l.short_name != l.account else None,
+            control_account=l.account if l.short_name != l.account else None,
+            debit=l.credit, credit=l.debit, fc_debit=l.fc_credit, fc_credit=l.fc_debit, fc_currency=l.fc_currency,
+            line_memo=l.line_memo, vat_group=l.vat_group, project=l.project, ref1=l.ref1, ref2=l.ref2,
+            ref3_line=l.ref3_line, due_date=l.due_date,
+        ) for l in orig.lines],
+    )
+    rev = _post(session, req)
+    rev.storno_to_tr = orig.trans_id  # the reversal points to the original (and back)
+    orig.storno_to_tr = rev.trans_id
+    for o, r in zip(orig.lines, rev.lines):  # the reversal settles the open partner amounts
+        if o.short_name != o.account:
+            o.bal_due_deb = o.bal_due_cred = r.bal_due_deb = r.bal_due_cred = ZERO
+    return rev

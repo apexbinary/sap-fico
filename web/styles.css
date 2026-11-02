@@ -166,3 +166,9 @@ input[readonly] { background: #f3f3f3; }
 .totals > div.grand { border-top: 1px solid #ddd; padding-top: 6px; font-size: 1.05em; }
 .totals > div.grand span { color: inherit; font-weight: 600; }
 table.lines select, table.lines input { min-width: 0; }
+/* typed form fields */
+.field.check { justify-content: flex-end; }
+.field.check label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.95em; color: inherit; text-transform: none; }
+.field textarea { width: 100%; resize: vertical; font: inherit; }
+.field select[disabled], .field input[readonly], .field textarea[readonly] { opacity: 0.8; }
+h3.section { margin: 16px 0 6px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

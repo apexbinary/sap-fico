@@ -12,7 +12,7 @@ from app.models.admin import Currency, PaymentTerms, TaxGroup
 from app.models.finance import Account
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, PriceList, Warehouse
 from app.models.partners import BusinessPartner, PartnerGroup
-from app.services.admin import B1Error, company
+from app.services.admin import B1Error, check_project, check_sales_employee, company
 
 CARD_TYPES = {"C": "Customer", "S": "Vendor", "L": "Lead"}
 
@@ -31,6 +31,17 @@ def _tax_group(session: Session, code: str | None, category: str) -> None:
     if tg is None or tg.category != category or tg.inactive == "Y":
         kind = "an output" if category == "O" else "an input"
         raise B1Error(f"Tax group {code} is not {kind} tax group")
+
+
+def check_country(session: Session, country: str | None, state: str | None = None) -> None:
+    """Country (OCRY) and state (OCST) come from their dropdown tables."""
+    from app.models.admin import Country, State
+
+    if country and session.get(Country, country) is None:
+        raise B1Error(f"Country {country} does not exist")
+    if state:
+        if not country or session.get(State, (country, state)) is None:
+            raise B1Error(f"State {state} does not exist in country {country or '-'}")
 
 
 # ------------------------------------------------------------- business partners
@@ -55,6 +66,45 @@ class PartnerRequest:
     cntct_prsn: str | None = None
     credit_line: Decimal = Decimal("0")
     notes: str | None = None
+    card_f_name: str | None = None
+    phone2: str | None = None
+    cellular: str | None = None
+    fax: str | None = None
+    intrnt_site: str | None = None
+    slp_code: int | None = None
+    project_cod: str | None = None
+    discount: Decimal = Decimal("0")
+    debt_line: Decimal = Decimal("0")
+    free_text: str | None = None
+
+
+# fields copied unchanged from the request to OCRD
+PARTNER_FIELDS = ["card_name", "card_type", "group_code", "currency", "group_num", "list_num", "vat_group",
+                  "lic_trad_num", "phone1", "phone2", "cellular", "fax", "e_mail", "intrnt_site", "address",
+                  "zip_code", "city", "country", "cntct_prsn", "credit_line", "notes", "card_f_name", "slp_code",
+                  "project_cod", "discount", "debt_line", "free_text"]
+
+
+def validate_partner_fields(session: Session, data: dict, card_type: str) -> None:
+    """Checks shared by create and change."""
+    if data.get("currency") not in (None, "##") and session.get(Currency, data["currency"]) is None:
+        raise B1Error(f"Currency {data['currency']} does not exist")
+    if data.get("group_num") is not None and session.get(PaymentTerms, data["group_num"]) is None:
+        raise B1Error(f"Payment terms {data['group_num']} do not exist")
+    if data.get("list_num") is not None:
+        pl = session.get(PriceList, data["list_num"])
+        if pl is None or pl.valid_for != "Y":
+            raise B1Error(f"Price list {data['list_num']} does not exist or is inactive")
+    _tax_group(session, data.get("vat_group"), "I" if card_type == "S" else "O")
+    check_sales_employee(session, data.get("slp_code"))
+    check_project(session, data.get("project_cod"))
+    check_country(session, data.get("country"))
+    for key in ("discount",):
+        if data.get(key) is not None and not (0 <= Decimal(data[key]) < 100):
+            raise B1Error("The total discount must be between 0 and 100 %")
+    for key in ("credit_line", "debt_line"):
+        if data.get(key) is not None and Decimal(data[key]) < 0:
+            raise B1Error("Credit and commitment limits cannot be negative")
 
 
 def create_partner(session: Session, req: PartnerRequest, *, commit: bool = True) -> BusinessPartner:
@@ -72,13 +122,7 @@ def create_partner(session: Session, req: PartnerRequest, *, commit: bool = True
         # leads use customer groups
         if group is None or group.group_type != ("S" if req.card_type == "S" else "C"):
             raise B1Error(f"Group {req.group_code} is not a {CARD_TYPES[req.card_type].lower()} group")
-    if req.currency != "##" and session.get(Currency, req.currency) is None:
-        raise B1Error(f"Currency {req.currency} does not exist")
-    if req.group_num is not None and session.get(PaymentTerms, req.group_num) is None:
-        raise B1Error(f"Payment terms {req.group_num} do not exist")
-    if req.list_num is not None and session.get(PriceList, req.list_num) is None:
-        raise B1Error(f"Price list {req.list_num} does not exist")
-    _tax_group(session, req.vat_group, "I" if req.card_type == "S" else "O")
+    validate_partner_fields(session, {f: getattr(req, f) for f in PARTNER_FIELDS}, req.card_type)
 
     control = req.deb_pay_acct
     if control is None:
@@ -89,11 +133,7 @@ def create_partner(session: Session, req: PartnerRequest, *, commit: bool = True
     _control_account(session, control)
 
     bp = BusinessPartner(
-        card_code=code, card_name=req.card_name, card_type=req.card_type, group_code=req.group_code,
-        currency=req.currency, deb_pay_acct=control, group_num=req.group_num, list_num=req.list_num,
-        vat_group=req.vat_group, lic_trad_num=req.lic_trad_num, phone1=req.phone1, e_mail=req.e_mail,
-        address=req.address, zip_code=req.zip_code, city=req.city, country=req.country,
-        cntct_prsn=req.cntct_prsn, credit_line=req.credit_line, notes=req.notes,
+        card_code=code, deb_pay_acct=control, **{f: getattr(req, f) for f in PARTNER_FIELDS},
         balance=Decimal("0"), dnotes_bal=Decimal("0"), orders_bal=Decimal("0"), frozen_for="N",
     )
     session.add(bp)
@@ -102,6 +142,25 @@ def create_partner(session: Session, req: PartnerRequest, *, commit: bool = True
     else:
         session.flush()
     return bp
+
+
+def save_address(session: Session, card_code: str, adres_type: str, address: str, data: dict,
+                 make_default: bool = False) -> None:
+    """Add or change a bill-to (B) / ship-to (S) address (CRD1); the first one becomes the default."""
+    from app.models.partners import PartnerAddress
+
+    bp = session.get(BusinessPartner, card_code)
+    if bp is None:
+        raise B1Error(f"Business partner {card_code} does not exist")
+    if adres_type not in {"B", "S"} or not address.strip():
+        raise B1Error("An address needs a type (B bill-to, S ship-to) and an address ID")
+    check_country(session, data.get("country"), data.get("state"))
+    session.merge(PartnerAddress(card_code=card_code, adres_type=adres_type, address=address.strip(), **data))
+    if adres_type == "B" and (make_default or not bp.bill_to_def):
+        bp.bill_to_def = address.strip()
+    if adres_type == "S" and (make_default or not bp.ship_to_def):
+        bp.ship_to_def = address.strip()
+    session.commit()
 
 
 # ------------------------------------------------------------- items and warehouses
@@ -120,6 +179,50 @@ class ItemRequest:
     card_code: str | None = None
     min_level: Decimal = Decimal("0")
     prices: dict[int, Decimal] | None = None  # price list -> price in local currency
+    frgn_name: str | None = None
+    item_type: str = "I"  # I items, L labor, T travel
+    code_bars: str | None = None
+    firm_code: int | None = None
+    supp_cat_num: str | None = None
+    buy_unit_msr: str | None = None
+    num_in_buy: Decimal = Decimal("1")
+    sal_unit_msr: str | None = None
+    num_in_sale: Decimal = Decimal("1")
+    max_level: Decimal = Decimal("0")
+    reorder_qty: Decimal = Decimal("0")
+    lead_time: int | None = None
+    min_ordr_qty: Decimal = Decimal("0")
+    user_text: str | None = None
+
+
+ITEM_FIELDS = ["frgn_name", "item_type", "code_bars", "firm_code", "supp_cat_num", "buy_unit_msr", "num_in_buy",
+               "sal_unit_msr", "num_in_sale", "max_level", "reorder_qty", "lead_time", "min_ordr_qty", "user_text",
+               "invntry_uom", "vat_gourp_sa", "vat_group_pu", "dflt_wh", "card_code", "min_level", "item_name"]
+
+
+def validate_item_fields(session: Session, data: dict) -> None:
+    from app.models.inventory import Manufacturer
+
+    if data.get("item_type", "I") not in {"I", "L", "T"}:
+        raise B1Error("Item type must be I (items), L (labor) or T (travel)")
+    if data.get("firm_code") not in (None, -1) and session.get(Manufacturer, data["firm_code"]) is None:
+        raise B1Error(f"Manufacturer {data['firm_code']} does not exist")
+    for key in ("num_in_buy", "num_in_sale"):
+        if data.get(key) is not None and Decimal(data[key]) <= 0:
+            raise B1Error("Items per purchase / sales unit must be positive")
+    for key in ("min_level", "max_level", "reorder_qty", "min_ordr_qty"):
+        if data.get(key) is not None and Decimal(data[key]) < 0:
+            raise B1Error("Inventory levels and quantities cannot be negative")
+    if data.get("max_level") and data.get("min_level") and Decimal(data["max_level"]) < Decimal(data["min_level"]):
+        raise B1Error("The maximum inventory is below the minimum inventory")
+    _tax_group(session, data.get("vat_gourp_sa"), "O")
+    _tax_group(session, data.get("vat_group_pu"), "I")
+    if data.get("dflt_wh") is not None and session.get(Warehouse, data["dflt_wh"]) is None:
+        raise B1Error(f"Warehouse {data['dflt_wh']} does not exist")
+    if data.get("card_code") is not None:
+        vendor = session.get(BusinessPartner, data["card_code"])
+        if vendor is None or vendor.card_type != "S":
+            raise B1Error(f"Preferred vendor {data['card_code']} is not a vendor")
 
 
 def create_item(session: Session, req: ItemRequest, *, commit: bool = True) -> Item:
@@ -132,21 +235,13 @@ def create_item(session: Session, req: ItemRequest, *, commit: bool = True) -> I
         raise B1Error(f"Item group {req.itms_grp_cod} does not exist")
     if not (req.sell_item or req.prchse_item or req.invnt_item):
         raise B1Error("An item must be an inventory, sales or purchase item")
-    _tax_group(session, req.vat_gourp_sa, "O")
-    _tax_group(session, req.vat_group_pu, "I")
-    if req.dflt_wh is not None and session.get(Warehouse, req.dflt_wh) is None:
-        raise B1Error(f"Warehouse {req.dflt_wh} does not exist")
-    if req.card_code is not None:
-        vendor = session.get(BusinessPartner, req.card_code)
-        if vendor is None or vendor.card_type != "S":
-            raise B1Error(f"Preferred vendor {req.card_code} is not a vendor")
+    validate_item_fields(session, {f: getattr(req, f) for f in ITEM_FIELDS})
 
     yn = lambda b: "Y" if b else "N"  # noqa: E731
     item = Item(
-        item_code=code, item_name=req.item_name, itms_grp_cod=req.itms_grp_cod, invnt_item=yn(req.invnt_item),
+        item_code=code, itms_grp_cod=req.itms_grp_cod, invnt_item=yn(req.invnt_item),
         sell_item=yn(req.sell_item), prchse_item=yn(req.prchse_item), eval_system="A", gl_method="C",
-        invntry_uom=req.invntry_uom, vat_gourp_sa=req.vat_gourp_sa, vat_group_pu=req.vat_group_pu,
-        dflt_wh=req.dflt_wh, card_code=req.card_code, min_level=req.min_level, on_hand=Decimal("0"),
+        **{f: getattr(req, f) for f in ITEM_FIELDS}, on_hand=Decimal("0"),
         is_commited=Decimal("0"), on_order=Decimal("0"), avg_price=Decimal("0"), stock_value=Decimal("0"), last_pur_prc=Decimal("0"),
         frozen_for="N",
     )
@@ -167,14 +262,21 @@ def create_item(session: Session, req: ItemRequest, *, commit: bool = True) -> I
     return item
 
 
+WAREHOUSE_FIELDS = ["street", "block", "zip_code", "city", "county", "state", "country", "building"]
+
+
 def create_warehouse(session: Session, whs_code: str, whs_name: str, street: str | None = None,
-                     city: str | None = None, *, commit: bool = True) -> Warehouse:
+                     city: str | None = None, *, commit: bool = True, drop_ship: bool = False, nettable: bool = True,
+                     **address) -> Warehouse:
     code = whs_code.strip().upper()
     if not code:
         raise B1Error("Enter a warehouse code")
     if session.get(Warehouse, code) is not None:
         raise B1Error(f"Warehouse {code} already exists")
-    whs = Warehouse(whs_code=code, whs_name=whs_name, street=street, city=city, inactive="N")
+    check_country(session, address.get("country"), address.get("state"))
+    whs = Warehouse(whs_code=code, whs_name=whs_name, street=street, city=city, inactive="N",
+                    drop_ship="Y" if drop_ship else "N", nettable="Y" if nettable else "N",
+                    **{k: v for k, v in address.items() if k in WAREHOUSE_FIELDS})
     session.add(whs)
     session.flush()
     for item in session.scalars(select(Item).where(Item.invnt_item == "Y")):

@@ -49,7 +49,16 @@ class DocumentHeader:
     card_code: Mapped[str | None] = mapped_column("CardCode", String(15))
     card_name: Mapped[str | None] = mapped_column("CardName", String(100))
     num_at_card: Mapped[str | None] = mapped_column("NumAtCard", String(100))  # BP reference no.
-    address: Mapped[str | None] = mapped_column("Address", String(254))
+    address: Mapped[str | None] = mapped_column("Address", String(254))  # Bill-to address text
+    address2: Mapped[str | None] = mapped_column("Address2", String(254))  # Ship-to address text
+    pay_to_code: Mapped[str | None] = mapped_column("PayToCode", String(50))  # Bill-to address ID (CRD1)
+    ship_to_code: Mapped[str | None] = mapped_column("ShipToCode", String(50))  # Ship-to address ID (CRD1)
+    cntct_code: Mapped[int | None] = mapped_column("CntctCode")  # Contact person (OCPR)
+    slp_code: Mapped[int | None] = mapped_column("SlpCode")  # Sales employee / buyer (OSLP)
+    lic_trad_num: Mapped[str | None] = mapped_column("LicTradNum", String(32))  # BP federal tax ID
+    project: Mapped[str | None] = mapped_column("Project", String(20))
+    series: Mapped[int | None] = mapped_column("Series")  # Numbering series (NNM1)
+    ref2: Mapped[str | None] = mapped_column("Ref2", String(11))  # Reference 2 (inventory documents)
     doc_cur: Mapped[str] = mapped_column("DocCur", String(3))
     doc_rate: Mapped[Decimal] = mapped_column("DocRate", RATE, default=Decimal("1"))
     group_num: Mapped[int | None] = mapped_column("GroupNum")  # Payment terms
@@ -87,6 +96,11 @@ class DocumentLine:
     from_whs_cod: Mapped[str | None] = mapped_column("FromWhsCod", String(8))  # Transfer: from warehouse
     acct_code: Mapped[str | None] = mapped_column("AcctCode", String(15))  # G/L account (service lines, offsets)
     unit_msr: Mapped[str | None] = mapped_column("unitMsr", String(100))
+    ship_date: Mapped[date | None] = mapped_column("ShipDate", Date)  # Line delivery date
+    free_txt: Mapped[str | None] = mapped_column("FreeTxt", String(100))  # Free text
+    project: Mapped[str | None] = mapped_column("Project", String(20))
+    slp_code: Mapped[int | None] = mapped_column("SlpCode")  # Sales employee of the line
+    price_af_vat: Mapped[Decimal] = mapped_column("PriceAfVAT", AMOUNT, default=Decimal("0"), server_default="0")  # Gross price after discount
     stock_price: Mapped[Decimal] = mapped_column("StockPrice", AMOUNT, default=Decimal("0"))  # Item cost per unit
     grss_profit: Mapped[Decimal] = mapped_column("GrssProfit", AMOUNT, default=Decimal("0"))
     base_type: Mapped[str | None] = mapped_column("BaseType", String(20))  # Copied from: object type

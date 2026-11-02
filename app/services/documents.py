@@ -40,7 +40,8 @@ from app.models.inventory import Item, ItemGroup, ItemWarehouse, Warehouse
 from app.models.partners import BusinessPartner
 from app.models.admin import TaxGroup
 from app.services import journal, masterdata
-from app.services.admin import B1Error, company, due_date, next_number, posting_period
+from app.services.admin import (B1Error, check_project, check_sales_employee, company, default_series, due_date,
+                                next_number, posting_period)
 from app.services.journal import JournalLineRequest, JournalRequest
 
 ZERO = Decimal("0")
@@ -117,6 +118,10 @@ class DocLineRequest:
     base_type: str | None = None
     base_entry: int | None = None
     base_line: int | None = None
+    ship_date: date | None = None  # line delivery date
+    free_txt: str | None = None
+    project: str | None = None
+    slp_code: int | None = None
 
 
 @dataclass
@@ -128,11 +133,18 @@ class DocumentRequest:
     doc_type: str = "I"  # I items, S service
     doc_due_date: date | None = None
     tax_date: date | None = None
-    disc_prcnt: Decimal = Decimal("0")
+    disc_prcnt: Decimal | None = None  # default: base document, else the BP's total discount
     num_at_card: str | None = None
     comments: str | None = None
     from_whs: str | None = None  # transfers: header from / to warehouse
     to_whs: str | None = None
+    cntct_code: int | None = None  # defaults: base document, else the business partner
+    slp_code: int | None = None
+    project: str | None = None
+    pay_to_code: str | None = None  # bill-to address ID (CRD1)
+    ship_to_code: str | None = None  # ship-to address ID (CRD1)
+    jrnl_memo: str | None = None
+    ref2: str | None = None
 
 
 # ------------------------------------------------------------- stock movements
@@ -289,7 +301,7 @@ def create_document(session: Session, req: DocumentRequest, *, commit: bool = Tr
 def _create(session: Session, req: DocumentRequest):
     d = doc_def(req.obj)
     header_cls, line_cls = DOCUMENT_CLASSES[d.obj]
-    posting_period(session, req.doc_date)
+    posting_period(session, req.doc_date, req.doc_due_date, req.tax_date)
     if req.doc_type not in {"I", "S"}:
         raise B1Error("Document type must be I (items) or S (service)")
     if req.doc_type == "S" and (d.side == "I" or d.kind in {"delivery", "return"}):
@@ -297,7 +309,12 @@ def _create(session: Session, req: DocumentRequest):
     if not req.lines:
         raise B1Error("Enter at least one line")
     bp = _partner(session, d, req.card_code)
-    hdisc = Decimal(req.disc_prcnt or 0)
+    # header defaults: the (first) base document, else the business partner master data
+    hb = next((get_document(session, l.base_type, l.base_entry) for l in req.lines
+               if l.base_type in d.bases and l.base_entry is not None), None)
+    pick = lambda value, attr, fallback=None: value if value is not None else (getattr(hb, attr) if hb is not None else fallback)  # noqa: E731
+    hdisc = Decimal(pick(req.disc_prcnt, "disc_prcnt", bp.discount if bp else 0) or 0)
+    header = _header_defaults(session, d, req, bp, pick)
     if not (0 <= hdisc < 100):
         raise B1Error("The document discount must be between 0 and 100 %")
 
@@ -363,9 +380,13 @@ def _create(session: Session, req: DocumentRequest):
             if session.get(Warehouse, whs) is None:
                 raise B1Error(f"Warehouse {whs} does not exist")
         price_after = unit(price * (1 - disc / 100))
+        project = lr.project or (base_line.project if base_line else None) or header.get("project")
+        check_project(session, project, req.doc_date)
+        check_sales_employee(session, lr.slp_code)
         line_total = money(qty * price_after)
         lines.append(dict(lr=lr, item=item, base=base, base_line=base_line, qty=qty, price=price, disc=disc,
-                          price_after=price_after, line_total=line_total, tg=tg, whs=whs, acct=acct))
+                          price_after=price_after, line_total=line_total, tg=tg, whs=whs, acct=acct,
+                          project=project))
 
     # header discount and tax per line (document-level amounts used for postings)
     for x in lines:
@@ -380,15 +401,15 @@ def _create(session: Session, req: DocumentRequest):
     doc = header_cls(
         doc_entry=entry, doc_num=next_number(session, d.obj), doc_type=req.doc_type, canceled="N", doc_status="O",
         obj_type=d.obj, doc_date=req.doc_date, tax_date=req.tax_date or req.doc_date,
-        doc_due_date=req.doc_due_date or (due_date(session, bp.group_num, req.doc_date)
+        doc_due_date=req.doc_due_date or (due_date(session, bp.group_num, req.doc_date, req.tax_date)
                                           if bp and d.kind in {"invoice", "credit"} else req.doc_date),
         card_code=bp.card_code if bp else None, card_name=bp.card_name if bp else None, num_at_card=req.num_at_card,
-        address=", ".join(filter(None, [bp.address, bp.zip_code, bp.city])) if bp else None,
         doc_cur=main, doc_rate=Decimal("1"), group_num=bp.group_num if bp else None, disc_prcnt=hdisc,
         disc_sum=total_before - net_total, vat_sum=vat_total,
         doc_total=net_total + vat_total if d.side != "I" else net_total, paid_to_date=ZERO,
         filler=req.from_whs, to_whs_code=req.to_whs, comments=req.comments,
-        jrnl_memo=(f"{d.name} - {bp.card_code}" if bp else d.name)[:50],
+        jrnl_memo=(req.jrnl_memo or (f"{d.name} - {bp.card_code}" if bp else d.name))[:50],
+        series=default_series(session, d.obj), ref2=req.ref2, **header,
     )
     for n, x in enumerate(lines):
         lr, item = x["lr"], x["item"]
@@ -403,6 +424,10 @@ def _create(session: Session, req: DocumentRequest):
             stock_price=x["base_line"].stock_price if x["base_line"] else ZERO,
             base_type=lr.base_type, base_entry=x["base"].doc_entry if x["base"] else None,
             base_line=lr.base_line if x["base"] else None, base_ref=str(x["base"].doc_num) if x["base"] else None,
+            ship_date=lr.ship_date or (x["base_line"].ship_date if x["base_line"] else None) or doc.doc_due_date,
+            free_txt=lr.free_txt if lr.free_txt is not None else (x["base_line"].free_txt if x["base_line"] else None),
+            project=x["project"], slp_code=lr.slp_code if lr.slp_code is not None else header.get("slp_code"),
+            price_af_vat=unit(x["price_after"] * (1 + (x["tg"].rate if x["tg"] else ZERO) / 100)),
         ))
     session.add(doc)
     session.flush()
@@ -426,6 +451,47 @@ def _create(session: Session, req: DocumentRequest):
         refresh_partner(session, bp)
     session.flush()
     return doc
+
+
+def _address_text(a) -> str:
+    return ", ".join(filter(None, [a.street, a.block, " ".join(filter(None, [a.zip_code, a.city])), a.county,
+                                   a.state, a.country]))
+
+
+def _header_defaults(session: Session, d: DocDef, req: DocumentRequest, bp, pick) -> dict:
+    """Contact person, sales employee, project and addresses of a new document."""
+    from app.models.partners import ContactPerson, PartnerAddress
+
+    if bp is None:
+        project = pick(req.project, "project")
+        check_project(session, project, req.doc_date)
+        return {"project": project, "slp_code": None}
+    slp = pick(req.slp_code, "slp_code", bp.slp_code)
+    check_sales_employee(session, slp)
+    default_contact = session.scalar(select(ContactPerson.cntct_code).where(
+        ContactPerson.card_code == bp.card_code, ContactPerson.name == bp.cntct_prsn)) if bp.cntct_prsn else None
+    contact = pick(req.cntct_code, "cntct_code", default_contact)
+    if contact is not None:
+        cp = session.get(ContactPerson, contact)
+        if cp is None or cp.card_code != bp.card_code:
+            raise B1Error(f"Contact person {contact} does not belong to {bp.card_code}")
+    project = pick(req.project, "project", bp.project_cod)
+    check_project(session, project, req.doc_date)
+    out = {"card_code": bp.card_code, "cntct_code": contact, "slp_code": slp, "project": project,
+           "lic_trad_num": bp.lic_trad_num}
+    for kind, code, field_code, field_text, default in [
+            ("B", req.pay_to_code, "pay_to_code", "address", bp.bill_to_def),
+            ("S", req.ship_to_code, "ship_to_code", "address2", bp.ship_to_def)]:
+        addr_id = pick(code, field_code, default)
+        if addr_id:
+            a = session.get(PartnerAddress, (bp.card_code, kind, addr_id))
+            if a is None:
+                raise B1Error(f"{'Bill-to' if kind == 'B' else 'Ship-to'} address {addr_id} of {bp.card_code} does not exist")
+            out[field_code], out[field_text] = addr_id, _address_text(a)
+        elif kind == "B":  # no address master data: the general address of the partner
+            out[field_text] = ", ".join(filter(None, [bp.address, " ".join(filter(None, [bp.zip_code, bp.city])), bp.country]))
+    out.pop("card_code")
+    return out
 
 
 def _post_line(ctx: _Ctx, line, x: dict) -> None:
@@ -601,7 +667,8 @@ def _post_journal(ctx: _Ctx) -> None:
     if lines:
         entry = journal.post_entry(ctx.session, JournalRequest(
             ref_date=doc.doc_date, tax_date=doc.tax_date, due_date=doc.doc_due_date, memo=doc.jrnl_memo,
-            ref1=str(doc.doc_num), ref2=doc.num_at_card, trans_type=ctx.d.obj, base_ref=str(doc.doc_num),
+            ref1=str(doc.doc_num), ref2=doc.num_at_card or doc.ref2, trans_type=ctx.d.obj, base_ref=str(doc.doc_num),
+            project=doc.project,
             created_by=doc.doc_entry, manual=False, lines=lines), commit=False)
         doc.trans_id = entry.trans_id
     trans_num = ctx.session.scalar(select(func.max(WarehouseJournal.trans_num))) or 0

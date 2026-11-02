@@ -41,6 +41,10 @@ class Company(Base):
     tax_id: Mapped[str | None] = mapped_column("TaxIdNum", String(32))  # Federal tax ID
     address: Mapped[str | None] = mapped_column("CompnyAddr", String(254))  # Address
     phone: Mapped[str | None] = mapped_column("Phone1", String(20))  # Telephone
+    phone2: Mapped[str | None] = mapped_column("Phone2", String(20))  # Telephone 2
+    fax: Mapped[str | None] = mapped_column("Fax", String(20))
+    e_mail: Mapped[str | None] = mapped_column("E_Mail", String(100))
+    manager: Mapped[str | None] = mapped_column("Manager", String(100))  # Manager / contact
 
 
 class Currency(Base):
@@ -76,6 +80,10 @@ class PostingPeriod(Base):
     t_ref_date: Mapped[date] = mapped_column("T_RefDate")  # Posting date to
     category: Mapped[str] = mapped_column("Category", String(10))  # Period category (fiscal year)
     period_stat: Mapped[str] = mapped_column("PeriodStat", String(1), default="N")
+    f_due_date: Mapped[date | None] = mapped_column("F_DueDate")  # Due date from
+    t_due_date: Mapped[date | None] = mapped_column("T_DueDate")  # Due date to
+    f_tax_date: Mapped[date | None] = mapped_column("F_TaxDate")  # Document date from
+    t_tax_date: Mapped[date | None] = mapped_column("T_TaxDate")  # Document date to
 
 
 class NumberingSeries(Base):
@@ -103,6 +111,7 @@ class TaxGroup(Base):
     rate: Mapped[Decimal] = mapped_column("Rate", Numeric(19, 6))  # Percent
     account: Mapped[str] = mapped_column("Account", String(15))  # Tax G/L account
     inactive: Mapped[bool] = mapped_column("Inactive", default=False)
+    effec_date: Mapped[date | None] = mapped_column("EffecDate")  # Effective from
 
 
 class PaymentTerms(Base):
@@ -115,3 +124,63 @@ class PaymentTerms(Base):
     extra_month: Mapped[int] = mapped_column("ExtraMonth", default=0)
     extra_days: Mapped[int] = mapped_column("ExtraDays", default=0)
     discount_pct: Mapped[Decimal] = mapped_column("VolumDscnt", Numeric(19, 6), default=Decimal("0"))  # Total discount %
+    bsline_date: Mapped[str] = mapped_column("BslineDate", String(1), default="P", server_default="P")  # Due date based on: P posting, T document date, S system date
+    pay_du_month: Mapped[str] = mapped_column("PayDuMonth", String(1), default="N", server_default="N")  # Start from: N posting date, S month start, H half month, E month end
+    tol_days: Mapped[int] = mapped_column("TolDays", default=0, server_default="0")  # Tolerance days
+    list_num: Mapped[int | None] = mapped_column("ListNum")  # Default price list
+    cred_limit: Mapped[Decimal] = mapped_column("CredLimit", Numeric(19, 6), default=Decimal("0"), server_default="0")  # Max. credit
+    oblig_limit: Mapped[Decimal] = mapped_column("ObligLimit", Numeric(19, 6), default=Decimal("0"), server_default="0")  # Commitment limit
+
+
+class Country(Base):
+    """OCRY — Countries (dropdown of every country field)."""
+
+    __tablename__ = "ocry"
+
+    code: Mapped[str] = mapped_column("Code", String(3), primary_key=True)
+    name: Mapped[str] = mapped_column("Name", String(100))
+
+
+class State(Base):
+    """OCST — States of a country (dropdown of the state fields)."""
+
+    __tablename__ = "ocst"
+
+    country: Mapped[str] = mapped_column("Country", String(3), primary_key=True)
+    code: Mapped[str] = mapped_column("Code", String(3), primary_key=True)
+    name: Mapped[str] = mapped_column("Name", String(100))
+
+
+class SalesEmployee(Base):
+    """OSLP — Sales employees / buyers (documents and business partners)."""
+
+    __tablename__ = "oslp"
+
+    slp_code: Mapped[int] = mapped_column("SlpCode", primary_key=True)  # -1 = "No Sales Employee"
+    slp_name: Mapped[str] = mapped_column("SlpName", String(155))
+    memo: Mapped[str | None] = mapped_column("Memo", String(50))
+    commission: Mapped[Decimal] = mapped_column("Commission", Numeric(19, 6), default=Decimal("0"))  # Commission %
+    telephone: Mapped[str | None] = mapped_column("Telephone", String(20))
+    email: Mapped[str | None] = mapped_column("Email", String(100))
+    active: Mapped[str] = mapped_column("Active", String(1), default="Y")
+
+
+class Project(Base):
+    """OPRJ — Projects (journal entries and documents)."""
+
+    __tablename__ = "oprj"
+
+    prj_code: Mapped[str] = mapped_column("PrjCode", String(20), primary_key=True)
+    prj_name: Mapped[str] = mapped_column("PrjName", String(100))
+    valid_from: Mapped[date | None] = mapped_column("ValidFrom")
+    valid_to: Mapped[date | None] = mapped_column("ValidTo")
+    active: Mapped[str] = mapped_column("Active", String(1), default="Y")
+
+
+class TransactionCode(Base):
+    """OTRC — Transaction codes of journal entries."""
+
+    __tablename__ = "otrc"
+
+    trns_code: Mapped[str] = mapped_column("TrnsCode", String(4), primary_key=True)
+    trns_cod_dsc: Mapped[str] = mapped_column("TrnsCodDsc", String(30))

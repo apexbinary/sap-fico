@@ -45,10 +45,10 @@ Schema changes need an Alembic revision (`migrations/`); `init_db()` runs
 
 ```
 app/
-  models/admin.py     OADM OCRN ORTT OFPR NNM1 OVTG OCTG
+  models/admin.py     OADM OCRN ORTT OFPR NNM1 OVTG OCTG, OSLP OPRJ OTRC OCRY OCST
   models/finance.py   OACT OJDT JDT1 OACP (G/L account determination)
-  models/partners.py  OCRG OCRD OCPR
-  models/inventory.py OITB OITM OWHS OITW OPLN ITM1
+  models/partners.py  OCRG OCRD OCPR CRD1
+  models/inventory.py OITB OITM OMRC OWHS OITW OPLN ITM1
   models/documents.py the 15 document header/line pairs (OQUT/QUT1 ... OWTR/WTR1, built from
                       shared DocumentHeader/DocumentLine columns) and OINM warehouse journal
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
@@ -64,8 +64,29 @@ app/
                       /api/warehouses, /api/price-lists
   seed.py             demo company "Demo Trading Ltd" (EUR), chart of accounts, periods 2025-2027
   verify_*.py         end-to-end checks; verify_all runs them all
-web/                  index.html, styles.css, app.js
+web/                  index.html, styles.css, app.js (shell, typed field builder, journal entries,
+                      documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup)
+docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
+
+### Fields and UI (keep invariant)
+- **No standard B1 field of a built feature is silently missing.** Every form is
+  listed in `docs/field-coverage.md` (column, input type, status); a field is either
+  implemented or listed as excluded with the reason. Update the register with
+  every feature.
+- **The UI keeps B1's field types**: numbers are numeric inputs, B1 dropdowns are
+  dropdowns (fed by their tables: OCRY/OCST, OSLP, OPRJ, OTRC, OMRC, OCTG, OPLN,
+  OVTG, OWHS, OCRN), checkboxes are checkboxes, dates are date pickers, BP / item /
+  G/L account are selection lists. Forms declare fields with `fieldsHtml` /
+  `readFields` (typed values) in app.js; do not hand-build inputs.
+- PATCH endpoints use `apply_changes` (an empty value never overwrites a NOT NULL
+  column).
+- OJDT AutoStorno/StornoDate = B1's "Reverse" checkbox (reversal posted on that
+  date); a reversal entry is recognised by StornoToTr (`is_reversal` in the API).
+- The seed runs on every start: data users maintain (company, periods and their
+  lock, accounts, payment terms, price lists, warehouses, BPs, items, prices,
+  lookup tables) is created once and never overwritten; only reference data
+  without an edit screen is merged.
 
 ### Posting rules (keep invariant)
 - Every posting is one OJDT/JDT1 journal entry via `journal.post_entry`.
@@ -73,7 +94,8 @@ web/                  index.html, styles.css, app.js
   partner code in ShortName; its open amount is BalDueDeb/BalDueCred.
 - Only active (Postable Y), unfrozen accounts; manual entries never post a
   control account directly.
-- Balanced in local currency; posting date in an unlocked period (OFPR).
+- Balanced in local currency; posting date in an unlocked period (OFPR); due date
+  and document date inside the period's due / document date ranges.
 - OACT-CurrTotal (and OCRD-Balance) are updated with each entry.
 - Document numbers come from the default NNM1 series of the object type;
   NNM1-NextNumber and exchange rates are runtime data: the seed creates them

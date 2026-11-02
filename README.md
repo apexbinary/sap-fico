@@ -23,6 +23,8 @@ docker compose up -d --build        # http://localhost:8000  (API docs: /docs)
 docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build   # on PostgreSQL
 ```
 
+Field coverage against SAP Business One: [docs/field-coverage.md](docs/field-coverage.md).
+
 Locally: `pip install -r requirements.txt`, `python -m app.seed`,
 `python -m uvicorn app.main:app --reload`. Checks: `python -m app.verify_all`
 (on a scratch database).

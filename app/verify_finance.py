@@ -63,7 +63,7 @@ def main() -> None:
             L(account="611000", debit=D("200")), L(account="112000", credit=D("200"))]))
         rev = journal.reverse_entry(s, wrong.trans_id)
         print(f"3 JE {wrong.number} reversed by JE {rev.number}")
-        assert wrong.storno_to_tr == rev.trans_id and rev.auto_storno == "Y"
+        assert wrong.storno_to_tr == rev.trans_id and rev.storno_to_tr == wrong.trans_id
         _rejects(lambda: journal.reverse_entry(s, wrong.trans_id), "already reversed")
 
         # 4) reports

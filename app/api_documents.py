@@ -27,9 +27,12 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "card_code": doc.card_code, "card_name": doc.card_name, "num_at_card": doc.num_at_card,
            "doc_cur": doc.doc_cur, "disc_prcnt": doc.disc_prcnt, "disc_sum": doc.disc_sum, "vat_sum": doc.vat_sum,
            "doc_total": doc.doc_total, "paid_to_date": doc.paid_to_date, "trans_id": doc.trans_id,
-           "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code}
+           "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
+           "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
+           "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
     if detail:
-        out["address"] = doc.address
+        out.update(address=doc.address, address2=doc.address2, pay_to_code=doc.pay_to_code,
+                   ship_to_code=doc.ship_to_code)
         out["lines"] = [{"line_num": l.line_num, "line_status": l.line_status, "item_code": l.item_code,
                          "dscription": l.dscription, "quantity": l.quantity, "open_qty": l.open_qty,
                          "price_bef_di": l.price_bef_di, "disc_prcnt": l.disc_prcnt, "price": l.price,
@@ -38,7 +41,9 @@ def _doc_out(doc, detail: bool = False) -> dict:
                          "from_whs_cod": l.from_whs_cod, "acct_code": l.acct_code, "unit_msr": l.unit_msr,
                          "stock_price": l.stock_price, "grss_profit": l.grss_profit, "base_type": l.base_type,
                          "base_entry": l.base_entry, "base_line": l.base_line, "base_ref": l.base_ref,
-                         "target_type": l.target_type, "trget_entry": l.trget_entry} for l in doc.lines]
+                         "target_type": l.target_type, "trget_entry": l.trget_entry, "ship_date": l.ship_date,
+                         "free_txt": l.free_txt, "project": l.project, "slp_code": l.slp_code,
+                         "price_af_vat": l.price_af_vat} for l in doc.lines]
     return out
 
 
@@ -80,6 +85,10 @@ class DocLineIn(BaseModel):
     base_type: str | None = None
     base_entry: int | None = None
     base_line: int | None = None
+    ship_date: date | None = None
+    free_txt: str | None = Field(None, max_length=100)
+    project: str | None = Field(None, max_length=20)
+    slp_code: int | None = None
 
 
 class DocumentIn(BaseModel):
@@ -88,11 +97,18 @@ class DocumentIn(BaseModel):
     doc_type: str = Field("I", pattern="^[IS]$")
     doc_due_date: date | None = None
     tax_date: date | None = None
-    disc_prcnt: Decimal = Field(Decimal("0"), ge=0, lt=100)
+    disc_prcnt: Decimal | None = Field(None, ge=0, lt=100)
     num_at_card: str | None = Field(None, max_length=100)
     comments: str | None = Field(None, max_length=254)
     from_whs: str | None = None
     to_whs: str | None = None
+    cntct_code: int | None = None
+    slp_code: int | None = None
+    project: str | None = Field(None, max_length=20)
+    pay_to_code: str | None = Field(None, max_length=50)
+    ship_to_code: str | None = Field(None, max_length=50)
+    jrnl_memo: str | None = Field(None, max_length=50)
+    ref2: str | None = Field(None, max_length=11)
     lines: list[DocLineIn]
 
 

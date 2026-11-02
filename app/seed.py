@@ -18,8 +18,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.database import SessionLocal, init_db
-from app.models.admin import (Company, Country, Currency, ExchangeRate, HsnCode, NumberingSeries, PaymentTerms,
-                              PostingPeriod, Project, SalesEmployee, State, TaxAuthority, TaxComponent, TaxDetermination,
+from app.models.admin import (CashDiscount, CashDiscountLine, Company, Country, Currency, ExchangeRate, HsnCode,
+                              NumberingSeries, PaymentTerms, PaymentTermsInstallment, PostingPeriod, Project, SalesEmployee, State, TaxAuthority, TaxComponent, TaxDetermination,
                               TaxGroup, TaxType, TransactionCode)
 from app.models.banking import Bank, HouseBankAccount
 from app.models.finance import Account, AccountDetermination
@@ -70,6 +70,7 @@ CHART = [
     ("611000", "Office Expenses", 6, "61", "Y", "E", "N", "N"),
     ("612000", "Rent", 6, "61", "Y", "E", "N", "N"),
     ("613000", "Bank Charges", 6, "61", "Y", "E", "N", "N"),
+    ("615000", "Cash Discount Allowed", 6, "61", "Y", "E", "N", "N"),
     ("7", "Other Income and Expenses", 7, None, "N", "N", "N", "N"),
     ("71", "Foreign Exchange", 7, "7", "N", "N", "N", "N"),
     ("711000", "Foreign Exchange Gain", 7, "71", "Y", "I", "N", "N"),
@@ -78,6 +79,7 @@ CHART = [
     ("714000", "Unrealized Exchange Loss", 7, "71", "Y", "E", "N", "N"),
     ("72", "Other Income", 7, "7", "N", "I", "N", "N"),
     ("721000", "Interest Income", 7, "72", "Y", "I", "N", "N"),
+    ("722000", "Cash Discount Received", 7, "72", "Y", "I", "N", "N"),
 ]
 
 # GST tax authorities (OSTA): code, name, output account, input account
@@ -208,6 +210,18 @@ def seed() -> None:
                                                (2, "Net 60", "N", 0, 60), (3, "End of next month", "E", 1, 0)]:
             put_new(PaymentTerms(group_num=num, pymnt_group=name, bsline_date="P", pay_du_month=start,
                                  extra_month=months, extra_days=days), num)
+        # cash discount 2 % within 10 days, 1 % within 20 days; terms with it and with 3 installments
+        if s.get(CashDiscount, "2-10") is None:
+            put(CashDiscount(code="2-10", name="2% 10 days, 1% 20 days", by_date="N"))
+            put(CashDiscountLine(cdc_code="2-10", line_id=1, num_of_days=10, discount=Decimal("2")))
+            put(CashDiscountLine(cdc_code="2-10", line_id=2, num_of_days=20, discount=Decimal("1")))
+        put_new(PaymentTerms(group_num=4, pymnt_group="2% 10 / 1% 20, net 30", bsline_date="P", pay_du_month="N",
+                             extra_month=0, extra_days=30, cdc_code="2-10"), 4)
+        if s.get(PaymentTerms, 5) is None:
+            put(PaymentTerms(group_num=5, pymnt_group="3 installments 30/60/90", bsline_date="P", pay_du_month="N",
+                             extra_month=0, extra_days=30, inst_num=3))
+            for n, (days, pct) in enumerate([(30, "33.33"), (60, "33.33"), (90, "33.34")], start=1):
+                put(PaymentTermsInstallment(ctg_code=5, ints_no=n, inst_month=0, inst_days=days, inst_prcnt=Decimal(pct)))
         eom = s.get(PaymentTerms, 3)
         if eom.pymnt_group == "End of next month" and eom.pay_du_month == "N":  # before "start from" existed
             eom.pay_du_month = "E"
@@ -225,7 +239,7 @@ def seed() -> None:
                 inventory="115000", allocation="212000", price_diff="512000", expense="611000",
                 inv_offset_inc="513000", inv_offset_dec="513000", exch_gain="711000", exch_loss="712000",
                 opening_bal="313000", bank_charges="613000", checks_received="117000", unreal_gain="713000",
-                unreal_loss="714000"))
+                unreal_loss="714000", cash_disc_allowed="615000", cash_disc_received="722000"))
         put_new(Bank(abs_entry=1, bank_code="HDFC", bank_name="HDFC Bank Ltd", country_cod="IN", swift_num="HDFCINBB"), 1)
         put_new(HouseBankAccount(abs_entry=1, bank_code="HDFC", account="50100123456789", branch="HDFC0000123",
                                  gl_account="112000", acct_name="HDFC current account", country="IN", currency=LOCAL), 1)

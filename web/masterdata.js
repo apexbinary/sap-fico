@@ -383,7 +383,9 @@ const TERMS_FIELDS = [
   { k: "list_num", label: "Price list", type: "select", int: true, options: () => O.priceLists() },
   { k: "cred_limit", label: "Max. credit", type: "number", step: "0.01", min: 0, value: 0 },
   { k: "oblig_limit", label: "Commitment limit", type: "number", step: "0.01", min: 0, value: 0 },
+  { k: "cdc_code", label: "Cash discount", type: "select", options: () => (state.lookups.cash_discounts || []).map((c) => [c.code, `${c.code} — ${c.name}`]) },
 ];
+const CDC_FIELDS = [{ k: "code", label: "Cash discount code", req: true, max: 8 }, { k: "name", label: "Name", req: true, max: 30 }];
 const SLP_FIELDS = [
   { k: "slp_name", label: "Sales employee name", req: true, max: 155 }, { k: "commission", label: "Commission %", type: "number", step: "0.01", min: 0, maxv: 100, value: 0 },
   { k: "telephone", label: "Telephone", max: 20 }, { k: "email", label: "E-mail", max: 100 },
@@ -419,13 +421,25 @@ views.setup = async (c) => {
           <td>${t.components.length ? t.components.map((x) => `${esc(x.sta_code)} ${Number(x.rate)}%`).join(" + ") : `<span class="mono">${esc(t.account)}</span>`}</td></tr>`).join("")}</tbody></table></div></div>
     </div>
     <div class="card"><div class="card-head">Payment terms (OCTG)</div><div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Due date based on</th><th>Start from</th><th class="num">Months</th><th class="num">Days</th>
-      <th class="num">Tolerance</th><th class="num">Discount %</th><th>Price list</th><th class="num">Max. credit</th><th class="num">Commitment</th></tr></thead><tbody>
+      <th class="num">Tolerance</th><th class="num">Discount %</th><th>Price list</th><th class="num">Max. credit</th><th class="num">Commitment</th><th>Cash discount</th><th>Installments</th></tr></thead><tbody>
       ${L.payment_terms.map((p) => `<tr style="cursor:pointer" onclick="location.hash='#/setup?terms=${p.group_num}'"><td>${esc(p.name)}</td>
         <td>${{ P: "Posting date", T: "Document date", S: "System date" }[p.bsline_date]}</td><td>${{ N: "—", S: "Month start", H: "Half month", E: "Month end" }[p.pay_du_month]}</td>
         <td class="num">${p.extra_month}</td><td class="num">${p.extra_days}</td><td class="num">${p.tol_days}</td><td class="num">${Number(p.discount_pct)}</td>
-        <td>${esc(nameOf(state.priceLists, "list_num", p.list_num, "list_name"))}</td><td class="num">${fmt(p.cred_limit)}</td><td class="num">${fmt(p.oblig_limit)}</td></tr>`).join("")}</tbody></table></div>
+        <td>${esc(nameOf(state.priceLists, "list_num", p.list_num, "list_name"))}</td><td class="num">${fmt(p.cred_limit)}</td><td class="num">${fmt(p.oblig_limit)}</td>
+        <td>${esc(p.cdc_code || "")}</td><td>${p.installments.length ? p.installments.map((i) => `${Number(i.inst_prcnt)}% +${i.inst_month ? `${i.inst_month}m ` : ""}${i.inst_days}d`).join(", ") : ""}</td></tr>`).join("")}</tbody></table></div>
       <div class="card-body"><h3 class="section">${termsEdit ? `Change ${esc(termsEdit.name)} <a class="btn small ghost" href="#/setup">New</a>` : "New payment terms"}</h3>
-        <div class="form-grid">${fieldsHtml(TERMS_FIELDS, termsEdit || {}, "pt")}</div><button class="btn secondary" id="pt-save" style="margin-top:8px">${termsEdit ? "Update" : "Add"}</button></div></div>
+        <div class="form-grid">${fieldsHtml(TERMS_FIELDS, termsEdit || {}, "pt")}</div>
+        <h3 class="section">Installments (CTG1) — leave empty for one due date</h3>
+        <table class="lines"><thead><tr><th class="num">+ Months</th><th class="num">+ Days</th><th class="num">Share %</th><th></th></tr></thead><tbody id="pt-inst"></tbody></table>
+        <button class="btn secondary small" id="pt-inst-add" style="margin-top:6px">+ Installment</button> <b style="margin-left:12px">Total <span id="pt-inst-total">0</span> %</b>
+        <div><button class="btn secondary" id="pt-save" style="margin-top:8px">${termsEdit ? "Update" : "Add"}</button></div></div></div>
+    <div class="card"><div class="card-head">Cash discounts (OCDC / CDC1)</div><table><thead><tr><th>Code</th><th>Name</th><th>Tiers</th></tr></thead><tbody>
+      ${(L.cash_discounts || []).map((cd) => `<tr><td class="mono">${esc(cd.code)}</td><td>${esc(cd.name)}</td><td>${cd.tiers.map((t) => `${Number(t.discount)} % within ${t.num_of_days} days`).join(", ")}</td></tr>`).join("")
+        || `<tr><td colspan="3" class="empty">No cash discounts.</td></tr>`}</tbody></table>
+      <div class="card-body"><div class="form-grid">${fieldsHtml(CDC_FIELDS, {}, "cd")}</div>
+        <table class="lines" style="margin-top:6px"><thead><tr><th class="num">Within days</th><th class="num">Discount %</th><th></th></tr></thead><tbody id="cd-tiers"></tbody></table>
+        <button class="btn secondary small" id="cd-tier-add" style="margin-top:6px">+ Tier</button>
+        <div><button class="btn secondary" id="cd-save" style="margin-top:8px">Add / update</button></div></div></div>
     <div class="card"><div class="card-head">Posting periods (OFPR)
       <select id="pe-year">${[...new Set(periods.map((p) => p.category))].map((y) => opt(y, y, year)).join("")}</select></div>
       <div style="overflow-x:auto"><table><thead><tr><th>Period code</th><th>Name</th><th>Posting date from</th><th>to</th><th>Due date from</th><th>to</th><th>Document date from</th><th>to</th><th>Status</th><th></th></tr></thead><tbody>
@@ -453,8 +467,36 @@ views.setup = async (c) => {
   $("#co-state").value = state.company.state || "";
   save("#co-save", () => patch("/admin/company", readFields(COMPANY_FIELDS, "co")), "Company details updated");
   save("#rt-save", () => post("/admin/exchange-rates", readFields([{ k: "currency", type: "select" }, { k: "rate_date", type: "date" }, { k: "rate", type: "number" }], "rt")), "Rate saved");
-  save("#pt-save", () => (termsEdit ? api(`/admin/payment-terms/${termsEdit.group_num}`, { method: "PUT", body: JSON.stringify(readFields(TERMS_FIELDS, "pt")) })
-    : post("/admin/payment-terms", readFields(TERMS_FIELDS, "pt"))), "Payment terms saved");
+  const instRow = (v = {}) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="num"><input class="pi-m" type="number" step="1" min="0" value="${v.inst_month ?? 0}" style="width:80px"></td>
+      <td class="num"><input class="pi-d" type="number" step="1" min="0" value="${v.inst_days ?? 30}" style="width:80px"></td>
+      <td class="num"><input class="pi-p" type="number" step="0.01" min="0" max="100" value="${v.inst_prcnt != null ? Number(v.inst_prcnt) : ""}" style="width:90px"></td>
+      <td><button class="btn ghost small pi-del">✕</button></td>`;
+    $("#pt-inst").appendChild(tr);
+    $(".pi-p", tr).oninput = instTotal;
+    $(".pi-del", tr).onclick = () => { tr.remove(); instTotal(); };
+  };
+  const instTotal = () => { $("#pt-inst-total").textContent = Math.round($$("#pt-inst tr").reduce((s, tr) => s + Number($(".pi-p", tr).value || 0), 0) * 100) / 100; };
+  ((termsEdit && termsEdit.installments) || []).forEach(instRow);
+  instTotal();
+  $("#pt-inst-add").onclick = () => instRow();
+  const termsBody = () => ({ ...readFields(TERMS_FIELDS, "pt"), installments: $$("#pt-inst tr").map((tr) => ({
+    inst_month: Number($(".pi-m", tr).value || 0), inst_days: Number($(".pi-d", tr).value || 0), inst_prcnt: Number($(".pi-p", tr).value || 0) })) });
+  save("#pt-save", () => (termsEdit ? api(`/admin/payment-terms/${termsEdit.group_num}`, { method: "PUT", body: JSON.stringify(termsBody()) })
+    : post("/admin/payment-terms", termsBody())), "Payment terms saved");
+  const tierRow = (v = {}) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="num"><input class="ct-d" type="number" step="1" min="0" value="${v.num_of_days ?? ""}" style="width:80px"></td>
+      <td class="num"><input class="ct-p" type="number" step="0.01" min="0" max="99.99" value="${v.discount != null ? Number(v.discount) : ""}" style="width:90px"></td>
+      <td><button class="btn ghost small ct-del">✕</button></td>`;
+    $("#cd-tiers").appendChild(tr);
+    $(".ct-del", tr).onclick = () => tr.remove();
+  };
+  tierRow();
+  $("#cd-tier-add").onclick = () => tierRow();
+  save("#cd-save", () => post("/admin/cash-discounts", { ...readFields(CDC_FIELDS, "cd"), tiers: $$("#cd-tiers tr")
+    .filter((tr) => $(".ct-p", tr).value).map((tr) => ({ num_of_days: Number($(".ct-d", tr).value || 0), discount: Number($(".ct-p", tr).value) })) }), "Cash discount saved");
   save("#sl-add", () => post("/sales-employees", readFields(SLP_FIELDS, "sl")), "Sales employee added");
   save("#pj-add", () => post("/projects", readFields(PROJECT_FIELDS, "pj")), "Project added");
   save("#mf-add", () => post("/manufacturers", readFields([{ k: "firm_name" }], "mf")), "Manufacturer added");

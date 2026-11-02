@@ -131,6 +131,41 @@ class PaymentTerms(Base):
     list_num: Mapped[int | None] = mapped_column("ListNum")  # Default price list
     cred_limit: Mapped[Decimal] = mapped_column("CredLimit", Numeric(19, 6), default=Decimal("0"), server_default="0")  # Max. credit
     oblig_limit: Mapped[Decimal] = mapped_column("ObligLimit", Numeric(19, 6), default=Decimal("0"), server_default="0")  # Commitment limit
+    cdc_code: Mapped[str | None] = mapped_column("CdcCode", String(8))  # Cash discount (OCDC)
+    inst_num: Mapped[int] = mapped_column("InstNum", default=0, server_default="0")  # Number of installments (CTG1)
+
+
+class PaymentTermsInstallment(Base):
+    """CTG1 — Installment of payment terms: due months / days after the base date and its share."""
+
+    __tablename__ = "ctg1"
+
+    ctg_code: Mapped[int] = mapped_column("CTGCode", ForeignKey("octg.GroupNum"), primary_key=True)
+    ints_no: Mapped[int] = mapped_column("IntsNo", primary_key=True)  # Installment number (1..n)
+    inst_month: Mapped[int] = mapped_column("InstMonth", default=0)
+    inst_days: Mapped[int] = mapped_column("InstDays", default=0)
+    inst_prcnt: Mapped[Decimal] = mapped_column("InstPrcnt", Numeric(19, 6))  # Share of the total %
+
+
+class CashDiscount(Base):
+    """OCDC — Cash discount: discount % when paid within a number of days (tiers in CDC1)."""
+
+    __tablename__ = "ocdc"
+
+    code: Mapped[str] = mapped_column("Code", String(8), primary_key=True)
+    name: Mapped[str] = mapped_column("Name", String(30))
+    by_date: Mapped[str] = mapped_column("ByDate", String(1), default="N")  # N: days counted from the document date
+
+
+class CashDiscountLine(Base):
+    """CDC1 — Tier of a cash discount: paid within NumOfDays -> Discount %."""
+
+    __tablename__ = "cdc1"
+
+    cdc_code: Mapped[str] = mapped_column("CdcCode", String(8), ForeignKey("ocdc.Code"), primary_key=True)
+    line_id: Mapped[int] = mapped_column("LineId", primary_key=True)
+    num_of_days: Mapped[int] = mapped_column("NumOfDays")
+    discount: Mapped[Decimal] = mapped_column("Discount", Numeric(19, 6))  # %
 
 
 class Country(Base):

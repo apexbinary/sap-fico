@@ -161,6 +161,7 @@ class _Ctx:
     vat: dict = field(default_factory=lambda: defaultdict(lambda: ZERO))  # account -> (debit - credit), by tax group
     vat_groups: dict = field(default_factory=dict)
     oinm: list = field(default_factory=list)
+    installments: list = field(default_factory=list)  # invoice installments (INV6 / PCH6): the partner line splits
     bp_fc: Decimal = ZERO  # foreign-currency amount of the partner line (debit positive)
 
     def post(self, account: str, amount: Decimal) -> None:
@@ -478,6 +479,8 @@ def _create(session: Session, req: DocumentRequest):
         sign = 1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit")} else -1
         ctx.je[("BP", doc.card_code)] += sign * doc.doc_total
         ctx.bp_fc = sign * doc.doc_total_fc
+        if d.kind == "invoice":
+            ctx.installments = _installments(session, d, doc, bp)
     _post_journal(ctx)
     if d.kind == "credit":
         _reconcile_with_invoice(ctx, lines)
@@ -697,10 +700,15 @@ def _post_journal(ctx: _Ctx) -> None:
             continue
         debit, credit = (amount, ZERO) if amount > 0 else (ZERO, -amount)
         if isinstance(key, tuple) and key[0] == "BP":
-            fcd, fcc = (ctx.bp_fc, ZERO) if ctx.bp_fc > 0 else (ZERO, -ctx.bp_fc)
-            lines.append(JournalLineRequest(card_code=key[1], debit=debit, credit=credit, due_date=ctx.doc.doc_due_date,
-                                            fc_debit=fcd, fc_credit=fcc,
-                                            fc_currency=ctx.doc.doc_cur if ctx.bp_fc else None))
+            # one partner line per installment (B1), each with its due date; else one line
+            parts = [(i.due_date, i.ins_total, i.ins_total_fc, f"Installment {i.instlmnt_id}/{len(ctx.installments)}")
+                     for i in ctx.installments] or [(ctx.doc.doc_due_date, debit or credit, abs(ctx.bp_fc), None)]
+            for due, part, part_fc, memo in parts:
+                fcd, fcc = (part_fc, ZERO) if ctx.bp_fc > 0 else (ZERO, part_fc)
+                lines.append(JournalLineRequest(card_code=key[1], debit=part if debit else ZERO, credit=part if credit else ZERO,
+                                                due_date=due, fc_debit=fcd if ctx.bp_fc else ZERO,
+                                                fc_credit=fcc if ctx.bp_fc else ZERO,
+                                                fc_currency=ctx.doc.doc_cur if ctx.bp_fc else None, line_memo=memo))
         elif isinstance(key, tuple):
             lines.append(JournalLineRequest(account=key[1], debit=debit, credit=credit, vat_group=ctx.vat_groups.get(key[1])))
         else:
@@ -721,6 +729,57 @@ def _post_journal(ctx: _Ctx) -> None:
     ctx.oinm.clear()
 
 
+def _installments(session: Session, d: DocDef, doc, bp) -> list:
+    """Installments of an invoice from the payment terms (OCTG InstNum + CTG1); the last takes the rest."""
+    from app.models.admin import PaymentTerms, PaymentTermsInstallment
+    from app.models.documents import DOCUMENT_INSTALLMENTS
+
+    terms = session.get(PaymentTerms, doc.group_num) if doc.group_num is not None else None
+    if terms is None or not terms.inst_num or d.obj not in DOCUMENT_INSTALLMENTS:
+        return []
+    plan = session.scalars(select(PaymentTermsInstallment).where(PaymentTermsInstallment.ctg_code == terms.group_num)
+                           .order_by(PaymentTermsInstallment.ints_no)).all()
+    if len(plan) < 2:
+        return []
+    cls = DOCUMENT_INSTALLMENTS[d.obj]
+    out, rest, rest_fc = [], doc.doc_total, doc.doc_total_fc
+    for n, p in enumerate(plan, start=1):
+        last = n == len(plan)
+        amount = rest if last else money(doc.doc_total * p.inst_prcnt / 100)
+        amount_fc = rest_fc if last else money(doc.doc_total_fc * p.inst_prcnt / 100)
+        rest, rest_fc = rest - amount, rest_fc - amount_fc
+        month_index = doc.doc_date.month - 1 + p.inst_month
+        year, month = doc.doc_date.year + month_index // 12, month_index % 12 + 1
+        import calendar
+        from datetime import timedelta
+
+        due = date(year, month, min(doc.doc_date.day, calendar.monthrange(year, month)[1])) + timedelta(days=p.inst_days)
+        inst = cls(doc_entry=doc.doc_entry, instlmnt_id=n, due_date=due, ins_total=amount, ins_total_fc=amount_fc,
+                   paid_to_date=ZERO, paid_fc=ZERO, status="O", inst_prcnt=p.inst_prcnt)
+        session.add(inst)
+        out.append(inst)
+    doc.doc_due_date = out[0].due_date
+    session.flush()
+    return out
+
+
+def installment_for_line(session: Session, line: JournalLine):
+    """The installment (INV6 / PCH6) a partner line of an invoice stands for, or None."""
+    from app.models.documents import DOCUMENT_INSTALLMENTS
+
+    cls = DOCUMENT_INSTALLMENTS.get(line.trans_type)
+    if cls is None or not line.created_by:
+        return None
+    insts = session.scalars(select(cls).where(cls.doc_entry == line.created_by).order_by(cls.instlmnt_id)).all()
+    if not insts:
+        return None
+    partner_lines = session.scalars(select(JournalLine.line_id).where(
+        JournalLine.trans_id == line.trans_id, JournalLine.short_name == line.short_name,
+        JournalLine.short_name != JournalLine.account).order_by(JournalLine.line_id)).all()
+    idx = partner_lines.index(line.line_id) if line.line_id in partner_lines else -1
+    return insts[idx] if 0 <= idx < len(insts) else None
+
+
 def _bp_line(session: Session, doc) -> JournalLine | None:
     if not doc.trans_id:
         return None
@@ -735,6 +794,11 @@ def _reconcile_with_invoice(ctx: _Ctx, lines: list[dict]) -> None:
         return
     inv = next(iter(invoices.values()))
     cm = ctx.doc
+    from app.models.documents import DOCUMENT_INSTALLMENTS
+
+    inst_cls = DOCUMENT_INSTALLMENTS.get(inv.obj_type)
+    if inst_cls is not None and ctx.session.scalar(select(inst_cls).where(inst_cls.doc_entry == inv.doc_entry).limit(1)):
+        return  # installments: reconcile the credit memo with the installments in a payment
     inv_line, cm_line = _bp_line(ctx.session, inv), _bp_line(ctx.session, cm)
     if inv_line is None or cm_line is None:
         return

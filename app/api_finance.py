@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_session
-from app.models.admin import Currency, ExchangeRate, PaymentTerms, PostingPeriod, TaxGroup
+from app.models.admin import CashDiscount, Currency, ExchangeRate, PaymentTerms, PostingPeriod, TaxGroup
 from app.models.finance import DRAWERS, Account, JournalEntry
 from app.services import journal, reports, tax
 from app.services.admin import B1Error, company
@@ -83,14 +83,92 @@ def lookups(s: Session = Depends(get_session)) -> dict:
                         "components": [{"sta_code": a.code, "rate": r} for a, r in tax.components(s, t)]}
                        for t in s.scalars(select(TaxGroup).order_by(TaxGroup.category.desc(), TaxGroup.rate, TaxGroup.code))],
         "payment_terms": [_terms_out(p) for p in s.scalars(select(PaymentTerms).order_by(PaymentTerms.group_num))],
+        "cash_discounts": [_cdc_out(s, c) for c in s.scalars(select(CashDiscount).order_by(CashDiscount.code))],
     }
+
+
+def _cdc_out(s: Session, c) -> dict:
+    from app.models.admin import CashDiscountLine
+
+    return {"code": c.code, "name": c.name, "tiers": [
+        {"num_of_days": t.num_of_days, "discount": t.discount}
+        for t in s.scalars(select(CashDiscountLine).where(CashDiscountLine.cdc_code == c.code).order_by(CashDiscountLine.num_of_days))]}
+
+
+class CashDiscountTierIn(BaseModel):
+    num_of_days: int = Field(..., ge=0)
+    discount: Decimal = Field(..., gt=0, lt=100)
+
+
+class CashDiscountIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=8)
+    name: str = Field(..., max_length=30)
+    tiers: list[CashDiscountTierIn]
+
+
+@router.post("/admin/cash-discounts", tags=["Administration"], summary="Add / change a cash discount (OCDC + CDC1)")
+def save_cash_discount(body: CashDiscountIn, s: Session = Depends(get_session)) -> dict:
+    from app.models.admin import CashDiscountLine
+
+    if not body.tiers:
+        raise HTTPException(status_code=422, detail="Enter at least one tier (days, discount %)")
+    days = [t.num_of_days for t in body.tiers]
+    if len(set(days)) != len(days):
+        raise HTTPException(status_code=422, detail="Each number of days can appear only once")
+    c = s.get(CashDiscount, body.code) or CashDiscount(code=body.code, by_date="N")
+    c.name = body.name
+    s.merge(c)
+    s.flush()
+    for row in s.scalars(select(CashDiscountLine).where(CashDiscountLine.cdc_code == body.code)):
+        s.delete(row)
+    s.flush()
+    for n, t in enumerate(sorted(body.tiers, key=lambda t: t.num_of_days), start=1):
+        s.add(CashDiscountLine(cdc_code=body.code, line_id=n, num_of_days=t.num_of_days, discount=t.discount))
+    s.commit()
+    return _cdc_out(s, s.get(CashDiscount, body.code))
 
 
 def _terms_out(p: PaymentTerms) -> dict:
     return {"group_num": p.group_num, "name": p.pymnt_group, "bsline_date": p.bsline_date,
             "pay_du_month": p.pay_du_month, "extra_month": p.extra_month, "extra_days": p.extra_days,
             "tol_days": p.tol_days, "discount_pct": p.discount_pct, "list_num": p.list_num,
-            "cred_limit": p.cred_limit, "oblig_limit": p.oblig_limit}
+            "cred_limit": p.cred_limit, "oblig_limit": p.oblig_limit, "cdc_code": p.cdc_code, "inst_num": p.inst_num,
+            "installments": [{"ints_no": i.ints_no, "inst_month": i.inst_month, "inst_days": i.inst_days,
+                              "inst_prcnt": i.inst_prcnt} for i in _installment_plan(p)]}
+
+
+def _installment_plan(p: PaymentTerms) -> list:
+    from sqlalchemy.orm import object_session
+
+    from app.models.admin import PaymentTermsInstallment
+
+    return object_session(p).scalars(select(PaymentTermsInstallment).where(
+        PaymentTermsInstallment.ctg_code == p.group_num).order_by(PaymentTermsInstallment.ints_no)).all()
+
+
+class InstallmentIn(BaseModel):
+    inst_month: int = Field(0, ge=0)
+    inst_days: int = Field(0, ge=0)
+    inst_prcnt: Decimal = Field(..., gt=0, le=100)
+
+
+def _save_terms_extras(s: Session, p: PaymentTerms, cdc_code: str | None, installments: list) -> None:
+    """Cash discount and installment plan of payment terms (installment shares must total 100 %)."""
+    from app.models.admin import CashDiscount, PaymentTermsInstallment
+
+    if cdc_code and s.get(CashDiscount, cdc_code) is None:
+        raise HTTPException(status_code=422, detail=f"Cash discount {cdc_code} does not exist")
+    if installments and (len(installments) < 2 or sum(i.inst_prcnt for i in installments) != 100):
+        raise HTTPException(status_code=422, detail="Installments: at least two, with shares totalling 100 %")
+    p.cdc_code = cdc_code or None
+    p.inst_num = len(installments)
+    s.flush()
+    for row in s.scalars(select(PaymentTermsInstallment).where(PaymentTermsInstallment.ctg_code == p.group_num)):
+        s.delete(row)
+    s.flush()
+    for n, i in enumerate(installments, start=1):
+        s.add(PaymentTermsInstallment(ctg_code=p.group_num, ints_no=n, inst_month=i.inst_month, inst_days=i.inst_days,
+                                      inst_prcnt=i.inst_prcnt))
 
 
 class PaymentTermsIn(BaseModel):
@@ -104,6 +182,8 @@ class PaymentTermsIn(BaseModel):
     list_num: int | None = None
     cred_limit: Decimal = Field(Decimal("0"), ge=0)
     oblig_limit: Decimal = Field(Decimal("0"), ge=0)
+    cdc_code: str | None = Field(None, max_length=8)
+    installments: list[InstallmentIn] = []
 
 
 @router.post("/admin/payment-terms", tags=["Administration"], summary="Add payment terms (OCTG)")
@@ -111,9 +191,11 @@ def add_payment_terms(body: PaymentTermsIn, s: Session = Depends(get_session)) -
     from sqlalchemy import func
 
     num = max(s.scalar(select(func.max(PaymentTerms.group_num))) or 0, 0) + 1
-    data = body.model_dump()
+    data = body.model_dump(exclude={"cdc_code", "installments"})
     p = PaymentTerms(group_num=num, pymnt_group=data.pop("name"), **data)
     s.add(p)
+    s.flush()
+    _save_terms_extras(s, p, body.cdc_code, body.installments)
     s.commit()
     return _terms_out(p)
 
@@ -123,10 +205,11 @@ def update_payment_terms(group_num: int, body: PaymentTermsIn, s: Session = Depe
     p = s.get(PaymentTerms, group_num)
     if p is None:
         raise HTTPException(status_code=404, detail="Payment terms not found")
-    data = body.model_dump()
+    data = body.model_dump(exclude={"cdc_code", "installments"})
     p.pymnt_group = data.pop("name")
     for key, value in data.items():
         setattr(p, key, value)
+    _save_terms_extras(s, p, body.cdc_code, body.installments)
     s.commit()
     return _terms_out(p)
 

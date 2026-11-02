@@ -436,7 +436,11 @@ async function docDetail(el, t, entry) {
       ${fcDoc ? `<div><span>Tax (FC)</span><b>${fmt(d.vat_sum_fc)}</b></div><div class="grand"><span>Total (${esc(d.doc_cur)}) at ${Number(d.doc_rate)}</span><b>${fmt(d.doc_total_fc)} ${esc(d.doc_cur)}</b></div>` : ""}
       ${isAR(t) ? `<div><span>Applied amount</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Balance due</span><b>${fmt(d.doc_total - d.paid_to_date)}</b></div>
         ${fcDoc ? `<div><span>Applied amount (FC)</span><b>${fmt(d.paid_fc)}</b></div><div><span>Balance due (FC)</span><b>${fmt(d.doc_total_fc - d.paid_fc)}</b></div>` : ""}` : ""}
-    </div></div>` : `<div class="card-body"><div class="totals"><div class="grand"><span>Total value</span><b>${fmt(d.doc_total)}</b></div></div></div>`}</div>`;
+    </div></div>` : `<div class="card-body"><div class="totals"><div class="grand"><span>Total value</span><b>${fmt(d.doc_total)}</b></div></div></div>`}
+    ${(d.installments || []).length ? `<div class="card-body"><h3 class="section">Installments</h3><table><thead><tr><th>#</th><th>Due date</th><th class="num">Share %</th>
+      <th class="num">Amount</th><th class="num">Paid</th><th>Status</th></tr></thead><tbody>${d.installments.map((i) => `<tr><td>${i.instlmnt_id}</td><td>${i.due_date}</td>
+      <td class="num">${Number(i.inst_prcnt)}</td><td class="num">${fmt(i.ins_total)}</td><td class="num">${fmt(i.paid_to_date)}</td>
+      <td>${i.status === "O" ? '<span class="status O">Open</span>' : '<span class="status C">Closed</span>'}</td></tr>`).join("")}</tbody></table></div>` : ""}</div>`;
   const reload = () => { location.hash = `#/docs?obj=${t.obj}&entry=${d.doc_entry}&r=${Date.now()}`; };
   const cl = $("#doc-close");
   if (cl) cl.onclick = async () => { if (await act(() => post(`/documents/${t.obj}/${d.doc_entry}/close`, {}), "Document closed")) reload(); };

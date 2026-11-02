@@ -6,7 +6,10 @@ from app.models.admin import (
     Currency,
     ExchangeRate,
     NumberingSeries,
+    CashDiscount,
+    CashDiscountLine,
     PaymentTerms,
+    PaymentTermsInstallment,
     PostingPeriod,
     Project,
     SalesEmployee,
@@ -24,13 +27,13 @@ from app.models.finance import (Account, AccountDetermination, ExchangeRateRun, 
 from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatementRow, CheckForReceipt, Deposit,
                                  ExternalReconciliation, ExternalReconciliationLine, HouseBankAccount, IncomingPayment,
                                  OutgoingPayment)
-from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_TABLES, WarehouseJournal
+from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_INSTALLMENTS, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
 
 __all__ = [
     # administration
-    "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms",
+    "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms", "PaymentTermsInstallment", "CashDiscount", "CashDiscountLine",
     "SalesEmployee", "Project", "TransactionCode", "Country", "State", "TaxAuthority", "TaxComponent", "TaxType", "HsnCode", "TaxDetermination",
     # financials
     "Account", "JournalEntry", "JournalLine", "AccountDetermination", "ExchangeRateRun", "ExchangeRateRunLine",
@@ -39,7 +42,7 @@ __all__ = [
     # inventory
     "ItemGroup", "Item", "Manufacturer", "Warehouse", "ItemWarehouse", "PriceList", "ItemPrice",
     # marketing and inventory documents (classes by object type), warehouse journal
-    "DOCUMENT_CLASSES", "DOCUMENT_TABLES", "WarehouseJournal",
+    "DOCUMENT_CLASSES", "DOCUMENT_TABLES", "DOCUMENT_INSTALLMENTS", "WarehouseJournal",
     # banking
     "IncomingPayment", "OutgoingPayment", "PAYMENT_CLASSES", "CheckForReceipt", "Deposit",
     "Bank", "HouseBankAccount", "BankStatement", "BankStatementRow", "ExternalReconciliation", "ExternalReconciliationLine",

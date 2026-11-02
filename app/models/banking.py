@@ -98,7 +98,8 @@ class PaymentInvoice:
     doc_line: Mapped[int] = mapped_column("DocLine")  # JDT1 Line_ID of the partner line
     sum_applied: Mapped[Decimal] = mapped_column("SumApplied", AMOUNT)  # LC; negative for credits
     applied_fc: Mapped[Decimal] = mapped_column("AppliedFC", AMOUNT, default=Decimal("0"))
-    dcnt_sum: Mapped[Decimal] = mapped_column("DcntSum", AMOUNT, default=Decimal("0"))  # Cash discount
+    dcnt_sum: Mapped[Decimal] = mapped_column("DcntSum", AMOUNT, default=Decimal("0"))  # Cash discount (LC)
+    inst_id: Mapped[int | None] = mapped_column("InstId")  # Paid installment of the document (INV6 / PCH6)
 
 
 class PaymentAccount:

@@ -88,7 +88,16 @@ STC1 lines (one tax authority each). Every part is maintained on the Tax Setup s
 | Total discount % | VolumDscnt | number | ✅ |
 | Price list | ListNum | dropdown | ✅ |
 | Max. credit / commitment limit | CredLimit / ObligLimit | number | ✅ |
-| No. of installments, open incoming payment, cash discount, interest on arrears | InstNum, OpenRcpt, CdcCode, … | — | ⏸ installments, cash discount and dunning not in scope |
+| Cash discount | CdcCode (OCDC) | dropdown | ✅ |
+| Installments: number and plan (+ months, + days, share %) | InstNum / CTG1 InstMonth, InstDays, InstPrcnt | number | ✅ shares total 100 % |
+| Open incoming payment, interest on arrears | OpenRcpt, … | — | ⏸ interest with dunning |
+
+### Cash discounts (OCDC / CDC1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Code / name | Code / Name | text | ✅ |
+| Tiers: within days / discount % | CDC1 NumOfDays / Discount | number | ✅ the first tier the payment date falls into applies (days from the document date) |
+| Discount by date, VAT on cash discount, discount on freight | ByDate, … | — | ⏸ |
 
 ### Sales employees / buyers (OSLP)
 | Field | Column | Type | Status |
@@ -392,6 +401,13 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Row status | LineStatus | — | 🔒 |
 | Distribution rules, tax only, blanket agreement, serial/batch numbers, BOM, alternative items | OcrCode, TaxOnly, AgrNo, … | — | ⏸ |
 
+### Installments of invoices (INV6 / PCH6)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
+| Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
+| Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
 ## Inventory documents (goods receipt OIGN, goods issue OIGE, inventory transfer OWTR)
 | Field | Column | Type | Status |
 |---|---|---|---|
@@ -437,7 +453,9 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | Total / balance due | — | number | 🔒 |
 | Total payment | SumApplied (LC) / AppliedFC (FC part of the item) | number | ✅ partial payments; an FC item is paid in its currency when the payment is in that currency (realized exchange difference) |
 | Journal entry / line of the item | DocTransId / DocLine | — | 🔒 |
-| Cash discount, overdue days, installment | DcntSum, InstId | — | ⏸ cash discount and installments not built |
+| Cash discount | DcntSum | number | ✅ pre-filled with the discount allowed on the payment date; the item is then settled completely; posted to cash discount allowed (615000) / received (722000) |
+| Installment | InstId | — | 🔒 |
+| Overdue days | — | — | ⏸ |
 
 ### G/L account lines of an account payment (RCT4 / VPM4)
 | Field | Column | Type | Status |
@@ -508,7 +526,7 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 
 | B1 function | Why not (yet) |
 |---|---|
-| Payment wizard, payment methods, installments, cash discount, credit cards, bills of exchange, dunning | not in the agreed scope |
+| Payment wizard, payment methods, credit cards, bills of exchange, dunning | next on the priority list (dunning, payment wizard) / not in scope |
 | Bank statement formats (MT940, camt.053), FC bank account reconciliation | not built yet |
 | Conversion differences (system currency) | not built yet |
 | Freight / additional expenses (OEXD), document rounding, down payments | not in the agreed scope |

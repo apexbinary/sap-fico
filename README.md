@@ -16,6 +16,7 @@ trademarks of SAP SE.
 | Inventory — goods receipt / issue / transfer, moving-average cost, inventory audit report (OINM) | ✅ |
 | Foreign currency — documents and journal entries in foreign currencies, open FC amounts, realized exchange differences on payment and reconciliation | ✅ |
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
+| Cash discount and installments — discount tiers on payment terms, discount on payment, installment invoices paid per installment | ✅ |
 | Exchange rate differences — revaluation of open FC items (unrealized, auto-reversed) and FC G/L accounts | ✅ |
 | Bank statements and reconciliation — house banks, statements (manual or CSV import), processing rows into payments / journal entries, automatic and manual external reconciliation, bank reconciliation statement | ✅ |
 | Tax setup — tax types, tax authorities, tax codes with components, HSN / SAC codes, tax code determination rules | ✅ |

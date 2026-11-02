@@ -32,6 +32,15 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
            "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
     if detail:
+        from app.models.documents import DOCUMENT_INSTALLMENTS
+        from sqlalchemy.orm import object_session
+
+        cls = DOCUMENT_INSTALLMENTS.get(doc.obj_type)
+        out["installments"] = [{"instlmnt_id": i.instlmnt_id, "due_date": i.due_date, "ins_total": i.ins_total,
+                                "ins_total_fc": i.ins_total_fc, "paid_to_date": i.paid_to_date, "paid_fc": i.paid_fc,
+                                "status": i.status, "inst_prcnt": i.inst_prcnt}
+                               for i in object_session(doc).scalars(select(cls).where(cls.doc_entry == doc.doc_entry)
+                                                                    .order_by(cls.instlmnt_id))] if cls else []
         out.update(address=doc.address, address2=doc.address2, pay_to_code=doc.pay_to_code,
                    ship_to_code=doc.ship_to_code)
         out["lines"] = [{"line_num": l.line_num, "line_status": l.line_status, "item_code": l.item_code,

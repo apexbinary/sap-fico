@@ -174,6 +174,15 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - Cancel: refused if a check is deposited or the amount on account was used; items
   reopen, the JE is reversed. Documents used in an active payment cannot be canceled.
 
+### Cash discount and installments (keep invariant)
+- Invoices (13 / 18) on terms with installments (OCTG InstNum + CTG1) get INV6 / PCH6 rows and
+  one partner JDT1 line per installment (same order); the last installment takes the rest.
+  `documents.installment_for_line` maps a partner line to its installment.
+- Cash discount (OCDC / CDC1 via OCTG CdcCode): allowed % by days from the document date;
+  a discount settles the item completely (sum applied + discount = open); the partner line
+  is posted with paid + discount, the discount on OACP CashDiscAlwAcct / CashDiscRcvAcct.
+- Credit memos copied from installment invoices are not auto-reconciled (use a payment).
+
 ### Exchange rate differences (keep invariant)
 - BP open FC items: difference (open FC x rate of the date - open LC) posted on the control
   account against unrealized gain / loss (OACP UnrlzGainAcct / UnrlzLossAcct), reversed on the
@@ -199,7 +208,8 @@ CGST/SGST/IGST (116000 other input tax), 211000 sundry creditors (A/P control), 
 goods received not invoiced, 216100/216200/216300 output CGST/SGST/IGST (216000 other),
 411000 sales, 511000 COGS, 512000 price variance, 513000 stock adjustments, 6xxxxx
 expenses, 711000/712000 exchange gain/loss, 713000/714000 unrealized exchange gain/loss,
-721000 interest income. Tax codes OCS5/12/18/28 (output CGST + SGST),
+721000 interest income, 615000 cash discount allowed, 722000 cash discount received.
+Payment terms 4 = 2 % 10 days / 1 % 20 days, net 30; 5 = 3 installments 30/60/90. Tax codes OCS5/12/18/28 (output CGST + SGST),
 OIG5/12/18/28 (output IGST), ONIL, and the input equivalents ICS.., IIG.., INIL;
 payment terms -1 cash, 1 net 30, 2 net 60, 3 end of next month.
 BP groups 100 Customers, 101 Wholesale, 102 Vendors; customers C10000-C30000,

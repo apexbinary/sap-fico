@@ -149,6 +149,8 @@ class AccountDetermination(Base):
     checks_received: Mapped[str] = mapped_column("ChecksRcvdAcct", String(15), server_default="117000")  # Incoming checks
     unreal_gain: Mapped[str] = mapped_column("UnrlzGainAcct", String(15), server_default="713000")  # Unrealized exchange gain
     unreal_loss: Mapped[str] = mapped_column("UnrlzLossAcct", String(15), server_default="714000")  # Unrealized exchange loss
+    cash_disc_allowed: Mapped[str] = mapped_column("CashDiscAlwAcct", String(15), server_default="615000")  # Customers' cash discount
+    cash_disc_received: Mapped[str] = mapped_column("CashDiscRcvAcct", String(15), server_default="722000")  # Vendors' cash discount
 
 
 class ExchangeRateRun(Base):

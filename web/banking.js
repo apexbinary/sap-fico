@@ -64,9 +64,10 @@ async function paymentDetail(el, kind, entry) {
       <span style="display:flex;gap:6px">${p.canceled ? "" : '<button class="btn small secondary" id="pay-cancel">Cancel</button>'}
       ${p.trans_id ? `<a class="btn small ghost" href="#/journal?id=${p.trans_id}">Journal entry ${p.trans_id} &#8599;</a>` : ""}</span></div>
     <div class="card-body"><div class="form-grid">${fieldsHtml(defs, { ...p, series: String(p.series || 1) }, "pv")}</div></div>
-    ${p.invoices.length ? `<table><thead><tr><th>Document</th><th>No. / Trans. No.</th><th class="num">Amount applied (LC)</th><th class="num">Applied (item FC)</th></tr></thead><tbody>
+    ${p.invoices.length ? `<table><thead><tr><th>Document</th><th>No. / Trans. No.</th><th class="num">Amount applied (LC)</th><th class="num">Cash discount</th><th>Inst.</th><th class="num">Applied (item FC)</th></tr></thead><tbody>
       ${p.invoices.map((i) => `<tr><td>${docLink(i.inv_type, i.doc_entry, DOC_NAMES[i.inv_type] || PAY_KINDS[i.inv_type === "24" ? "incoming" : "outgoing"]?.name || "Journal entry")}</td>
         <td><a href="#/journal?id=${i.doc_trans_id}">${i.doc_trans_id}</a></td><td class="num">${fmt(i.sum_applied)}</td>
+        <td class="num">${Number(i.dcnt_sum) ? fmt(i.dcnt_sum) : ""}</td><td>${i.inst_id || ""}</td>
         <td class="num">${Number(i.applied_fc) ? fmt(i.applied_fc) : ""}</td></tr>`).join("")}</tbody></table>` : ""}
     ${p.accounts.length ? `<table><thead><tr><th>G/L account</th><th>Name</th><th>Description</th><th>Project</th><th class="num">Amount (LC)</th></tr></thead><tbody>
       ${p.accounts.map((a) => `<tr><td class="mono">${esc(a.acct_code)}</td><td>${esc(name(a.acct_code))}</td><td>${esc(a.descrip || "")}</td><td>${esc(a.prj_code || "")}</td><td class="num">${fmt(a.sum_applied)}</td></tr>`).join("")}</tbody></table>` : ""}
@@ -158,11 +159,11 @@ views.payment = async (c) => {
     }
     $("#p-items-head").textContent = "Open items";
     if (!code) { $("#p-items").innerHTML = '<div class="empty">Select a business partner.</div>'; recalc(); return; }
-    const [items, bp] = await Promise.all([api(`/payments/open-items?card_code=${encodeURIComponent(code)}`), api(`/partners/${encodeURIComponent(code)}`)]);
+    const [items, bp] = await Promise.all([api(`/payments/open-items?card_code=${encodeURIComponent(code)}&on=${$("#p-doc_date").value}`), api(`/partners/${encodeURIComponent(code)}`)]);
     $("#p-cntct_code").innerHTML = opt("", "") + bp.contacts.filter((x) => x.active).map((x) => opt(x.cntct_code, x.name, bp.cntct_prsn === x.name ? x.cntct_code : "")).join("");
     // payable direction: incoming pays debit items (invoices), outgoing pays credit items (vendor invoices); the others offset
     $("#p-items").innerHTML = `<table class="lines"><thead><tr><th></th><th>Document</th><th>No.</th><th>Posting date</th><th>Due date</th><th>Remarks</th>
-      <th>Currency</th><th class="num">Total</th><th class="num">Balance due (LC)</th><th class="num">Balance due (FC)</th><th class="num w-amt">Total payment</th><th>in</th></tr></thead><tbody>
+      <th>Currency</th><th class="num">Total</th><th class="num">Balance due (LC)</th><th class="num">Balance due (FC)</th><th>Inst.</th><th class="num">Cash disc.</th><th class="num w-amt">Total payment</th><th>in</th></tr></thead><tbody>
       ${items.map((it, n) => {
         const sign = (it.side === "D") === incoming ? 1 : -1;
         return `<tr data-n="${n}" data-sign="${sign}"><td><input type="checkbox" class="i-pick"></td>
@@ -170,13 +171,18 @@ views.payment = async (c) => {
         <td>${docLink(it.inv_type, it.doc_entry, it.doc_num)}</td><td>${it.ref_date}</td><td>${it.due_date}</td><td>${esc(it.memo || "")}</td>
         <td>${esc(it.currency || main)}</td><td class="num">${fmt(sign * it.amount)}</td><td class="num">${fmt(sign * it.open)}</td>
         <td class="num">${it.currency ? fmt(sign * it.open_fc) : ""}</td>
+        <td>${it.installment ? `${it.installment}` : ""}</td>
+        <td class="num"><input class="i-disc" type="number" step="0.01" min="0" disabled style="width:90px" title="${Number(it.discount_pct) ? `${Number(it.discount_pct)} % allowed` : "no cash discount"}"></td>
         <td class="num"><input class="i-sum" type="number" step="0.01" min="0" disabled></td><td class="i-cur help"></td></tr>`;
-      }).join("") || `<tr><td colspan="12" class="empty">No open items — the payment will be on account.</td></tr>`}</tbody></table>`;
+      }).join("") || `<tr><td colspan="14" class="empty">No open items — the payment will be on account.</td></tr>`}</tbody></table>`;
     $$("#p-items tr[data-n]").forEach((tr) => {
       const pick = $(".i-pick", tr), sum = $(".i-sum", tr);
       tr.item = items[Number(tr.dataset.n)];
-      pick.onchange = () => { sum.disabled = !pick.checked; recalc(); };
+      const disc = $(".i-disc", tr);
+      pick.onchange = () => { sum.disabled = disc.disabled = !pick.checked; recalc(); };
       sum.oninput = recalc;
+      // the cash discount settles the item: amount = balance due - discount
+      disc.oninput = () => { const own = inItemCur(tr.item); sum.value = (Number(own ? tr.item.open_fc : tr.item.open) - Number(disc.value || 0)).toFixed(2); recalc(); };
     });
     itemCurrencies();
     recalc();
@@ -198,7 +204,9 @@ views.payment = async (c) => {
   const itemCurrencies = () => $$("#p-items tr[data-n]").forEach((tr) => {
     const own = inItemCur(tr.item), open = own ? tr.item.open_fc : tr.item.open;
     const sum = $(".i-sum", tr);
-    sum.max = Number(open); sum.value = Number(open).toFixed(2);
+    const discount = Number(own ? tr.item.discount_fc : tr.item.discount) || 0;
+    sum.max = Number(open); sum.value = (Number(open) - discount).toFixed(2);
+    $(".i-disc", tr).value = discount ? discount.toFixed(2) : "";
     $(".i-cur", tr).textContent = own ? tr.item.currency : main;
   });
   const recalc = () => {
@@ -219,6 +227,7 @@ views.payment = async (c) => {
   $("#p-card_code").onchange = loadItems;
   $("#p-doc_curr").onchange = loadRate;
   $("#p-doc_date").addEventListener("change", loadRate);
+  $("#p-doc_date").addEventListener("change", () => { if (type() !== "A") loadItems(); });  // cash discount depends on the date
   ["#p-trsfr_sum", "#p-cash_sum"].forEach((s) => ($(s).oninput = recalc));
   $("#p-check-add").onclick = addCheck;
   fillPartners();
@@ -238,7 +247,8 @@ views.payment = async (c) => {
       if (acct) body.accounts.push({ acct_code: acct, sum_applied: Number($(".a-sum", tr).value || 0), descrip: $(".a-desc", tr).value || null, prj_code: $(".a-prj", tr).value || null });
     });
     else $$("#p-items tr[data-n]").forEach((tr) => {
-      if ($(".i-pick", tr).checked) body.items.push({ trans_id: tr.item.trans_id, line_id: tr.item.line_id, sum_applied: Number($(".i-sum", tr).value || 0) });
+      if ($(".i-pick", tr).checked) body.items.push({ trans_id: tr.item.trans_id, line_id: tr.item.line_id, sum_applied: Number($(".i-sum", tr).value || 0),
+        dcnt_sum: Number($(".i-disc", tr).value || 0) });
     });
     if (!body.trsfr_sum) { body.trsfr_acct = null; body.trsfr_date = null; }
     if (!body.cash_sum) body.cash_acct = null;

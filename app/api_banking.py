@@ -44,15 +44,15 @@ def _pay_out(p, detail: bool = False) -> dict:
                      "trnsfrable": c.trnsfrable == "Y", "check_act": c.check_act, "check_abs": c.check_abs} for c in p.checks],
             invoices=[{"invoice_id": i.invoice_id, "doc_entry": i.doc_entry, "inv_type": i.inv_type,
                        "doc_trans_id": i.doc_trans_id, "doc_line": i.doc_line, "sum_applied": i.sum_applied,
-                       "applied_fc": i.applied_fc} for i in p.invoices],
+                       "applied_fc": i.applied_fc, "dcnt_sum": i.dcnt_sum, "inst_id": i.inst_id} for i in p.invoices],
             accounts=[{"line_id": a.line_id, "acct_code": a.acct_code, "sum_applied": a.sum_applied,
                        "applied_fc": a.applied_fc, "descrip": a.descrip, "prj_code": a.prj_code} for a in p.accounts])
     return out
 
 
 @router.get("/payments/open-items", tags=["Banking"], summary="Open items of a business partner (what a payment can pay)")
-def open_items(card_code: str, s: Session = Depends(get_session)) -> list[dict]:
-    return banking.open_items(s, card_code)
+def open_items(card_code: str, on: date | None = None, s: Session = Depends(get_session)) -> list[dict]:
+    return banking.open_items(s, card_code, on)
 
 
 @router.get("/payments/{kind}", tags=["Banking"], summary="Incoming (ORCT) or outgoing (OVPM) payments, newest first")
@@ -79,6 +79,7 @@ class ItemIn(BaseModel):
     trans_id: int
     line_id: int
     sum_applied: Decimal = Field(..., gt=0)
+    dcnt_sum: Decimal = Field(Decimal("0"), ge=0)
 
 
 class AccountLineIn(BaseModel):

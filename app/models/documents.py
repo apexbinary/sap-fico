@@ -162,6 +162,29 @@ for _prefix, _obj, _header, _lines in DOCUMENT_TABLES:
     globals()[_prefix], globals()[f"{_prefix}Line"] = DOCUMENT_CLASSES[_obj]
 
 
+class DocumentInstallment:
+    """Columns shared by INV6 and PCH6: one installment (due date, amount, paid) of an invoice."""
+
+    instlmnt_id: Mapped[int] = mapped_column("InstlmntID", primary_key=True)  # 1..n
+    due_date: Mapped[date] = mapped_column("DueDate", Date)
+    ins_total: Mapped[Decimal] = mapped_column("InsTotal", AMOUNT)  # LC
+    ins_total_fc: Mapped[Decimal] = mapped_column("InsTotalFC", AMOUNT, default=Decimal("0"))
+    paid_to_date: Mapped[Decimal] = mapped_column("PaidToDate", AMOUNT, default=Decimal("0"))
+    paid_fc: Mapped[Decimal] = mapped_column("PaidFC", AMOUNT, default=Decimal("0"))
+    status: Mapped[str] = mapped_column("Status", String(1), default="O")  # O open, C closed
+    inst_prcnt: Mapped[Decimal] = mapped_column("InstPrcnt", RATE, default=Decimal("0"))
+
+
+# object type -> installment class (A/R invoice INV6, A/P invoice PCH6)
+DOCUMENT_INSTALLMENTS: dict[str, type] = {}
+for _obj, _table, _header in (("13", "inv6", "oinv"), ("18", "pch6", "opch")):
+    DOCUMENT_INSTALLMENTS[_obj] = type(f"{_table.upper()}Installment", (DocumentInstallment, Base), {
+        "__tablename__": _table,
+        "__doc__": f"{_table.upper()} - installments of {_header.upper()}.",
+        "doc_entry": mapped_column("DocEntry", Integer, ForeignKey(f"{_header}.DocEntry"), primary_key=True),
+    })
+
+
 class WarehouseJournal(Base):
     """OINM — Warehouse journal: every stock movement and revaluation with its value."""
 

@@ -58,6 +58,7 @@ class PaidItem:
     line_id: int  # its partner line
     sum_applied: Decimal  # positive: the part of the open amount that is paid, in the item's currency when the
     #                       payment is in that (foreign) currency, else in local currency
+    dcnt_sum: Decimal = ZERO  # cash discount in the same currency; with it the item is settled completely
 
 
 @dataclass
@@ -121,7 +122,7 @@ def get_payment(session: Session, obj: str, doc_entry: int):
 
 
 # ------------------------------------------------------------- open items
-def open_items(session: Session, card_code: str) -> list[dict]:
+def open_items(session: Session, card_code: str, on: date | None = None) -> list[dict]:
     """Open partner lines of a business partner (what a payment can pay), oldest due first."""
     lines = session.scalars(select(JournalLine).where(
         JournalLine.short_name == card_code,
@@ -132,7 +133,15 @@ def open_items(session: Session, card_code: str) -> list[dict]:
         if l.trans_type in INVOICE_TYPES and l.created_by:
             doc = session.get(DOCUMENT_CLASSES[l.trans_type][0], l.created_by)
             doc_total, paid = doc.doc_total, doc.paid_to_date
+        pct, disc, disc_fc = eligible_discount(session, l, on or date.today())
+        inst = None
+        if l.trans_type in INVOICE_TYPES:
+            from app.services.documents import installment_for_line
+
+            inst = installment_for_line(session, l)
         out.append({"trans_id": l.trans_id, "line_id": l.line_id, "inv_type": l.trans_type,
+                    "discount_pct": pct, "discount": disc, "discount_fc": disc_fc,
+                    "installment": inst.instlmnt_id if inst is not None else None,
                     "currency": l.fc_currency, "amount_fc": l.fc_debit or l.fc_credit,
                     "open_fc": l.bal_fc_deb or l.bal_fc_cred,
                     "doc_entry": l.created_by or l.trans_id, "doc_num": l.base_ref or str(l.trans_id),
@@ -141,6 +150,25 @@ def open_items(session: Session, card_code: str) -> list[dict]:
                     "open": l.bal_due_deb or l.bal_due_cred, "doc_total": doc_total, "paid_to_date": paid,
                     "overdue_days": None})
     return out
+
+
+def eligible_discount(session: Session, line: JournalLine, on: date) -> tuple[Decimal, Decimal, Decimal]:
+    """Cash discount of an open invoice item paid on a date: (%, LC amount, FC amount) of its open amount."""
+    from app.models.admin import CashDiscountLine, PaymentTerms
+
+    if line.trans_type not in {"13", "18"} or not line.created_by:
+        return ZERO, ZERO, ZERO
+    doc = session.get(DOCUMENT_CLASSES[line.trans_type][0], line.created_by)
+    terms = session.get(PaymentTerms, doc.group_num) if doc.group_num is not None else None
+    if terms is None or not terms.cdc_code:
+        return ZERO, ZERO, ZERO
+    days = (on - doc.doc_date).days
+    tiers = session.scalars(select(CashDiscountLine).where(CashDiscountLine.cdc_code == terms.cdc_code)
+                            .order_by(CashDiscountLine.num_of_days)).all()
+    pct = next((t.discount for t in tiers if days <= t.num_of_days), ZERO)
+    open_lc = line.bal_due_deb or line.bal_due_cred
+    open_fc = line.bal_fc_deb or line.bal_fc_cred
+    return pct, money(open_lc * pct / 100), money(open_fc * pct / 100)
 
 
 def _apply_to_item(session: Session, line: JournalLine, amount: Decimal, amount_fc: Decimal = ZERO) -> None:
@@ -155,6 +183,13 @@ def _apply_to_item(session: Session, line: JournalLine, amount: Decimal, amount_
         doc = session.get(DOCUMENT_CLASSES[line.trans_type][0], line.created_by)
         doc.paid_to_date += amount
         doc.paid_fc += amount_fc
+        from app.services.documents import installment_for_line
+
+        inst = installment_for_line(session, line)
+        if inst is not None:
+            inst.paid_to_date += amount
+            inst.paid_fc += amount_fc
+            inst.status = "C" if inst.paid_to_date >= inst.ins_total else "O"
         if doc.canceled == "N":
             doc.doc_status = "C" if doc.paid_to_date >= doc.doc_total else "O"
     elif line.trans_type in PAYMENT_CLASSES and line.created_by:
@@ -240,7 +275,7 @@ def _create(session: Session, req: PaymentRequest):
     means_lc = cash_lc + trsfr_lc + checks_lc
 
     # paid items -> signed applied amounts (LC; FC of the item; payment currency): positive increases the payment
-    applied, due_pc, items, seen = ZERO, ZERO, [], set()
+    applied, due_pc, discounts, items, seen = ZERO, ZERO, ZERO, [], set()
     for it in req.items:
         line = session.get(JournalLine, (it.trans_id, it.line_id))
         if line is None or line.short_name != bp.card_code or line.short_name == line.account:
@@ -249,25 +284,39 @@ def _create(session: Session, req: PaymentRequest):
             raise B1Error(f"Item {it.trans_id}/{it.line_id} is selected twice")
         seen.add((it.trans_id, it.line_id))
         amount = money(it.sum_applied)
+        disc = money(it.dcnt_sum or 0)
         open_lc = line.bal_due_deb or line.bal_due_cred
         open_fc = line.bal_fc_deb or line.bal_fc_cred
         in_item_currency = curr != main and line.fc_currency == curr and open_fc > 0
         open_amt = open_fc if in_item_currency else open_lc
-        if amount <= 0 or amount > open_amt:
+        if amount <= 0 or amount + disc > open_amt:
             raise B1Error(f"Item {line.base_ref or line.trans_id}: the amount to pay must be between 0 and the open "
                           f"amount {open_amt.normalize()}")
+        if disc:
+            if disc < 0:
+                raise B1Error("A cash discount cannot be negative")
+            _, cap_lc, cap_fc = eligible_discount(session, line, req.doc_date)
+            if disc > (cap_fc if in_item_currency else cap_lc):
+                raise B1Error(f"Item {line.base_ref or line.trans_id}: the cash discount allowed on {req.doc_date.isoformat()} "
+                              f"is {(cap_fc if in_item_currency else cap_lc)}")
+            if amount + disc != open_amt:
+                raise B1Error(f"Item {line.base_ref or line.trans_id}: with a cash discount the item must be paid completely")
+        total = amount + disc  # what the item is reduced by
         if in_item_currency:  # paid in its own currency: LC at the item's rate; the rate difference is realized
-            fc_part = amount
-            lc_part = open_lc if amount == open_fc else money(open_lc * amount / open_fc)
+            fc_part = total
+            lc_part = open_lc if total == open_fc else money(open_lc * total / open_fc)
+            disc_lc = money(lc_part * disc / total) if disc else ZERO
             pc_part = amount
         else:
-            lc_part = amount
-            fc_part = open_fc if amount == open_lc else money(open_fc * amount / open_lc) if open_lc else ZERO
+            lc_part = total
+            fc_part = open_fc if total == open_lc else money(open_fc * total / open_lc) if open_lc else ZERO
+            disc_lc = disc
             pc_part = amount / rate
         sign = 1 if bool(line.debit) == incoming else -1
-        applied += sign * lc_part
+        applied += sign * (lc_part - disc_lc)
+        discounts += sign * disc_lc
         due_pc += sign * pc_part
-        items.append((line, lc_part, sign * lc_part, fc_part, sign * fc_part))
+        items.append((line, lc_part, sign * (lc_part - disc_lc), fc_part, sign * fc_part, disc_lc))
 
     accounts = []
     for n, a in enumerate(req.accounts):
@@ -301,7 +350,7 @@ def _create(session: Session, req: PaymentRequest):
             raise B1Error(f"The payment means ({means_pc}) are lower than the amount to pay ({money(due_pc)})")
         else:
             raise B1Error(f"The payment means exceed the amount to pay by {money(balance_pc)}; select payment on account")
-        if means_lc == 0 and applied != 0:
+        if means_lc == 0 and applied != 0 and not discounts:
             raise B1Error(f"The selected items do not balance (difference {applied}); add payment means")
         if means_lc == 0 and not items:
             raise B1Error("Enter payment means or select items to reconcile")
@@ -330,10 +379,14 @@ def _create(session: Session, req: PaymentRequest):
                                     bank_code=c.bank_code, branch=c.branch, acct_num=c.acct_num,
                                     country_cod=c.country_cod, check_sum=money(c.check_sum),
                                     trnsfrable="Y" if c.trnsfrable else "N", check_act=check_acct))
-    for n, (line, _lc, signed, _fc, signed_fc) in enumerate(items):  # AppliedFC: the item's FC part
+    from app.services.documents import installment_for_line
+
+    for n, (line, _lc, signed, _fc, signed_fc, disc_lc) in enumerate(items):  # AppliedFC: the item's FC part
+        inst = installment_for_line(session, line) if line.trans_type in INVOICE_TYPES else None
         pay.invoices.append(inv_cls(invoice_id=n, doc_entry=line.created_by or line.trans_id, inv_type=line.trans_type,
                                     doc_trans_id=line.trans_id, doc_line=line.line_id, sum_applied=signed,
-                                    applied_fc=signed_fc))
+                                    applied_fc=signed_fc, dcnt_sum=disc_lc,
+                                    inst_id=inst.instlmnt_id if inst is not None else None))
     for n, (a, fc, amount_lc) in enumerate(accounts):
         pay.accounts.append(acct_cls(line_id=n, acct_code=a.acct_code, sum_applied=amount_lc,
                                      applied_fc=fc if curr != main else ZERO, descrip=a.descrip, prj_code=a.prj_code))
@@ -360,9 +413,11 @@ def _create(session: Session, req: PaymentRequest):
     if chrg:
         add(det.bank_charges, amount=sign * chrg, memo="Bank charges")
     add(check_acct, amount=checks_lc, amount_fc=checks_fc, memo="Checks")
+    if discounts:  # cash discount: customers' allowed (expense), vendors' received (income)
+        add(det.cash_disc_allowed if incoming else det.cash_disc_received, amount=discounts, memo="Cash discount")
     if bp:
         bp_fc = money(due_pc + (on_account / rate if curr != main else ZERO)) if fc else ZERO
-        add(card=bp.card_code, amount=-target, amount_fc=-bp_fc, due=pay.doc_due_date)
+        add(card=bp.card_code, amount=-(target + discounts), amount_fc=-bp_fc, due=pay.doc_due_date)
     for a, a_fc, amount_lc in accounts:
         add(a.acct_code, amount=-amount_lc, amount_fc=a_fc, memo=a.descrip, project=a.prj_code)
     if exch:
@@ -384,7 +439,7 @@ def _create(session: Session, req: PaymentRequest):
             else:
                 own.bal_due_deb, own.bal_fc_deb = on_account, on_account_fc
 
-    for line, lc_part, _signed, fc_part, _signed_fc in items:
+    for line, lc_part, _signed, fc_part, _signed_fc, _disc in items:
         _apply_to_item(session, line, lc_part, fc_part)
 
     if incoming:  # checks received wait in the checks register until they are deposited
@@ -424,7 +479,7 @@ def cancel_payment(session: Session, obj: str, doc_entry: int, cancel_date: date
                 c.canceled = "Y"
         for inv in pay.invoices:  # reopen the paid items
             line = session.get(JournalLine, (inv.doc_trans_id, inv.doc_line))
-            _apply_to_item(session, line, -abs(inv.sum_applied), -abs(inv.applied_fc))
+            _apply_to_item(session, line, -(abs(inv.sum_applied) + inv.dcnt_sum), -abs(inv.applied_fc))
         if pay.trans_id:
             own = _own_line(session, pay)
             if own is not None:

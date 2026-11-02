@@ -37,6 +37,14 @@ from app.models.documents import (
     PostingKey,
     RecurringEntrySchedule,
 )
+from app.models.dunning import (
+    DunningAccount,
+    DunningCharge,
+    DunningItem,
+    DunningLevel,
+    DunningProcedure,
+    DunningRunControl,
+)
 from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
 from app.models.gl_master import (
     FieldStatusGroup,
@@ -64,6 +72,7 @@ from app.models.partners import (
     Customer,
     CustomerBankDetails,
     CustomerCompanyCode,
+    CustomerDunningData,
     SepaMandate,
     Vendor,
     VendorBankDetails,
@@ -104,7 +113,10 @@ __all__ = [
     "WithholdingTaxCode",
     # partners
     "Customer", "CustomerCompanyCode", "Vendor", "VendorCompanyCode", "VendorBankDetails",
-    "CustomerBankDetails", "SepaMandate",
+    "CustomerBankDetails", "SepaMandate", "CustomerDunningData",
+    # dunning
+    "DunningProcedure", "DunningLevel", "DunningCharge", "DunningRunControl",
+    "DunningAccount", "DunningItem",
     # payments
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
     "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",

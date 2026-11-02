@@ -42,6 +42,7 @@ python -m app.verify_payment_run       # F110 proposal, payment run, SEPA files,
 python -m app.verify_fsv               # balance sheet / P&L by FSV, balance carryforward
 python -m app.verify_documents         # park / post parked / delete, reversal, reset clearing
 python -m app.verify_recurring         # recurring entry original + F.14 runs
+python -m app.verify_dunning           # dunning levels, interval, charges, notices
 
 python -m uvicorn app.main:app --reload --port 8000
 # API docs: http://localhost:8000/docs   |   Web UI: http://localhost:8000/
@@ -62,7 +63,7 @@ scratch DB so they don't post test documents into it:
 
 ```bash
 docker run --rm -e DATABASE_URL=sqlite:////tmp/v.db cloned_system-app \
-  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents && python -m app.verify_recurring"
+  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents && python -m app.verify_recurring && python -m app.verify_dunning"
 ```
 
 ## Architecture (dependencies flow inward)
@@ -76,7 +77,8 @@ app/
     gl_master.py       SKA1 SKAT SKB1 T077S T004V/T004G
     documents.py       T003 TBSL NRIV BKPF BSEG GLT0 BKDF
     tax.py             T005 T007A TAXRATE T030K T059P/Z
-    partners.py        KNA1 KNB1 LFA1 LFB1 LFBK KNBK SEPA_MANDATE
+    partners.py        KNA1 KNB1 LFA1 LFB1 LFBK KNBK SEPA_MANDATE KNB5
+    dunning.py         T047A T047B T047C (procedure, levels, charges) MAHNV MHNK MHND
     controlling.py     CSKS CSKA CSKB AUFK CEPC COEP
     assets.py          ANKA T093 T095 TABW ANLA ANLB ANLZ ANLC ANEK ANEP ANLP
     bank.py            BNKA T012 T012K FEBKO FEBEP
@@ -94,6 +96,7 @@ app/
                        post_parked / delete_parked)
     reversal.py        reverse_document (FB08, TBSL-STBSL keys), reset_clearing (FBRA)
     recurring.py       create_recurring (FBD1, BSTAT D, interval X1) / run_recurring (F.14)
+    dunning.py         F150: create_proposal / execute (BSEG-MANST, KNB5) / notice_html
     asset_accounting.py  create_asset, post_acquisition, run_depreciation (straight-line)
     payment_terms.py   T052 -> BSEG terms fields, net due date, cash discount
     clearing.py        post_payment(): F-28/F-53 payments + F-32/F-44/F-03 clearing;
@@ -113,7 +116,7 @@ app/
   api_assets_bank.py /api/assets*, /api/bank*, /api/master/house-banks
   api_payments.py    /api/payments/open-items, /api/payments, /api/clearing
   api_payment_run.py /api/payment-runs (proposal, execute, sepa, sepa-dd, delete)
-  api_periodic.py    /api/recurring (+ run)
+  api_periodic.py    /api/recurring (+ run), /api/dunning-runs (+ execute, notice)
   main.py            FastAPI app; mounts routers under /api and the web UI at /
   seed.py            demo customizing + master data
   verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV,
@@ -152,7 +155,10 @@ scripts/             setup_postgres.sql
   once per REGUH group; groups with an `exception` are skipped.
 - Seed merges must set every primary-key column explicitly (column defaults
   only apply on INSERT, so a missing key makes `merge` insert a duplicate).
-  Runtime state (NRIV-NRLEVEL counters) is only created, never re-merged.
+  Runtime state (NRIV-NRLEVEL counters, KNB5 dunning level/date) is only
+  created, never re-merged.
+- Auto-tax lines take the debit/credit side of their base line (so credit
+  memos reduce output/input tax).
 - `create_all()` also rebuilds a table whose model gained a primary-key column
   (string, default '') and copies its rows (`_rebuild_tables_with_new_key_columns`).
 
@@ -208,6 +214,13 @@ unassigned-account check, balance carryforward to the next year, UI screen.
 Known gaps: FSV maintenance UI (edit nodes/assignments), functional areas,
 carryforward of sub-ledger balances (open items are not year-bound here).
 
+**Dunning — done:** procedure 0001 (4 levels, 14-day interval, 3 grace days,
+charges from level 2), proposal with level rise of at most one per run,
+credit offset, interval/block/minimum checks, run updating BSEG-MANST/MADAT
+and KNB5, printable HTML notices, UI. Known gaps: dunning interest, dunning
+areas, vendors with debit balances; T047A/B/C and MAHNV/MHNK/MHND non-key
+column names need checking against the SAP DDIC.
+
 **Recurring entries — done:** originals (BSTAT 'D', interval X1) with BKDF schedule,
 F.14 run with month-end clamping and no double posting, deletion, UI.
 
@@ -220,8 +233,8 @@ Known gaps: changing a parked document, asset reversal (AB08), mass reversal.
 
 1. ~~Payments~~ — complete (see Status).
 2. ~~Financial Statement Version~~ — done (see Status).
-3. **Dunning** (FBMP/F150), **foreign-currency valuation** (FAGL_FCV).
-   Reversal, parking and recurring entries are done.
+3. **Foreign-currency valuation** (FAGL_FCV) and realized FX differences on
+   clearing. Reversal, parking, recurring entries and dunning are done.
 4. **PostgreSQL cutover** (see HANDOFF.md) and Alembic migrations.
 5. More CO: assessments/distributions, internal order settlement, CO-PA.
 

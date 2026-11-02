@@ -1,18 +1,21 @@
-"""REST endpoints for periodic processing: recurring entries."""
+"""REST endpoints for periodic processing: recurring entries and dunning."""
 
 from __future__ import annotations
 
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import _request
 from app.config import settings
 from app.database import get_session
+from app.models.dunning import DunningRunControl
 from app.schemas import DocumentIn
-from app.services import recurring
+from app.services import dunning, recurring
 from app.services.fiscal import PostingError
 
 router = APIRouter(tags=["Periodic processing"])
@@ -65,3 +68,59 @@ def delete_recurring(bukrs: str, gjahr: int, belnr: str, mandt: str = Query(defa
                      s: Session = Depends(get_session)) -> dict:
     _run_or_422(lambda: recurring.delete_recurring(s, _m(mandt), bukrs, belnr, gjahr))
     return {"deleted": f"{belnr.zfill(10)}/{gjahr}"}
+
+
+class DunningProposalIn(BaseModel):
+    laufd: date = Field(..., description="Run date")
+    laufi: str = Field(..., min_length=1, max_length=6, description="Run identification")
+    ausdt: date = Field(..., description="Dunning date (issue date of the notices)")
+    bukrs: str
+    kunnr_low: str | None = None
+    kunnr_high: str | None = None
+
+
+@router.get("/dunning-runs", summary="Dunning runs")
+def list_dunning_runs(bukrs: str | None = None, mandt: str = Query(default=None),
+                      s: Session = Depends(get_session)) -> list[dict]:
+    stmt = select(DunningRunControl).where(DunningRunControl.mandt == _m(mandt))
+    if bukrs:
+        stmt = stmt.where(DunningRunControl.bukrs == bukrs)
+    runs = s.scalars(stmt.order_by(DunningRunControl.laufd.desc(), DunningRunControl.laufi)).all()
+    return [dunning.run_summary(r, with_items=False) for r in runs]
+
+
+@router.post("/dunning-runs/proposal", summary="Create the dunning proposal (F150)")
+def dunning_proposal(body: DunningProposalIn, mandt: str = Query(default=None),
+                     s: Session = Depends(get_session)) -> dict:
+    run = _run_or_422(lambda: dunning.create_proposal(
+        s, _m(mandt), laufd=body.laufd, laufi=body.laufi.upper(), ausdt=body.ausdt, bukrs=body.bukrs,
+        kunnr_low=body.kunnr_low.zfill(10) if body.kunnr_low else None,
+        kunnr_high=body.kunnr_high.zfill(10) if body.kunnr_high else None,
+    ))
+    return dunning.run_summary(run)
+
+
+@router.get("/dunning-runs/{laufd}/{laufi}", summary="Display a dunning run")
+def get_dunning_run(laufd: date, laufi: str, mandt: str = Query(default=None),
+                    s: Session = Depends(get_session)) -> dict:
+    return dunning.run_summary(_run_or_422(lambda: dunning.get_run(s, _m(mandt), laufd, laufi)))
+
+
+@router.delete("/dunning-runs/{laufd}/{laufi}", summary="Delete the dunning proposal")
+def delete_dunning_run(laufd: date, laufi: str, mandt: str = Query(default=None),
+                       s: Session = Depends(get_session)) -> dict:
+    _run_or_422(lambda: dunning.delete_proposal(s, _m(mandt), laufd, laufi))
+    return {"deleted": f"{laufd.isoformat()}/{laufi}"}
+
+
+@router.post("/dunning-runs/{laufd}/{laufi}/execute", summary="Execute the dunning run (set dunning levels)")
+def execute_dunning_run(laufd: date, laufi: str, mandt: str = Query(default=None),
+                        s: Session = Depends(get_session)) -> dict:
+    return dunning.run_summary(_run_or_422(lambda: dunning.execute(s, _m(mandt), laufd, laufi)))
+
+
+@router.get("/dunning-runs/{laufd}/{laufi}/notice/{kunnr}", response_class=HTMLResponse,
+            summary="Printable dunning notice")
+def dunning_notice(laufd: date, laufi: str, kunnr: str, mandt: str = Query(default=None),
+                   s: Session = Depends(get_session)) -> str:
+    return _run_or_422(lambda: dunning.notice_html(s, _m(mandt), laufd, laufi, kunnr))

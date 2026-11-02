@@ -8,6 +8,7 @@ Tables modelled here:
     LFBK   Vendor master   — bank details
     KNBK   Customer master — bank details
     SEPA_MANDATE  SEPA direct debit mandates (customer -> our creditor ID)
+    KNB5   Customer master — dunning data per company code and dunning area
 
 Open items are not stored in separate BSID/BSIK index tables here; they are
 derived from BSEG line items where the account type is D/K and the clearing
@@ -210,3 +211,22 @@ class SepaMandate(Base):
     sign_city: Mapped[str | None] = mapped_column(String(35))  # Place of signature
     pay_type: Mapped[str] = mapped_column(String(4), default="RCUR")  # RCUR recurring / OOFF one-off
     status: Mapped[str] = mapped_column(String(1), default="1")  # 0 entered, 1 active, 4 locked, 5 cancelled
+
+
+class CustomerDunningData(Base):
+    """KNB5 — Customer master, dunning data (per company code and dunning area)."""
+
+    __tablename__ = "knb5"
+    __table_args__ = (
+        ForeignKeyConstraint(["mandt", "kunnr", "bukrs"], ["knb1.mandt", "knb1.kunnr", "knb1.bukrs"]),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kunnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Customer number
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    maber: Mapped[str] = mapped_column(String(2), primary_key=True, default="")  # Dunning area
+    mahna: Mapped[str] = mapped_column(String(4))  # Dunning procedure
+    mansp: Mapped[str | None] = mapped_column(String(1))  # Dunning block
+    madat: Mapped[date | None] = mapped_column()  # Last dunned on
+    mahns: Mapped[int] = mapped_column(default=0)  # Dunning level
+    knrma: Mapped[str | None] = mapped_column(String(10))  # Dunning recipient

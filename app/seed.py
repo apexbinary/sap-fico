@@ -12,6 +12,7 @@ Creates:
     vendor/customer bank details, a SEPA mandate for the demo customer
   * Payment-difference tolerances (T043G, key ZDI) and open-item G/L account 113109
   * Financial statement version INT and retained earnings 109000 (T030 BIL)
+  * Dunning procedure 0001 (four levels) and dunning data for the demo customer
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
 Run:  python -m app.seed
@@ -33,6 +34,7 @@ from app.models.assets import (
 from app.models.bank import Bank, HouseBank, HouseBankAccount
 from app.models.controlling import CostCenter, CostElement, CostElementCO
 from app.models.documents import DocumentType, NumberRange, PostingKey
+from app.models.dunning import DunningCharge, DunningLevel, DunningProcedure
 from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
 from app.models.gl_master import (
     GLAccountCOA,
@@ -55,6 +57,7 @@ from app.models.partners import (
     Customer,
     CustomerBankDetails,
     CustomerCompanyCode,
+    CustomerDunningData,
     SepaMandate,
     Vendor,
     VendorBankDetails,
@@ -285,6 +288,18 @@ def seed() -> None:
                 s.merge(FSVAccountAssignment(mandt=MANDT, versn="INT", ergsl=ergsl, ktopl=KTOPL,
                                              vonkt=vonkt, biskt=biskt, soll=soll, haben=haben))
 
+        # --- Dunning procedure 0001 (four levels, 14-day interval, 3 grace days) ---
+        s.merge(DunningProcedure(mandt=MANDT, mahna="0001", text1="Four-level dunning, every 14 days",
+                                 rhytm=14, mstuf=4, gracp=3, minbt=Decimal("10.00")))
+        for mahns, verzn, text, always, charge in [
+            (1, 1, "Payment reminder", False, "0"),
+            (2, 15, "Second reminder", False, "5.00"),
+            (3, 29, "Final reminder", False, "10.00"),
+            (4, 43, "Notice before legal action", True, "25.00"),
+        ]:
+            s.merge(DunningLevel(mandt=MANDT, mahna="0001", mahns=mahns, verzn=verzn, text1=text, xalwy=always))
+            s.merge(DunningCharge(mandt=MANDT, mahna="0001", mahns=mahns, waers="EUR", mahng=Decimal(charge)))
+
         # Default tolerance group: differences up to 2.00 EUR and 1% are posted automatically.
         s.merge(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
 
@@ -292,6 +307,9 @@ def seed() -> None:
         s.merge(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))
         s.merge(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E"))
         s.merge(CustomerBankDetails(mandt=MANDT, kunnr="0000010000", banks="DE", bankl="30000000", bankn="0555666777", koinh="Alpha Retail GmbH", iban="DE81300000000555666777"))
+        # KNB5 holds runtime state (last dunning level/date): create only, never re-merge.
+        if s.get(CustomerDunningData, (MANDT, "0000010000", BUKRS, "")) is None:
+            s.add(CustomerDunningData(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, maber="", mahna="0001"))
         s.merge(SepaMandate(mandt=MANDT, mndid="MND-0000010000-001", snd_type="BUS3007", snd_id="0000010000",
                             snd_name1="Alpha Retail GmbH", snd_iban="DE81300000000555666777", snd_bic="BEDEDEBB",
                             rec_type="BUS0002", rec_id=BUKRS, rec_crdid="DE98ZZZ09999999999", rec_name1="Demo Company AG",

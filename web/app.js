@@ -567,6 +567,76 @@ views.recurring = async (c) => {
   }));
 };
 
+// ---------- Dunning (F150) ----------
+views.dunning = async (c) => {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const runs = await api(`/dunning-runs?bukrs=${state.bukrs}`);
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Dunning</h1>
+      <div class="sub">F150 · proposal → dunning run (sets item and account dunning levels) → notices</div></div></div>
+    <div class="card"><div class="card-head">Dunning Runs</div>
+      <table><thead><tr><th>Run date</th><th>Identification</th><th>Dunning date</th><th>Status</th><th class="num">Notices</th><th class="num">Overdue</th><th class="num">Charges</th><th class="num">Listed only</th></tr></thead>
+      <tbody>${runs.map((r) => `<tr style="cursor:pointer" onclick="location.hash='#/dunning?run=${r.laufd}:${r.laufi}'">
+        <td>${r.laufd}</td><td class="mono">${esc(r.laufi)}</td><td>${r.ausdt}</td>
+        <td><span class="chip ${r.xecht ? "ok" : "dr"}">${esc(r.status)}</span></td>
+        <td class="num">${r.notices}</td><td class="num">${fmt(r.total)}</td><td class="num">${fmt(r.charges)}</td><td class="num">${r.listed || ""}</td></tr>`).join("")
+        || `<tr><td colspan="8" class="empty">No dunning runs yet.</td></tr>`}</tbody></table></div>
+    <div class="card"><div class="card-head">Parameters</div><div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label class="req">Run date</label><input id="d-laufd" type="date" value="${todayISO()}"></div>
+        <div class="field"><label class="req">Identification</label><input id="d-laufi" maxlength="6" value="M${runs.filter((r) => r.laufd === todayISO()).length + 1}"></div>
+        <div class="field"><label class="req">Dunning date</label><input id="d-ausdt" type="date" value="${todayISO()}"></div>
+        <div class="field"><label>Customer from</label><input id="d-low" placeholder="all"></div>
+        <div class="field"><label>Customer to</label><input id="d-high" placeholder="all"></div>
+      </div>
+      <button class="btn" id="d-propose" style="margin-top:12px">Create Proposal</button>
+      <div class="help">Customers with dunning data (procedure 0001 for the demo customer). A level rises by at most one per run; the dunning interval is 14 days.</div>
+    </div></div>
+    <div id="d-detail"></div>`;
+
+  $("#d-propose").onclick = async () => {
+    const body = { laufd: $("#d-laufd").value, laufi: $("#d-laufi").value, ausdt: $("#d-ausdt").value, bukrs: state.bukrs,
+      kunnr_low: $("#d-low").value || null, kunnr_high: $("#d-high").value || null };
+    try {
+      const r = await api("/dunning-runs/proposal", { method: "POST", body: JSON.stringify(body) });
+      toast(`Proposal ${r.laufi}: ${r.notices} notice(s), ${r.listed} listed only`, "good");
+      location.hash = `#/dunning?run=${r.laufd}:${r.laufi}`;
+    } catch (e) { toast(e.message, "bad"); }
+  };
+
+  const sel = q.get("run");
+  if (!sel) return;
+  const [laufd, laufi] = sel.split(":");
+  const path = `/dunning-runs/${laufd}/${encodeURIComponent(laufi)}`;
+  const r = await api(path);
+  const name = (k) => (state.customers.find((x) => x.kunnr === k) || {}).name1 || "";
+  $("#d-detail").innerHTML = `<div class="card"><div class="card-head">
+      <span>Run ${r.laufd} / ${esc(r.laufi)} · dunning date ${r.ausdt} · <span class="chip ${r.xecht ? "ok" : "dr"}">${esc(r.status)}</span></span>
+      <span style="display:flex;gap:8px">${r.xecht ? "" : `<button class="btn small secondary" id="d-del">Delete proposal</button>
+        <button class="btn small" id="d-exec" ${r.notices ? "" : "disabled"}>Execute dunning run</button>`}</span></div>
+    <table><thead><tr><th>Customer</th><th>Name</th><th>Level</th><th class="num">Overdue</th><th class="num">Charge</th><th>Notice</th></tr></thead>
+    <tbody>${r.accounts.map((a) => `<tr>
+        <td class="mono">${a.kunnr}</td><td>${esc(name(a.kunnr))}</td><td>${a.mahnv} → <strong>${a.mahns}</strong></td>
+        <td class="num">${fmt(a.salhw)}</td><td class="num">${Number(a.mahng) ? fmt(a.mahng) : ""}</td>
+        <td>${a.xmflg ? `<a class="btn small ghost" target="_blank" href="/api${path}/notice/${a.kunnr}">Open notice</a>` : `<span class="help">${esc(a.reason || "")}</span>`}</td></tr>
+      ${a.items.map((i) => `<tr class="sub-row"><td></td><td class="mono help">↳ <a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a> ${esc(i.xblnr || "")}</td>
+        <td class="help">${i.shkzg === "S" ? `${i.manst} → ${i.mahnn}` : "credit"}${i.mansp ? ` · block ${esc(i.mansp)}` : ""}</td>
+        <td class="num help">${fmt(i.dmshb)}</td><td class="help">${i.shkzg === "S" ? `due ${i.faedt} · ${i.verzn} days` : ""}</td><td></td></tr>`).join("")}`).join("")
+      || `<tr><td colspan="6" class="empty">No overdue items.</td></tr>`}</tbody></table></div>`;
+
+  if (!r.xecht) {
+    $("#d-del").onclick = async () => {
+      try { await api(path, { method: "DELETE" }); toast("Proposal deleted", "good"); location.hash = "#/dunning"; }
+      catch (e) { toast(e.message, "bad"); }
+    };
+    $("#d-exec").onclick = async () => {
+      if (!confirm(`Issue ${r.notices} notice(s) and raise the dunning levels? This cannot be undone.`)) return;
+      try { await api(`${path}/execute`, { method: "POST", body: "{}" }); toast("Dunning run executed", "good"); route(); }
+      catch (e) { toast(e.message, "bad"); }
+    };
+  }
+};
+
 // ---------- Automatic Payment Program (F110) ----------
 const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 

@@ -211,6 +211,9 @@ class AccountingDocumentItem(Base):
     wskto: Mapped[Decimal | None] = mapped_column(AMOUNT)  # Cash discount amount (document)
     zlsch: Mapped[str | None] = mapped_column(String(1))  # Payment method
     zlspr: Mapped[str | None] = mapped_column(String(1))  # Payment block
+    manst: Mapped[int | None] = mapped_column()  # Dunning level
+    madat: Mapped[date | None] = mapped_column()  # Last dunned on
+    mansp: Mapped[str | None] = mapped_column(String(1))  # Dunning block
     rebzg: Mapped[str | None] = mapped_column(String(10))  # Invoice ref (document number)
     rebzj: Mapped[int | None] = mapped_column()  # Invoice ref fiscal year
     rebzz: Mapped[int | None] = mapped_column()  # Invoice ref line item

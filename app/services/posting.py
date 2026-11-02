@@ -267,8 +267,10 @@ def _post(
             rl.wmwst = tax_amt
             rl.mwsts = _to_local(tax_amt, req.kursf)
             rl.ktosl = detail["ktosl"]
-            # Output tax (MWS) is a credit; input tax (VST) is a debit.
-            tax_shkzg = "H" if detail["mwart"] == "A" else "S"
+            # The tax line takes the side of its base line: revenue (credit) carries
+            # output tax as a credit, a sales credit memo (debit) reduces it with a
+            # debit; expenses / vendor credit memos do the same for input tax.
+            tax_shkzg = pk.shkzg
             tax_acct = tax_svc.tax_account(
                 session, mandt, ktopl, detail["ktosl"], ln.mwskz, req.bukrs,
             )

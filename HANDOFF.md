@@ -82,6 +82,7 @@ python -m app.verify_fsv       # balance sheet / P&L by FSV, balance carryforwar
 python -m app.verify_documents # park / post parked, reversal FB08, reset clearing FBRA
 python -m app.verify_recurring # recurring entries (FBD1 + F.14 run)
 python -m app.verify_dunning   # dunning run (F150) and notices
+python -m app.verify_fx        # FX translation, valuation, realized differences
 ```
 
 Each should end with "OK ... the ledger balances."
@@ -131,7 +132,7 @@ account balances, open items) · REST API · web UI.
 
 1. Payments: complete.
 2. Financial Statement Version: done.
-3. FX valuation (reversal, parking, recurring entries and dunning are done).
+3. Done (reversal, parking, recurring entries, dunning, FX).
 4. PostgreSQL cutover + Alembic migrations.
 5. Deeper CO: assessments/distributions, order settlement, CO-PA.
 

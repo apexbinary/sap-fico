@@ -9,6 +9,7 @@ Tables modelled here:
     T042E  Payment methods per company code (amount limits)
     T042I  Bank determination: ranking of house banks per payment method
     T043G  Tolerances for customers/vendors (permitted payment differences)
+    T030H  Exchange rate difference accounts per open-item / reconciliation account
 """
 
 from __future__ import annotations
@@ -125,3 +126,24 @@ class CustomerVendorTolerance(Base):
     prozh: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"))  # Permitted difference: gain, percent
     betrs: Mapped[Decimal] = mapped_column(Numeric(13, 2), default=Decimal("0"))  # Permitted difference: loss, amount
     prozs: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"))  # Permitted difference: loss, percent
+
+
+class ExchangeDifferenceAccounts(Base):
+    """T030H — Accounts for exchange rate differences of an open-item managed account.
+
+    HKONT is a reconciliation account (customers / vendors) or an open-item G/L
+    account. Realized differences arise on clearing; valuation differences are
+    posted by the foreign currency valuation against the balance sheet
+    adjustment account.
+    """
+
+    __tablename__ = "t030h"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    ktopl: Mapped[str] = mapped_column(String(4), primary_key=True)  # Chart of accounts
+    hkont: Mapped[str] = mapped_column(String(10), primary_key=True)  # Open item / reconciliation account
+    lsrea: Mapped[str] = mapped_column(String(10))  # Realized exchange rate loss
+    lhrea: Mapped[str] = mapped_column(String(10))  # Realized exchange rate gain
+    lsbew: Mapped[str] = mapped_column(String(10))  # Valuation loss
+    lhbew: Mapped[str] = mapped_column(String(10))  # Valuation gain
+    lkorr: Mapped[str] = mapped_column(String(10))  # Balance sheet adjustment account

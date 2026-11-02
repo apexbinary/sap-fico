@@ -43,6 +43,7 @@ python -m app.verify_fsv               # balance sheet / P&L by FSV, balance car
 python -m app.verify_documents         # park / post parked / delete, reversal, reset clearing
 python -m app.verify_recurring         # recurring entry original + F.14 runs
 python -m app.verify_dunning           # dunning levels, interval, charges, notices
+python -m app.verify_fx                # FX translation, rounding, valuation, realized differences
 
 python -m uvicorn app.main:app --reload --port 8000
 # API docs: http://localhost:8000/docs   |   Web UI: http://localhost:8000/
@@ -63,7 +64,7 @@ scratch DB so they don't post test documents into it:
 
 ```bash
 docker run --rm -e DATABASE_URL=sqlite:////tmp/v.db cloned_system-app \
-  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents && python -m app.verify_recurring && python -m app.verify_dunning"
+  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents && python -m app.verify_recurring && python -m app.verify_dunning && python -m app.verify_fx"
 ```
 
 ## Architecture (dependencies flow inward)
@@ -85,6 +86,7 @@ app/
     payments.py        T052 (terms of payment) T030 (automatic accounts: SKT/SKE)
                        T042Z T042E T042I (F110 payment methods, limits, bank ranking)
                        T043G (customer/vendor payment-difference tolerances)
+                       T030H (exchange rate difference accounts)
     payment_run.py     REGUV REGUH REGUP (F110 run control, payees, paid items)
     fsv.py             T011 FAGL_011PC FAGL_011ZC (financial statement version)
   services/          business logic (the "application layer")
@@ -97,6 +99,7 @@ app/
     reversal.py        reverse_document (FB08, TBSL-STBSL keys), reset_clearing (FBRA)
     recurring.py       create_recurring (FBD1, BSTAT D, interval X1) / run_recurring (F.14)
     dunning.py         F150: create_proposal / execute (BSEG-MANST, KNB5) / notice_html
+    fx.py              rate (TCURR), valuate (FAGL_FCV with next-day reversal)
     asset_accounting.py  create_asset, post_acquisition, run_depreciation (straight-line)
     payment_terms.py   T052 -> BSEG terms fields, net due date, cash discount
     clearing.py        post_payment(): F-28/F-53 payments + F-32/F-44/F-03 clearing;
@@ -116,7 +119,8 @@ app/
   api_assets_bank.py /api/assets*, /api/bank*, /api/master/house-banks
   api_payments.py    /api/payments/open-items, /api/payments, /api/clearing
   api_payment_run.py /api/payment-runs (proposal, execute, sepa, sepa-dd, delete)
-  api_periodic.py    /api/recurring (+ run), /api/dunning-runs (+ execute, notice)
+  api_periodic.py    /api/recurring (+ run), /api/dunning-runs (+ execute, notice),
+                     /api/exchange-rates, /api/fx-valuation
   main.py            FastAPI app; mounts routers under /api and the web UI at /
   seed.py            demo customizing + master data
   verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV,
@@ -159,6 +163,10 @@ scripts/             setup_postgres.sql
   created, never re-merged.
 - Auto-tax lines take the debit/credit side of their base line (so credit
   memos reduce output/input tax).
+- Foreign-currency documents translate at the TCURR rate (type M) of the
+  posting date unless KURSF is given; cent differences go to the largest
+  translated line. `LineRequest.dmbtr` fixes a line's local amount (clearing
+  offsets each item at its historical rate; the rest is realized FX, T030H).
 - `create_all()` also rebuilds a table whose model gained a primary-key column
   (string, default '') and copies its rows (`_rebuild_tables_with_new_key_columns`).
 
@@ -214,6 +222,13 @@ unassigned-account check, balance carryforward to the next year, UI screen.
 Known gaps: FSV maintenance UI (edit nodes/assignments), functional areas,
 carryforward of sub-ledger balances (open items are not year-bound here).
 
+**Foreign currency — done:** automatic translation with rounding absorption,
+clearing in foreign currency with realized gains/losses (T030H LHREA/LSREA),
+FX valuation of open items with test run, posting against LKORR/LHBEW/LSBEW
+and reversal on the next day, exchange rate maintenance, UI.
+Known gaps: valuation of foreign-currency G/L balances (non open item),
+second/third local currencies, rate types other than M.
+
 **Dunning — done:** procedure 0001 (4 levels, 14-day interval, 3 grace days,
 charges from level 2), proposal with level rise of at most one per run,
 credit offset, interval/block/minimum checks, run updating BSEG-MANST/MADAT
@@ -233,8 +248,7 @@ Known gaps: changing a parked document, asset reversal (AB08), mass reversal.
 
 1. ~~Payments~~ — complete (see Status).
 2. ~~Financial Statement Version~~ — done (see Status).
-3. **Foreign-currency valuation** (FAGL_FCV) and realized FX differences on
-   clearing. Reversal, parking, recurring entries and dunning are done.
+3. ~~Dunning, FX valuation, recurring entries, reversal, parking~~ — done.
 4. **PostgreSQL cutover** (see HANDOFF.md) and Alembic migrations.
 5. More CO: assessments/distributions, internal order settlement, CO-PA.
 

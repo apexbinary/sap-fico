@@ -24,7 +24,12 @@ Cash discount is taken gross from the item's terms of payment when the payment
 date falls in a discount period. Its tax portion (in proportion to the
 invoice's tax lines) corrects the tax account; the net portion goes to the
 T030 account of key SKT (granted to customers) or SKE (received from vendors).
-Not yet supported: clearing in foreign currency (needs FX valuation).
+
+Items in foreign currency are cleared in that currency. The clearing document
+is translated at the rate of the clearing date, except that each cleared item
+is offset at its own historical local amount; the local difference is the
+realized exchange rate gain or loss (T030H LHREA / LSREA of the item's
+reconciliation or open-item account).
 """
 
 from __future__ import annotations
@@ -37,13 +42,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.documents import AccountingDocumentItem
+from app.models.documents import AccountingDocumentItem, PostingKey
 from app.models.gl_master import GLAccountCompanyCode
 from app.models.partners import CustomerCompanyCode, VendorCompanyCode
 from app.models.payments import AutomaticAccountDetermination, CustomerVendorTolerance
-from app.services import payment_terms
+from app.services import fx, payment_terms
 from app.services.fiscal import PostingError, company_code
-from app.services.posting import DocumentRequest, LineRequest, post_document
+from app.services.posting import DocumentRequest, LineRequest, post_document, to_local
 
 MODES = ("clear", "residual", "partial", "on_account")
 _CENT = Decimal("0.01")
@@ -96,6 +101,7 @@ class PaymentRequest:
     bldat: date | None = None  # Document date (defaults to posting date)
     apply_discount: bool = True  # Take cash discount per the items' terms
     blart: str | None = None  # Document type (default DZ / KZ, or AB for pure clearing)
+    waers: str | None = None  # Payment currency for a payment on account (else the items' currency)
     xblnr: str | None = None  # Reference
     bktxt: str | None = None  # Header text
     sgtxt: str | None = None  # Item text on the payment lines
@@ -137,7 +143,13 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
     cc = company_code(session, mandt, req.bukrs)
     if req.koart == "S":
         _check_open_item_account(session, mandt, req.bukrs, req.account)
-    items = [_open_item(session, mandt, req, cc.waers, *key) for key in req.items]
+    items = [_open_item(session, mandt, req, *key) for key in req.items]
+    currencies = {it.header.waers for it in items}
+    if len(currencies) > 1:
+        raise PostingError(f"The selected items are in different currencies ({', '.join(sorted(currencies))})")
+    waers = currencies.pop() if currencies else (req.waers or cc.waers)
+    foreign = waers != cc.waers
+    kursf = fx.rate(session, mandt, waers, cc.waers, req.budat) if foreign else Decimal("1")
 
     if req.mode in ("clear", "residual") and not items:
         raise PostingError("Select at least one open item to clear")
@@ -191,7 +203,7 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
             tol = _tolerance(session, mandt, req.bukrs, req.koart, req.account)
             if tol is None or not _within(tol, req.koart, residual, open_total):
                 raise PostingError(
-                    f"Difference of {residual} {cc.waers} remains (open {open_total}, cash discount "
+                    f"Difference of {residual} {waers} remains (open {open_total}, cash discount "
                     f"{discount}, paid {req.amount}) and exceeds the payment-difference tolerance; "
                     f"post it as a residual item or a partial payment"
                 )
@@ -216,7 +228,7 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
                 wrbtr=abs(difference), sgtxt="Payment difference within tolerance",
             ))
 
-        header_only = not (req.amount or discount or residual or difference)
+        header_only = not (req.amount or discount or residual or difference or foreign)
         clear_keys = keys["pay"] if req.amount else keys["clear"]
         for it, d in zip(items, discounts):
             if header_only:
@@ -225,7 +237,7 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
             lines.append(LineRequest(
                 bschl=clear_keys[0 if it.shkzg == inv_side else 1], account=req.account,
                 wrbtr=it.wrbtr, zuonr=it.zuonr, sgtxt=text or f"Clearing {it.belnr}",
-                wskto=d or None,
+                wskto=d or None, dmbtr=it.dmbtr if foreign else None,  # offset at the historical rate
             ))
             clearing_pos.append(len(lines))
         if residual:
@@ -236,10 +248,22 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
                 sgtxt=f"Residual item {ref.belnr}", rebzg=ref.belnr, rebzj=ref.gjahr, rebzz=ref.buzei,
             ))
 
+    realized = Decimal("0")
+    if foreign and items:
+        local = sum(((l.dmbtr if l.dmbtr is not None else to_local(l.wrbtr, kursf))
+                     * (1 if _posting_side(session, mandt, l.bschl) == "S" else -1) for l in lines), Decimal("0"))
+        if local:
+            acc = fx.difference_accounts(session, mandt, cc.ktopl, items[0].hkont)
+            realized = local  # debits exceed credits -> balanced by a gain (positive)
+            lines.append(LineRequest(
+                bschl="50" if local > 0 else "40", account=acc.lhrea if local > 0 else acc.lsrea,
+                wrbtr=Decimal("0"), dmbtr=abs(local), sgtxt="Realized exchange rate difference",
+            ))
+
     blart = req.blart or (keys["blart"] if req.amount else "AB")
     header = post_document(session, DocumentRequest(
         mandt=mandt, bukrs=req.bukrs, blart=blart, bldat=req.bldat or req.budat, budat=req.budat,
-        waers=cc.waers, xblnr=req.xblnr, bktxt=req.bktxt, usnam=req.usnam,
+        waers=waers, kursf=kursf, xblnr=req.xblnr, bktxt=req.bktxt, usnam=req.usnam,
         tcode=req.tcode or _TCODES[(req.koart, bool(req.amount))],
         lines=lines, xclear=True,
     ), commit=False)
@@ -261,7 +285,7 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
         "belnr": header.belnr, "gjahr": header.gjahr, "blart": header.blart, "mode": req.mode,
         "amount": req.amount, "open_total": open_total, "discount": discount,
         "tax_adjustment": tax_adjustment, "difference": difference, "residual": residual,
-        "cleared": cleared,
+        "waers": waers, "kursf": kursf, "realized_fx": realized, "cleared": cleared,
     }
 
 
@@ -273,8 +297,15 @@ def _check_open_item_account(session: Session, mandt: str, bukrs: str, saknr: st
         raise PostingError(f"G/L account {saknr} is not managed on an open item basis")
 
 
+def _posting_side(session: Session, mandt: str, bschl: str) -> str:
+    pk = session.get(PostingKey, (mandt, bschl))
+    if pk is None:
+        raise PostingError(f"Posting key {bschl} is not defined")
+    return pk.shkzg
+
+
 def _open_item(
-    session: Session, mandt: str, req: PaymentRequest, local: str, belnr: str, gjahr: int, buzei: int
+    session: Session, mandt: str, req: PaymentRequest, belnr: str, gjahr: int, buzei: int
 ) -> AccountingDocumentItem:
     it = session.get(AccountingDocumentItem, (mandt, req.bukrs, belnr.zfill(10), gjahr, buzei))
     ref = f"{belnr}/{gjahr}/{buzei}"
@@ -287,10 +318,6 @@ def _open_item(
         raise PostingError(f"Line item {ref} is not an open item")
     if it.augbl:
         raise PostingError(f"Line item {ref} is already cleared by document {it.augbl}")
-    if it.header.waers != local:
-        raise PostingError(
-            f"Line item {ref} is in {it.header.waers}; clearing is only supported in local currency {local}"
-        )
     return it
 
 

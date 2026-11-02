@@ -13,6 +13,7 @@ Creates:
   * Payment-difference tolerances (T043G, key ZDI) and open-item G/L account 113109
   * Financial statement version INT and retained earnings 109000 (T030 BIL)
   * Dunning procedure 0001 (four levels) and dunning data for the demo customer
+  * USD exchange rates (TCURR) and exchange rate difference accounts (T030H)
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
 Run:  python -m app.seed
@@ -49,6 +50,7 @@ from app.models.organizational import (
     ControllingArea,
     ControllingAreaAssignment,
     Currency,
+    ExchangeRate,
     FiscalYearPeriod,
     FiscalYearVariant,
     PostingPeriodControl,
@@ -68,6 +70,7 @@ from app.models.payments import (
     BankDetermination,
     CompanyCodePaymentMethod,
     CustomerVendorTolerance,
+    ExchangeDifferenceAccounts,
     PaymentMethod,
     PaymentTerms,
 )
@@ -93,8 +96,14 @@ def _gl_accounts():
         ("113100", "Bank (main account)", True, "GL00", None, None),
         ("113109", "Bank clearing account (open items)", True, "GL00", None, None),
         ("140000", "Trade receivables - domestic", True, "RECN", "D", None),
+        ("140099", "Receivables - FX valuation adjustment", True, "GL00", None, None),
         ("154000", "Input tax (VST)", True, "GL00", None, "<"),
         ("160000", "Trade payables - domestic", True, "RECN", "K", None),
+        ("160099", "Payables - FX valuation adjustment", True, "GL00", None, None),
+        ("230000", "Realized exchange rate losses", False, "GL00", None, None),
+        ("230010", "Exchange rate valuation losses", False, "GL00", None, None),
+        ("280000", "Realized exchange rate gains", False, "GL00", None, None),
+        ("280010", "Exchange rate valuation gains", False, "GL00", None, None),
         ("175000", "Output tax (MWS)", True, "GL00", None, ">"),
         ("400000", "Consumption of raw materials", False, "PL00", None, "V1"),
         ("476000", "Office supplies expense", False, "PL00", None, "V1"),
@@ -123,9 +132,9 @@ FSV_ITEMS = [
     (3, None, "3", "PROFIT AND LOSS", "P", -1, []),
     (31, 3, "31", "Sales revenue", "", 1, [("800000", "849999", True, True)]),
     (32, 3, "32", "Sales deductions and payment differences", "", 1, [("880000", "889999", True, True)]),
-    (33, 3, "33", "Other operating income", "", 1, [("270000", "279999", True, True)]),
+    (33, 3, "33", "Other operating income", "", 1, [("270000", "279999", True, True), ("280000", "289999", True, True)]),
     (34, 3, "34", "Cost of materials", "", 1, [("400000", "409999", True, True)]),
-    (35, 3, "35", "Other operating expenses", "", 1, [("410000", "479999", True, True)]),
+    (35, 3, "35", "Other operating expenses", "", 1, [("410000", "479999", True, True), ("230000", "239999", True, True)]),
     (36, 3, "36", "Depreciation", "", 1, [("480000", "489999", True, True)]),
     (9, None, "9", "NOT ASSIGNED", "U", 1, []),
 ]
@@ -149,6 +158,12 @@ def seed() -> None:
         s.merge(Client(mandt=MANDT, mtext="Demo Group", ort01="Walldorf", mwaer="EUR", cccategory="C"))
         for cur, name, iso in [("EUR", "Euro", "EUR"), ("USD", "US Dollar", "USD")]:
             s.merge(Currency(mandt=MANDT, waers=cur, isocd=iso, ltext=name, currdec=2))
+
+        # Exchange rates (type M): value of 1 USD in EUR, valid from GDATU
+        for gdatu, ukurs in [(date(2025, 1, 1), "0.93"), (date(2026, 1, 1), "0.92"), (date(2026, 6, 1), "0.90"),
+                             (date(2026, 9, 1), "0.95"), (date(2026, 12, 1), "0.88")]:
+            s.merge(ExchangeRate(mandt=MANDT, kurst="M", fcurr="USD", tcurr="EUR", gdatu=gdatu,
+                                 ukurs=Decimal(ukurs), ffact=1, tfact=1))
 
         # --- Country & tax procedure ---
         s.merge(Country(mandt=MANDT, land1="DE", landx="Germany", kalsm="TAXD", intca="DE", waers="EUR", xegld=True))
@@ -299,6 +314,11 @@ def seed() -> None:
         ]:
             s.merge(DunningLevel(mandt=MANDT, mahna="0001", mahns=mahns, verzn=verzn, text1=text, xalwy=always))
             s.merge(DunningCharge(mandt=MANDT, mahna="0001", mahns=mahns, waers="EUR", mahng=Decimal(charge)))
+
+        # Exchange rate differences per open-item / reconciliation account (T030H)
+        for hkont, korr in [("140000", "140099"), ("160000", "160099"), ("113109", "140099")]:
+            s.merge(ExchangeDifferenceAccounts(mandt=MANDT, ktopl=KTOPL, hkont=hkont, lsrea="230000", lhrea="280000",
+                                               lsbew="230010", lhbew="280010", lkorr=korr))
 
         # Default tolerance group: differences up to 2.00 EUR and 1% are posted automatically.
         s.merge(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))

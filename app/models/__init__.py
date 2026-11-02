@@ -84,6 +84,7 @@ from app.models.payments import (
     BankDetermination,
     CompanyCodePaymentMethod,
     CustomerVendorTolerance,
+    ExchangeDifferenceAccounts,
     PaymentMethod,
     PaymentTerms,
 )
@@ -120,6 +121,7 @@ __all__ = [
     # payments
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
     "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",
+    "ExchangeDifferenceAccounts",
     # financial statement version
     "FinancialStatementVersion", "FSVNode", "FSVAccountAssignment",
     # payment run (F110)

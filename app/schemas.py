@@ -32,7 +32,7 @@ class DocumentIn(BaseModel):
     bldat: date = Field(..., description="Document date")
     budat: date = Field(..., description="Posting date")
     waers: str = Field(..., description="Document currency")
-    kursf: Decimal = Field(Decimal("1"), description="Exchange rate to local currency")
+    kursf: Decimal | None = Field(None, description="Exchange rate to local currency (default: TCURR rate M)")
     xblnr: str | None = None
     bktxt: str | None = None
     usnam: str = "SYSTEM"

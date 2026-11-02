@@ -75,6 +75,7 @@ class LineRequest:
     afabe: str = "01"  # Depreciation area (account type A)
     bzdat: date | None = None  # Asset value date
     buzid: str | None = None  # Line item ID (T = tax line, e.g. copied by a reversal)
+    dmbtr: Decimal | None = None  # Fixed local amount (clearing at the item's historical rate)
 
 
 @dataclass
@@ -87,7 +88,7 @@ class DocumentRequest:
     budat: date  # Posting date
     waers: str  # Document currency
     lines: list[LineRequest]
-    kursf: Decimal = Decimal("1")  # Exchange rate to local currency
+    kursf: Decimal | None = None  # Exchange rate to local currency (None: TCURR rate on the posting date)
     xblnr: str | None = None  # Reference document number
     bktxt: str | None = None  # Document header text
     usnam: str = "SYSTEM"  # User
@@ -99,7 +100,7 @@ class DocumentRequest:
     dbblg: str | None = None  # Recurring entry original this document was posted from
 
 
-def _to_local(amount: Decimal, rate: Decimal) -> Decimal:
+def to_local(amount: Decimal, rate: Decimal) -> Decimal:
     return (amount * rate).quantize(_CENT, ROUND_HALF_UP)
 
 
@@ -212,6 +213,14 @@ def _post(
         raise PostingError(f"Document type {req.blart} is not defined")
 
     gjahr, monat = determine_period(session, mandt, cc.periv, req.budat)
+    if req.kursf is not None:
+        kursf = req.kursf
+    elif req.waers == local_currency:
+        kursf = Decimal("1")
+    else:
+        from app.services import fx
+
+        kursf = fx.rate(session, mandt, req.waers, local_currency, req.budat)
 
     # Tax calculation procedure is assigned to the company code's country (T005).
     kalsm = None
@@ -247,7 +256,7 @@ def _post(
         else:
             raise PostingError(f"Account type '{pk.koart}' not yet supported by the engine")
 
-        dmbtr = _to_local(ln.wrbtr, req.kursf)
+        dmbtr = ln.dmbtr if ln.dmbtr is not None else to_local(ln.wrbtr, kursf)
         rl = _ResolvedLine(
             bschl=ln.bschl, koart=pk.koart, shkzg=pk.shkzg, hkont=hkont, saknr=saknr,
             kunnr=kunnr, lifnr=lifnr, wrbtr=ln.wrbtr, dmbtr=dmbtr, src=ln, mwskz=ln.mwskz,
@@ -265,7 +274,7 @@ def _post(
             tax_amt = detail["tax_amount"]
             rl.mwskz = ln.mwskz
             rl.wmwst = tax_amt
-            rl.mwsts = _to_local(tax_amt, req.kursf)
+            rl.mwsts = to_local(tax_amt, kursf)
             rl.ktosl = detail["ktosl"]
             # The tax line takes the side of its base line: revenue (credit) carries
             # output tax as a credit, a sales credit memo (debit) reduces it with a
@@ -279,7 +288,7 @@ def _post(
                 _ResolvedLine(
                     bschl="40" if tax_shkzg == "S" else "50",
                     koart="S", shkzg=tax_shkzg, hkont=tax_acct, saknr=tax_acct,
-                    kunnr=None, lifnr=None, wrbtr=tax_amt, dmbtr=_to_local(tax_amt, req.kursf),
+                    kunnr=None, lifnr=None, wrbtr=tax_amt, dmbtr=to_local(tax_amt, kursf),
                     buzid="T", mwskz=ln.mwskz, ktosl=detail["ktosl"],
                 )
             )
@@ -289,6 +298,8 @@ def _post(
     if len(all_lines) < 2 and not (req.xclear and not all_lines):
         raise PostingError("A document must have at least two line items")
 
+    if req.waers != local_currency:
+        _absorb_rounding(all_lines, req.lines)
     _check_balanced(all_lines, req.waers, local_currency)
 
     posted = req.bstat == " "
@@ -305,7 +316,8 @@ def _post(
     header = AccountingDocumentHeader(
         mandt=mandt, bukrs=req.bukrs, belnr=belnr, gjahr=gjahr, blart=req.blart,
         bldat=req.bldat, budat=req.budat, monat=monat, usnam=req.usnam, tcode=req.tcode,
-        xblnr=req.xblnr, bktxt=req.bktxt, waers=req.waers, kursf=req.kursf,
+        xblnr=req.xblnr, bktxt=req.bktxt, waers=req.waers, kursf=kursf,
+        wwert=req.budat if req.waers != local_currency else None,
         hwaer=local_currency, bstat=req.bstat, awtyp="BKPF", kokrs=req.kokrs or cc.kokfi,
         ppnam=req.usnam if req.bstat == "V" else None, dbblg=req.dbblg,
     )
@@ -336,7 +348,7 @@ def _post(
             wskto=(src.wskto if src else None),
             zlsch=(src.zlsch if src else None),
             zlspr=(src.zlspr if src else None),
-            sknto=(_to_local(src.wskto, req.kursf) if src and src.wskto else None),
+            sknto=(to_local(src.wskto, kursf) if src and src.wskto else None),
             kostl=(src.kostl if src else None),
             aufnr=(src.aufnr if src else None),
             prctr=(src.prctr if src else None),
@@ -428,6 +440,21 @@ def line_from_item(item: AccountingDocumentItem) -> LineRequest:
         umskz=item.umskz, rebzg=item.rebzg, rebzj=item.rebzj, rebzz=item.rebzz, zlsch=item.zlsch,
         zlspr=item.zlspr, anln2=item.anln2 or "0000", anbwa=item.anbwa, bzdat=item.bzdat, buzid=item.buzid,
     )
+
+
+def _absorb_rounding(lines: list[_ResolvedLine], requested: list[LineRequest]) -> None:
+    """Put the cent differences of translating each line into the largest translated line.
+
+    Lines with a fixed local amount (``LineRequest.dmbtr``) are never adjusted.
+    """
+    diff = sum((l.dmbtr if l.shkzg == "S" else -l.dmbtr for l in lines), Decimal("0"))
+    if not diff or abs(diff) > _CENT * len(lines):
+        return  # balanced, or a real error that _check_balanced reports
+    fixed = {id(r) for r in requested if r.dmbtr is not None}
+    side = "H" if diff > 0 else "S"  # raise the lighter side
+    candidates = [l for l in lines if l.shkzg == side and id(l.src) not in fixed]
+    if candidates:
+        max(candidates, key=lambda l: l.dmbtr).dmbtr += abs(diff)
 
 
 def _check_balanced(lines: list[_ResolvedLine], waers: str, local: str) -> None:

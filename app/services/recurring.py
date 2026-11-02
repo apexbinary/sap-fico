@@ -79,7 +79,7 @@ def run_recurring(
                 lines.append(line)
             doc = post_document(session, DocumentRequest(
                 mandt=mandt, bukrs=bukrs, blart=original.blart, bldat=run_on, budat=run_on,
-                waers=original.waers, kursf=original.kursf, xblnr=original.xblnr, bktxt=original.bktxt,
+                waers=original.waers, kursf=None, xblnr=original.xblnr,  # rate of the run date bktxt=original.bktxt,
                 usnam=usnam, tcode="F.14", kokrs=original.kokrs, dbblg=original.belnr, lines=lines,
             ), commit=False)
             nxt = _advance(run_on, sched.dbmon, sched.dbtag)

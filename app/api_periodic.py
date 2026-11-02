@@ -1,8 +1,9 @@
-"""REST endpoints for periodic processing: recurring entries and dunning."""
+"""REST endpoints for periodic processing: recurring entries, dunning, exchange rates and FX valuation."""
 
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -14,8 +15,9 @@ from app.api import _request
 from app.config import settings
 from app.database import get_session
 from app.models.dunning import DunningRunControl
+from app.models.organizational import ExchangeRate
 from app.schemas import DocumentIn
-from app.services import dunning, recurring
+from app.services import dunning, fx, recurring
 from app.services.fiscal import PostingError
 
 router = APIRouter(tags=["Periodic processing"])
@@ -124,3 +126,37 @@ def execute_dunning_run(laufd: date, laufi: str, mandt: str = Query(default=None
 def dunning_notice(laufd: date, laufi: str, kunnr: str, mandt: str = Query(default=None),
                    s: Session = Depends(get_session)) -> str:
     return _run_or_422(lambda: dunning.notice_html(s, _m(mandt), laufd, laufi, kunnr))
+
+
+class ExchangeRateIn(BaseModel):
+    kurst: str = Field("M", description="Exchange rate type")
+    fcurr: str = Field(..., description="From currency")
+    tcurr: str = Field(..., description="To currency")
+    gdatu: date = Field(..., description="Valid from")
+    ukurs: Decimal = Field(..., gt=0, description="Value of 1 unit of the from-currency in the to-currency")
+
+
+@router.get("/exchange-rates", summary="Exchange rates (TCURR)")
+def list_exchange_rates(mandt: str = Query(default=None), s: Session = Depends(get_session)) -> list[dict]:
+    rows = s.scalars(select(ExchangeRate).where(ExchangeRate.mandt == _m(mandt)).order_by(
+        ExchangeRate.fcurr, ExchangeRate.tcurr, ExchangeRate.gdatu.desc())).all()
+    return [{"kurst": r.kurst, "fcurr": r.fcurr, "tcurr": r.tcurr, "gdatu": r.gdatu, "ukurs": r.ukurs} for r in rows]
+
+
+@router.post("/exchange-rates", summary="Maintain an exchange rate (OB08)")
+def save_exchange_rate(body: ExchangeRateIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    s.merge(ExchangeRate(mandt=_m(mandt), kurst=body.kurst.upper(), fcurr=body.fcurr.upper(),
+                         tcurr=body.tcurr.upper(), gdatu=body.gdatu, ukurs=body.ukurs, ffact=1, tfact=1))
+    s.commit()
+    return body.model_dump()
+
+
+class ValuationIn(BaseModel):
+    bukrs: str
+    key_date: date = Field(..., description="Key date of the valuation")
+    post: bool = Field(False, description="False = test run (list only)")
+
+
+@router.post("/fx-valuation", summary="Foreign currency valuation of open items (FAGL_FCV)")
+def fx_valuation(body: ValuationIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    return _run_or_422(lambda: fx.valuate(s, _m(mandt), body.bukrs, body.key_date, post=body.post))

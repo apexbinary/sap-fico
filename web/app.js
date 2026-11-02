@@ -637,6 +637,57 @@ views.dunning = async (c) => {
   }
 };
 
+// ---------- Exchange rates & FX valuation (OB08 / FAGL_FCV) ----------
+views.fx = async (c) => {
+  const rates = await api("/exchange-rates");
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Exchange Rates &amp; FX Valuation</h1>
+      <div class="sub">Foreign-currency documents translate at the rate of their posting date; open items are revalued at a key date</div></div></div>
+    <div class="card"><div class="card-head">FX Valuation of Open Items (FAGL_FCV)</div><div class="card-body">
+      <div class="toolbar" style="margin:0">
+        <div class="field"><label class="req">Key date</label><input id="fx-key" type="date" value="${todayISO()}"></div>
+        <button class="btn secondary" id="fx-test">Test run</button>
+        <button class="btn" id="fx-post">Post valuation</button>
+      </div>
+      <div class="help">The posting is reversed automatically on the day after the key date. A key date can be posted once.</div>
+    </div><div id="fx-result"></div></div>
+    <div class="card"><div class="card-head">Exchange Rates (TCURR, type M)</div>
+      <table><thead><tr><th>Type</th><th>From</th><th>To</th><th>Valid from</th><th class="num">Rate</th></tr></thead>
+      <tbody>${rates.map((r) => `<tr><td>${esc(r.kurst)}</td><td>${esc(r.fcurr)}</td><td>${esc(r.tcurr)}</td><td>${r.gdatu}</td><td class="num">${Number(r.ukurs).toFixed(5)}</td></tr>`).join("")
+        || `<tr><td colspan="5" class="empty">No exchange rates.</td></tr>`}</tbody></table>
+      <div class="card-body"><div class="form-grid">
+        <div class="field"><label>From currency</label><input id="xr-from" value="USD"></div>
+        <div class="field"><label>To currency</label><input id="xr-to" value="${esc(ccWaers())}"></div>
+        <div class="field"><label>Valid from</label><input id="xr-date" type="date" value="${todayISO()}"></div>
+        <div class="field"><label>Rate (1 from = x to)</label><input id="xr-rate" type="number" step="0.00001" min="0"></div>
+      </div><button class="btn secondary" id="xr-save" style="margin-top:12px">Save rate</button></div></div>`;
+
+  const run = async (post) => {
+    if (post && !confirm(`Post the FX valuation for ${$("#fx-key").value}? It is reversed on the next day.`)) return;
+    try {
+      const r = await api("/fx-valuation", { method: "POST", body: JSON.stringify({ bukrs: state.bukrs, key_date: $("#fx-key").value, post }) });
+      if (post) toast(r.document ? `Valuation ${r.document.belnr} posted, reversed by ${r.reversal.belnr}` : "Nothing to post", "good");
+      $("#fx-result").innerHTML = `<table><thead><tr><th>Document</th><th>Account</th><th class="num">Amount</th><th>Curr</th><th class="num">Hist. rate</th><th class="num">Key-date rate</th><th class="num">Local before</th><th class="num">Local after</th><th class="num">Difference</th></tr></thead>
+        <tbody>${r.items.map((i) => `<tr><td class="mono"><a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a></td>
+          <td class="mono">${esc(i.account)}</td><td class="num">${fmt(i.wrbtr)}</td><td>${esc(i.waers)}</td>
+          <td class="num">${i.rate_hist ?? ""}</td><td class="num">${i.rate_key}</td><td class="num">${fmt(i.local_before)}</td>
+          <td class="num">${fmt(i.local_after)}</td><td class="num" style="color:${Number(i.difference) >= 0 ? "var(--good)" : "var(--bad)"}">${fmt(i.difference)}</td></tr>`).join("")
+          || `<tr><td colspan="9" class="empty">No open items in foreign currency on this key date.</td></tr>`}</tbody>
+        <tfoot><tr><td colspan="8">Total valuation difference (${esc(r.waers)})</td><td class="num">${fmt(r.total)}</td></tr></tfoot></table>
+        ${r.postings.length ? `<div class="card-body help">Postings: ${r.postings.map((p) => `${esc(p.hkont)}: Dr ${esc(p.debit)} / Cr ${esc(p.credit)} ${fmt(Math.abs(p.difference))}`).join(" · ")}
+          ${r.document ? ` — document <a href="#/documents?doc=${r.document.belnr}:${r.document.gjahr}">${r.document.belnr}</a>, reversal <a href="#/documents?doc=${r.reversal.belnr}:${r.reversal.gjahr}">${r.reversal.belnr}</a>` : " (test run, nothing posted)"}</div>` : ""}`;
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  $("#fx-test").onclick = () => run(false);
+  $("#fx-post").onclick = () => run(true);
+  $("#xr-save").onclick = async () => {
+    try {
+      await api("/exchange-rates", { method: "POST", body: JSON.stringify({ kurst: "M", fcurr: $("#xr-from").value, tcurr: $("#xr-to").value, gdatu: $("#xr-date").value, ukurs: $("#xr-rate").value }) });
+      toast("Exchange rate saved", "good"); route();
+    } catch (e) { toast(e.message, "bad"); }
+  };
+};
+
 // ---------- Automatic Payment Program (F110) ----------
 const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 

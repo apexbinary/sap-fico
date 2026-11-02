@@ -30,6 +30,7 @@ so the model is recognizable to anyone who knows SAP FICO.
 | Payments & clearing | Terms of payment (T052), F-28/F-53 payments, F-32/F-44/F-03 clearing, cash discount with tax adjustment, tolerances (T043G), partial/residual items | ✅ |
 | Automatic payment program | F110 parameters (REGUV), proposal and payment run (REGUH/REGUP), SEPA transfers (pain.001) and direct debits with mandates (pain.008), bank clearing account flow | ✅ |
 | Reporting | Trial balance, account balances, open items (net due date) | ✅ |
+| Foreign currency | TCURR translation, realized FX on clearing (T030H), FX valuation FAGL_FCV with reversal | ✅ |
 | Dunning | Procedures/levels/charges (T047A/B/C), dunning run F150 (MAHNV/MHNK/MHND), notices | ✅ |
 | Document lifecycle | Parked documents (park / post / delete), reversal FB08, reset clearing FBRA, recurring entries FBD1 / F.14 | ✅ |
 | Financial statements | FSV (T011/FAGL_011PC/FAGL_011ZC), balance sheet / P&L with comparison year, balance carryforward | ✅ |
@@ -38,7 +39,7 @@ so the model is recognizable to anyone who knows SAP FICO.
 
 A SAP Fiori-style single-page app (`web/`, vanilla JS, no build step) is served by
 the same FastAPI process at `/`: Dashboard, Post Document (live balance + auto-tax),
-Documents, Payments & Clearing, Payment Run (F110), Recurring Entries, Dunning, Trial Balance, Balance Sheet / P&L, Open Items, Fixed Assets, Bank Statements, and master-data
+Documents, Payments & Clearing, Payment Run (F110), Recurring Entries, Dunning, Exchange Rates & FX Valuation, Trial Balance, Balance Sheet / P&L, Open Items, Fixed Assets, Bank Statements, and master-data
 browsers. Open http://localhost:8000/ after starting the server.
 
 ## Run

@@ -10,9 +10,10 @@ trademarks of SAP SE.
 |---|---|
 | Administration — company, currencies, exchange rates, posting periods, numbering series, tax groups, payment terms | ✅ |
 | Financials — chart of accounts (tree), journal entries, reversal, trial balance, balance sheet, P&L | ✅ |
-| Business partners | planned |
+| Business partners — master data, groups, contact persons, control accounts, balances and open items | ✅ |
 | Sales A/R and purchasing A/P documents | planned |
-| Inventory | planned |
+| Inventory — master data: items, item groups (G/L accounts), warehouses, stock per warehouse, price lists | ✅ |
+| Inventory — goods receipt / issue / transfer, moving-average cost | planned |
 | Banking | planned |
 
 ## Run

@@ -17,6 +17,8 @@ from decimal import Decimal
 from app.database import SessionLocal, init_db
 from app.models.admin import Company, Currency, ExchangeRate, NumberingSeries, PaymentTerms, PostingPeriod, TaxGroup
 from app.models.finance import Account, AccountDetermination
+from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, PriceList, Warehouse
+from app.models.partners import BusinessPartner, ContactPerson, PartnerGroup
 
 # Chart of accounts: (code, name, drawer, parent, postable, ActType, control account, cash account)
 CHART = [
@@ -143,10 +145,77 @@ def seed() -> None:
                 inventory="115000", allocation="212000", price_diff="512000", expense="611000",
                 inv_offset_inc="513000", inv_offset_dec="513000", exch_gain="711000", exch_loss="712000",
                 opening_bal="313000"))
+        _seed_partners_and_items(s, put)
         s.commit()
-        print("Seed complete: Demo Trading Ltd (EUR), chart of accounts, periods 2025-2027.")
+        print("Seed complete: Demo Trading Ltd (EUR), chart of accounts, periods 2025-2027, "
+              "business partners, items and warehouses.")
     finally:
         s.close()
+
+
+# Business partners: (code, name, type, group, payment terms, price list, tax group, city, contact)
+PARTNERS = [
+    ("C10000", "Maxi Teq Retail GmbH", "C", 100, 1, 1, "O1", "Berlin", "Anna Schmidt"),
+    ("C20000", "Earthshaker Corporation", "C", 100, 2, 2, "O1", "Hamburg", "Tom Becker"),
+    ("C30000", "Northwind Wholesale", "C", 101, 1, 2, "O1", "Munich", None),
+    ("V10000", "Acme Supplies AG", "S", 102, 1, 3, "I1", "Frankfurt", "Lena Fischer"),
+    ("V20000", "Office World Ltd", "S", 102, 3, 3, "I1", "Cologne", None),
+]
+
+# Items: (code, name, group, inventory item, unit, sales tax, purchase tax, base price, purchase price, vendor)
+ITEMS = [
+    ("A00001", "J.B. Officeprint 1420", 100, True, "Each", "O1", "I1", "400", "250", "V10000"),
+    ("A00002", "J.B. Officeprint 1111", 100, True, "Each", "O1", "I1", "300", "180", "V10000"),
+    ("A00003", "J.B. Officeprint 1186", 100, True, "Each", "O1", "I1", "500", "320", "V10000"),
+    ("A00004", "Rainbow Color Printer 7.5", 100, True, "Each", "O1", "I1", "650", "410", "V10000"),
+    ("C00001", "Toner cartridge black", 101, True, "Box", "O1", "I1", "45", "22", "V20000"),
+    ("C00002", "Paper A4, 500 sheets", 101, True, "Pack", "O2", "I2", "6", "3.5", "V20000"),
+    ("S00001", "Installation service (hour)", 102, False, "Hour", "O1", "I1", "90", None, None),
+]
+
+
+def _seed_partners_and_items(s, put) -> None:
+    for code, name, kind in [(100, "Customers", "C"), (101, "Wholesale", "C"), (102, "Vendors", "S")]:
+        put(PartnerGroup(group_code=code, group_name=name, group_type=kind))
+    # price lists: 1 base price, 2 wholesale = 90 % of base, 3 purchase price (own list)
+    for num, name, base, factor in [(1, "Base Price", 1, "1"), (2, "Wholesale", 1, "0.9"), (3, "Purchase Price", 3, "1")]:
+        put(PriceList(list_num=num, list_name=name, base_num=base, factor=Decimal(factor)))
+    for code, name, street, city in [("01", "General Warehouse", "Industriestrasse 5", "Walldorf"),
+                                     ("02", "Outlet Berlin", "Unter den Linden 10", "Berlin")]:
+        put(Warehouse(whs_code=code, whs_name=name, street=street, city=city, inactive="N"))
+    for code, name, inv, cogs, rev, exp in [(100, "Printers", "115000", "511000", "411000", "611000"),
+                                             (101, "Supplies", "115000", "511000", "411000", "611000"),
+                                             (102, "Services", "115000", "511000", "412000", "611000")]:
+        put(ItemGroup(itms_grp_cod=code, itms_grp_nam=name, bal_invnt_ac=inv, sale_cost_ac=cogs, revenues_ac=rev,
+                      expenses_ac=exp, price_dif_ac="512000"))
+
+    # partner balances, item stock and cost are runtime state: create only, never re-merge
+    contact = 1
+    for code, name, kind, group, terms, plist, vat, city, person in PARTNERS:
+        if s.get(BusinessPartner, code) is None:
+            put(BusinessPartner(card_code=code, card_name=name, card_type=kind, group_code=group, currency="##",
+                                deb_pay_acct="211000" if kind == "S" else "114000", group_num=terms, list_num=plist,
+                                vat_group=vat, city=city, country="DE", cntct_prsn=person,
+                                credit_line=Decimal("20000") if kind == "C" else Decimal("0"),
+                                balance=Decimal("0"), dnotes_bal=Decimal("0"), orders_bal=Decimal("0"), frozen_for="N"))
+            if person:
+                put(ContactPerson(cntct_code=contact, card_code=code, name=person, position="Purchasing"
+                                  if kind == "C" else "Sales"))
+        contact += 1
+    for code, name, group, inv, uom, vat_sa, vat_pu, price, pur, vendor in ITEMS:
+        if s.get(Item, code) is None:
+            put(Item(item_code=code, item_name=name, itms_grp_cod=group, invnt_item="Y" if inv else "N",
+                     sell_item="Y", prchse_item="Y" if inv else "N", eval_system="A", gl_method="C", invntry_uom=uom,
+                     vat_gourp_sa=vat_sa, vat_group_pu=vat_pu, dflt_wh="01" if inv else None, card_code=vendor,
+                     min_level=Decimal("5") if inv else Decimal("0"), on_hand=Decimal("0"), is_commited=Decimal("0"),
+                     on_order=Decimal("0"), avg_price=Decimal("0"), last_pur_prc=Decimal("0"), frozen_for="N"))
+        if inv:
+            for whs in ("01", "02"):
+                if s.get(ItemWarehouse, (code, whs)) is None:
+                    put(ItemWarehouse(item_code=code, whs_code=whs))
+        for plist, amount in [(1, price), (3, pur)]:  # prices are maintained by users: create only
+            if amount and s.get(ItemPrice, (code, plist)) is None:
+                put(ItemPrice(item_code=code, price_list=plist, price=Decimal(amount), currency="EUR"))
 
 
 if __name__ == "__main__":

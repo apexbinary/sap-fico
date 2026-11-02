@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api_finance import router as finance_router
+from app.api_masterdata import router as masterdata_router
 from app.config import settings
 from app.database import init_db
 
@@ -18,6 +19,7 @@ app = FastAPI(title=settings.app_name, version=__version__,
               description="An SAP Business One style ERP: financials, business partners, sales, purchasing, "
                           "inventory and banking, with B1 table and field names.")
 app.include_router(finance_router, prefix="/api")
+app.include_router(masterdata_router, prefix="/api")
 
 
 @app.on_event("startup")

@@ -18,10 +18,11 @@ concepts (company codes, posting keys, CO, F110, FSV ...) into it.
 
 1. Core financials — chart of accounts, journal entries, financial reports. **Done.**
 2. Business partners + sales (A/R) and purchasing (A/P) document chains with
-   copy-from (quotation → order → delivery → invoice → credit memo, and the
+   copy-from. BP master data (OCRG/OCRD/OCPR) **done**; documents next (quotation → order → delivery → invoice → credit memo, and the
    purchasing equivalents).
 3. Inventory — items, warehouses, price lists, goods receipt/issue/transfer,
-   moving-average cost, automatic stock postings.
+   moving-average cost, automatic stock postings. Master data (OITB/OITM/OWHS/
+   OITW/OPLN/ITM1) **done**; stock documents and postings next.
 4. Banking — incoming/outgoing payments (cash, transfer, check), payments on
    account, BP balances.
 
@@ -47,10 +48,16 @@ Schema changes need an Alembic revision (`migrations/`); `init_db()` runs
 app/
   models/admin.py     OADM OCRN ORTT OFPR NNM1 OVTG OCTG
   models/finance.py   OACT OJDT JDT1 OACP (G/L account determination)
+  models/partners.py  OCRG OCRD OCPR
+  models/inventory.py OITB OITM OWHS OITW OPLN ITM1
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
   services/reports.py trial balance, balance sheet, P&L (account tree)
+  services/masterdata.py  create BP / item / warehouse (validation, OITW rows), price lookup
+                      (own ITM1 price, else base list x factor; BP price = its price list)
   api_finance.py      /api/admin/*, /api/accounts, /api/journal-entries, /api/reports/*
+  api_masterdata.py   /api/partners*, /api/partner-groups, /api/items*, /api/item-groups,
+                      /api/warehouses, /api/price-lists
   seed.py             demo company "Demo Trading Ltd" (EUR), chart of accounts, periods 2025-2027
   verify_*.py         end-to-end checks; verify_all runs them all
 web/                  index.html, styles.css, app.js
@@ -68,6 +75,11 @@ web/                  index.html, styles.css, app.js
   NNM1-NextNumber and exchange rates are runtime data: the seed creates them
   once and never resets them.
 - Seed inserts flush one by one, parents first (PostgreSQL enforces FKs).
+  The seed runs on every container start: OCRD (Balance), OITM/OITW (stock,
+  cost) and ITM1 prices are created once and never re-merged.
+- An inventory item has an OITW row in every warehouse (created with the item
+  or the warehouse). G/L accounts for item postings come from the item group
+  (OITB, GLMethod C); valuation is moving average (OITM-AvgPrice).
 
 ### Chart of accounts
 Drawers (GroupMask) 1 assets, 2 liabilities, 3 capital and reserves, 4 turnover,
@@ -78,6 +90,11 @@ goods received not invoiced, 216000 output VAT, 411000 sales revenue, 511000 COG
 512000 price differences, 513000 inventory adjustments, 6xxxxx expenses, 711000/
 712000 exchange gains/losses. Tax groups O1/O2/O0 (output) and I1/I2/I0 (input);
 payment terms -1 cash, 1 net 30, 2 net 60, 3 end of next month.
+BP groups 100 Customers, 101 Wholesale, 102 Vendors; customers C10000-C30000,
+vendors V10000/V20000. Price lists 1 Base Price, 2 Wholesale (= base x 0.9),
+3 Purchase Price. Warehouses 01 General, 02 Outlet Berlin. Item groups 100
+Printers, 101 Supplies, 102 Services; items A00001-A00004, C00001/C00002,
+S00001 (non-inventory service).
 
 ### Not B1-verified
 OACP column names are descriptive (B1's OACP has many more columns with other

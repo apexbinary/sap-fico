@@ -2,7 +2,7 @@
 "use strict";
 
 const API = "/api";
-const state = { company: null, accounts: [], lookups: { currencies: [], tax_groups: [], payment_terms: [] } };
+const state = { company: null, accounts: [], partners: [], lookups:{ currencies: [], tax_groups: [], payment_terms: [] } };
 const today = () => new Date().toISOString().slice(0, 10);
 const yearStart = () => `${new Date().getFullYear()}-01-01`;
 const yearEnd = () => `${new Date().getFullYear()}-12-31`;
@@ -15,6 +15,8 @@ async function api(path, opts) {
   return body;
 }
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
+const patch = (path, body) => api(path, { method: "PATCH", body: JSON.stringify(body) });
+const opt = (v, label, sel) => `<option value="${esc(v)}"${String(v) === String(sel) ? " selected" : ""}>${esc(label)}</option>`;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -47,7 +49,7 @@ async function boot() {
   route();
 }
 async function reloadMasterData() {
-  [state.accounts, state.lookups] = await Promise.all([api("/accounts"), api("/admin/lookups")]);
+  [state.accounts, state.lookups, state.partners] = await Promise.all([api("/accounts"), api("/admin/lookups"), api("/partners")]);
 }
 
 const views = {};
@@ -130,7 +132,7 @@ views.accounts = async (c) => {
 // ---------- Journal Entry ----------
 views["journal-entry"] = async (c) => {
   c.innerHTML = `
-    <div class="page-head"><div><h1>Journal Entry</h1><div class="sub">Manual journal entry (object 30) — G/L accounts only; business partners follow with their module</div></div></div>
+    <div class="page-head"><div><h1>Journal Entry</h1><div class="sub">Manual journal entry (object 30) — G/L accounts and business partners (posted to their control account)</div></div></div>
     <div class="card"><div class="card-body"><div class="form-grid">
       <div class="field"><label class="req">Posting date</label><input id="je-date" type="date" value="${today()}"></div>
       <div class="field"><label>Document date</label><input id="je-tax" type="date" value="${today()}"></div>
@@ -138,14 +140,17 @@ views["journal-entry"] = async (c) => {
       <div class="field"><label>Ref. 1</label><input id="je-ref1"></div>
     </div></div></div>
     <div class="card"><div class="card-body">
-      <table class="lines"><thead><tr><th>G/L account</th><th class="num w-amt">Debit</th><th class="num w-amt">Credit</th><th>Line remarks</th><th></th></tr></thead><tbody id="je-lines"></tbody></table>
+      <table class="lines"><thead><tr><th>G/L account / BP code</th><th class="num w-amt">Debit</th><th class="num w-amt">Credit</th><th>Line remarks</th><th></th></tr></thead><tbody id="je-lines"></tbody></table>
       <button class="btn secondary small" id="je-add" style="margin-top:8px">+ Line</button>
       <div class="balance-row"><span>Debit <span class="amt" id="je-d">0.00</span></span><span>Credit <span class="amt" id="je-c">0.00</span></span><span id="je-chip" class="chip no">Not balanced</span></div>
       <button class="btn" id="je-post" disabled>Add</button>
     </div></div>`;
   const addLine = () => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><select class="je-acct">${accountOptions((a) => !a.control)}</select></td>
+    const bps = state.partners.filter((b) => b.card_type !== "L" && !b.frozen)
+      .map((b) => `<option value="BP:${esc(b.card_code)}">${esc(b.card_code)} — ${esc(b.card_name)}</option>`).join("");
+    tr.innerHTML = `<td><select class="je-acct"><optgroup label="G/L accounts">${accountOptions((a) => !a.control)}</optgroup>
+      <optgroup label="Business partners">${bps}</optgroup></select></td>
       <td class="num"><input class="je-debit" type="number" step="0.01" min="0"></td><td class="num"><input class="je-credit" type="number" step="0.01" min="0"></td>
       <td><input class="je-lm" maxlength="50"></td><td><button class="btn ghost small je-del">✕</button></td>`;
     $("#je-lines").appendChild(tr);
@@ -163,11 +168,12 @@ views["journal-entry"] = async (c) => {
   $("#je-add").onclick = addLine;
   addLine(); addLine();
   $("#je-post").onclick = async () => {
-    const lines = $$("#je-lines tr").map((tr) => ({ account: $(".je-acct", tr).value, debit: $(".je-debit", tr).value || 0,
+    const target = (v) => (v.startsWith("BP:") ? { card_code: v.slice(3) } : { account: v });
+    const lines = $$("#je-lines tr").map((tr) => ({ ...target($(".je-acct", tr).value), debit: $(".je-debit", tr).value || 0,
       credit: $(".je-credit", tr).value || 0, line_memo: $(".je-lm", tr).value || null }));
     const r = await act(() => post("/journal-entries", { ref_date: $("#je-date").value, tax_date: $("#je-tax").value,
       memo: $("#je-memo").value || null, ref1: $("#je-ref1").value || null, lines }), (e) => `Journal entry ${e.number} added`);
-    if (r) location.hash = `#/journal?id=${r.trans_id}`;
+    if (r) { state.partners = await api("/partners"); location.hash = `#/journal?id=${r.trans_id}`; }
   };
 };
 
@@ -193,6 +199,188 @@ views.journal = async (c) => {
     if (!confirm(`Reverse journal entry ${e.number}?`)) return;
     const r = await act(() => post(`/journal-entries/${e.trans_id}/reverse`, {}), (x) => `Reversed by journal entry ${x.number}`);
     if (r) location.hash = `#/journal?id=${r.trans_id}`;
+  };
+};
+
+// ---------- Business Partner Master Data ----------
+const CARD_TYPES = { C: "Customer", S: "Vendor", L: "Lead" };
+views.partners = async (c) => {
+  const code = query().get("code"), type = query().get("type") || "";
+  const [list, groups, plists] = await Promise.all([api(`/partners${type ? `?card_type=${type}` : ""}`), api("/partner-groups"), api("/price-lists")]);
+  const L = state.lookups;
+  c.innerHTML = `<div class="page-head"><div><h1>Business Partner Master Data</h1><div class="sub">Customers, vendors and leads (OCRD)</div></div>
+      <button class="btn" id="bp-new-btn">+ New business partner</button></div>
+    <div class="toolbar"><div class="field"><label>Type</label><select id="bp-filter">${opt("", "All", type)}${Object.entries(CARD_TYPES).map(([k, v]) => opt(k, v, type)).join("")}</select></div></div>
+    <div class="card"><table><thead><tr><th>BP code</th><th>Name</th><th>Type</th><th>Group</th><th>City</th><th>Control account</th><th class="num">Account balance</th><th>Status</th></tr></thead>
+      <tbody>${list.map((b) => `<tr style="cursor:pointer" onclick="location.hash='#/partners?code=${encodeURIComponent(b.card_code)}'">
+        <td class="mono">${esc(b.card_code)}</td><td>${esc(b.card_name)}</td><td>${CARD_TYPES[b.card_type]}</td>
+        <td>${esc((groups.find((g) => g.group_code === b.group_code) || {}).group_name || "")}</td><td>${esc(b.city || "")}</td>
+        <td class="mono">${esc(b.deb_pay_acct)}</td><td class="num">${fmt(b.balance)}</td>
+        <td>${b.frozen ? '<span class="status X">Inactive</span>' : '<span class="status O">Active</span>'}</td></tr>`).join("")
+        || `<tr><td colspan="8" class="empty">No business partners.</td></tr>`}</tbody></table></div>
+    <div id="bp-detail"></div>
+    <div class="card" id="bp-new" style="display:none"><div class="card-head">New business partner</div><div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label class="req">BP code</label><input id="bp-code" maxlength="15"></div>
+        <div class="field"><label class="req">Name</label><input id="bp-name" maxlength="100"></div>
+        <div class="field"><label class="req">Type</label><select id="bp-type">${Object.entries(CARD_TYPES).map(([k, v]) => opt(k, v)).join("")}</select></div>
+        <div class="field"><label>Group</label><select id="bp-group"></select></div>
+        <div class="field"><label>Currency</label><select id="bp-cur">${opt("##", "All currencies")}${L.currencies.map((x) => opt(x.code, x.code)).join("")}</select></div>
+        <div class="field"><label>Payment terms</label><select id="bp-terms">${L.payment_terms.map((p) => opt(p.group_num, p.name, 1)).join("")}</select></div>
+        <div class="field"><label>Price list</label><select id="bp-plist">${plists.map((p) => opt(p.list_num, p.list_name)).join("")}</select></div>
+        <div class="field"><label>Tax group</label><select id="bp-vat"></select></div>
+        <div class="field"><label>Control account</label><select id="bp-ctrl">${accountOptions((a) => a.control)}</select></div>
+        <div class="field"><label>Federal tax ID</label><input id="bp-tax" maxlength="32"></div>
+        <div class="field"><label>Phone</label><input id="bp-phone" maxlength="20"></div>
+        <div class="field"><label>E-mail</label><input id="bp-mail" maxlength="100"></div>
+        <div class="field"><label>Street</label><input id="bp-street" maxlength="100"></div>
+        <div class="field"><label>Zip code</label><input id="bp-zip" maxlength="20"></div>
+        <div class="field"><label>City</label><input id="bp-city" maxlength="100"></div>
+        <div class="field"><label>Credit limit</label><input id="bp-credit" type="number" step="0.01" min="0" value="0"></div>
+      </div>
+      <button class="btn" id="bp-save" style="margin-top:12px">Add</button></div></div>`;
+  $("#bp-filter").onchange = (e) => (location.hash = `#/partners${e.target.value ? `?type=${e.target.value}` : ""}`);
+  const syncType = () => {
+    const vendor = $("#bp-type").value === "S";
+    $("#bp-group").innerHTML = groups.filter((g) => g.group_type === (vendor ? "S" : "C")).map((g) => opt(g.group_code, g.group_name)).join("");
+    $("#bp-vat").innerHTML = L.tax_groups.filter((x) => x.category === (vendor ? "I" : "O")).map((x) => opt(x.code, `${x.code} — ${x.name}`)).join("");
+    $("#bp-plist").value = (vendor ? plists.find((p) => /purchase/i.test(p.list_name)) || plists[0] : plists[0]).list_num;
+    $("#bp-ctrl").value = vendor ? "211000" : "114000";
+  };
+  $("#bp-type").onchange = syncType; syncType();
+  $("#bp-new-btn").onclick = () => { $("#bp-new").style.display = ""; $("#bp-code").focus(); };
+  $("#bp-save").onclick = async () => {
+    const v = (id) => $(id).value || null;
+    const r = await act(() => post("/partners", { card_code: $("#bp-code").value, card_name: $("#bp-name").value, card_type: $("#bp-type").value,
+      group_code: Number(v("#bp-group")) || null, currency: $("#bp-cur").value, group_num: Number($("#bp-terms").value),
+      list_num: Number($("#bp-plist").value), vat_group: v("#bp-vat"), deb_pay_acct: v("#bp-ctrl"), lic_trad_num: v("#bp-tax"),
+      phone1: v("#bp-phone"), e_mail: v("#bp-mail"), address: v("#bp-street"), zip_code: v("#bp-zip"), city: v("#bp-city"),
+      credit_line: $("#bp-credit").value || 0 }), (b) => `Business partner ${b.card_code} added`);
+    if (r) { state.partners = await api("/partners"); location.hash = `#/partners?code=${encodeURIComponent(r.card_code)}`; }
+  };
+  if (!code) return;
+
+  const b = await api(`/partners/${encodeURIComponent(code)}`);
+  const terms = (L.payment_terms.find((p) => p.group_num === b.group_num) || {}).name || "";
+  const plist = (plists.find((p) => p.list_num === b.list_num) || {}).list_name || "";
+  const kv = (rows) => rows.map(([k, x]) => `<tr><td class="help">${k}</td><td>${esc(x || "")}</td></tr>`).join("");
+  $("#bp-detail").innerHTML = `<div class="card"><div class="card-head"><span>${CARD_TYPES[b.card_type]} ${esc(b.card_code)} — ${esc(b.card_name)}</span>
+      <button class="btn small secondary" id="bp-freeze">${b.frozen ? "Activate" : "Set inactive"}</button></div>
+    <div class="grid-2"><table><tbody>${kv([["Control account", b.deb_pay_acct], ["Currency", b.currency === "##" ? "All currencies" : b.currency],
+      ["Payment terms", terms], ["Price list", plist], ["Tax group", b.vat_group], ["Federal tax ID", b.lic_trad_num], ["Credit limit", fmt(b.credit_line)]])}</tbody></table>
+    <table><tbody>${kv([["Address", [b.address, [b.zip_code, b.city].filter(Boolean).join(" "), b.country].filter(Boolean).join(", ")], ["Phone", b.phone1],
+      ["E-mail", b.e_mail], ["Contact person", b.cntct_prsn], ["Account balance", fmt(b.balance)], ["Open deliveries", fmt(b.dnotes_bal)],
+      ["Open orders", fmt(b.orders_bal)]])}</tbody></table></div></div>
+    <div class="grid-2">
+      <div class="card"><div class="card-head">Contact persons (OCPR)</div><table><thead><tr><th>Name</th><th>Position</th><th>Phone</th><th>E-mail</th></tr></thead><tbody>
+        ${b.contacts.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.position || "")}</td><td>${esc(p.tel1 || "")}</td><td>${esc(p.e_mail || "")}</td></tr>`).join("")
+          || `<tr><td colspan="4" class="empty">No contact persons.</td></tr>`}</tbody></table>
+        <div class="card-body"><div class="toolbar" style="margin:0"><div class="field"><label>Name</label><input id="cp-name" maxlength="50"></div>
+          <div class="field"><label>Position</label><input id="cp-pos" maxlength="90"></div><div class="field"><label>Phone</label><input id="cp-tel" maxlength="20"></div>
+          <button class="btn secondary" id="cp-add">Add</button></div></div></div>
+      <div class="card"><div class="card-head">Open items</div><table><thead><tr><th>Origin</th><th>Posting date</th><th>Due date</th><th>Remarks</th><th class="num">Open</th></tr></thead><tbody>
+        ${b.open_items.map((o) => `<tr style="cursor:pointer" onclick="location.hash='#/journal?id=${o.trans_id}'"><td>${esc(transTypeName(o.trans_type))} ${o.trans_id}</td>
+          <td>${o.ref_date}</td><td>${o.due_date}</td><td>${esc(o.line_memo || "")}</td><td class="num">${fmt(o.open)}</td></tr>`).join("")
+          || `<tr><td colspan="5" class="empty">No open items.</td></tr>`}</tbody></table></div></div>`;
+  $("#bp-freeze").onclick = async () => {
+    if (await act(() => patch(`/partners/${encodeURIComponent(b.card_code)}`, { frozen: !b.frozen }), "Business partner updated")) {
+      state.partners = await api("/partners"); route();
+    }
+  };
+  $("#cp-add").onclick = async () => {
+    if (await act(() => post(`/partners/${encodeURIComponent(b.card_code)}/contacts`, { name: $("#cp-name").value,
+      position: $("#cp-pos").value || null, tel1: $("#cp-tel").value || null }), "Contact person added")) route();
+  };
+};
+
+// ---------- Item Master Data ----------
+views.items = async (c) => {
+  const code = query().get("code");
+  const [list, groups, whs, plists] = await Promise.all([api("/items"), api("/item-groups"), api("/warehouses"), api("/price-lists")]);
+  const L = state.lookups;
+  const yes = (b) => (b ? "&#10003;" : "");
+  const qty = (i, n) => (i.invnt_item ? Number(n) : "");
+  c.innerHTML = `<div class="page-head"><div><h1>Item Master Data</h1><div class="sub">Items (OITM) valued at moving average; G/L accounts by item group</div></div>
+      <button class="btn" id="it-new-btn">+ New item</button></div>
+    <div class="card"><table><thead><tr><th>Item No.</th><th>Description</th><th>Group</th><th>Inv.</th><th>Sales</th><th>Purch.</th><th class="num">In stock</th>
+      <th class="num">Committed</th><th class="num">Ordered</th><th class="num">Available</th><th class="num">Item cost</th></tr></thead>
+      <tbody>${list.map((i) => `<tr style="cursor:pointer" onclick="location.hash='#/items?code=${encodeURIComponent(i.item_code)}'">
+        <td class="mono">${esc(i.item_code)}</td><td>${esc(i.item_name)}</td><td>${esc((groups.find((g) => g.itms_grp_cod === i.itms_grp_cod) || {}).itms_grp_nam || "")}</td>
+        <td>${yes(i.invnt_item)}</td><td>${yes(i.sell_item)}</td><td>${yes(i.prchse_item)}</td>
+        <td class="num">${qty(i, i.on_hand)}</td><td class="num">${qty(i, i.is_commited)}</td><td class="num">${qty(i, i.on_order)}</td>
+        <td class="num">${qty(i, i.available)}</td><td class="num">${i.invnt_item ? fmt(i.avg_price) : ""}</td></tr>`).join("")
+        || `<tr><td colspan="11" class="empty">No items.</td></tr>`}</tbody></table></div>
+    <div id="it-detail"></div>
+    <div class="card" id="it-new" style="display:none"><div class="card-head">New item</div><div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label class="req">Item No.</label><input id="it-code" maxlength="50"></div>
+        <div class="field"><label class="req">Description</label><input id="it-name" maxlength="100"></div>
+        <div class="field"><label class="req">Item group</label><select id="it-group">${groups.map((g) => opt(g.itms_grp_cod, g.itms_grp_nam)).join("")}</select></div>
+        <div class="field"><label>Inventory unit</label><input id="it-uom" maxlength="20" value="Each"></div>
+        <div class="field"><label>Sales tax group</label><select id="it-vsa">${L.tax_groups.filter((x) => x.category === "O").map((x) => opt(x.code, `${x.code} — ${x.name}`)).join("")}</select></div>
+        <div class="field"><label>Purchase tax group</label><select id="it-vpu">${L.tax_groups.filter((x) => x.category === "I").map((x) => opt(x.code, `${x.code} — ${x.name}`)).join("")}</select></div>
+        <div class="field"><label>Default warehouse</label><select id="it-wh">${whs.map((w) => opt(w.whs_code, `${w.whs_code} — ${w.whs_name}`)).join("")}</select></div>
+        <div class="field"><label>Preferred vendor</label><select id="it-vendor">${opt("", "—")}${state.partners.filter((b) => b.card_type === "S").map((b) => opt(b.card_code, `${b.card_code} — ${b.card_name}`)).join("")}</select></div>
+        <div class="field"><label>Minimum stock</label><input id="it-min" type="number" step="1" min="0" value="0"></div>
+        ${plists.filter((p) => p.base_num === p.list_num).map((p) => `<div class="field"><label>${esc(p.list_name)}</label><input class="it-price" data-list="${p.list_num}" type="number" step="0.01" min="0"></div>`).join("")}
+      </div>
+      <label style="display:inline-flex;gap:6px;margin-top:10px"><input type="checkbox" id="it-inv" checked> Inventory item</label>
+      <label style="display:inline-flex;gap:6px;margin:10px 0 0 16px"><input type="checkbox" id="it-sell" checked> Sales item</label>
+      <label style="display:inline-flex;gap:6px;margin:10px 0 0 16px"><input type="checkbox" id="it-buy" checked> Purchase item</label>
+      <div><button class="btn" id="it-save" style="margin-top:12px">Add</button></div></div></div>`;
+  $("#it-new-btn").onclick = () => { $("#it-new").style.display = ""; $("#it-code").focus(); };
+  $("#it-save").onclick = async () => {
+    const prices = {};
+    $$(".it-price").forEach((i) => { if (i.value !== "") prices[i.dataset.list] = i.value; });
+    const r = await act(() => post("/items", { item_code: $("#it-code").value, item_name: $("#it-name").value, itms_grp_cod: Number($("#it-group").value),
+      invnt_item: $("#it-inv").checked, sell_item: $("#it-sell").checked, prchse_item: $("#it-buy").checked, invntry_uom: $("#it-uom").value || null,
+      vat_gourp_sa: $("#it-vsa").value, vat_group_pu: $("#it-vpu").value, dflt_wh: $("#it-inv").checked ? $("#it-wh").value : null,
+      card_code: $("#it-vendor").value || null, min_level: $("#it-min").value || 0, prices }), (i) => `Item ${i.item_code} added`);
+    if (r) location.hash = `#/items?code=${encodeURIComponent(r.item_code)}`;
+  };
+  if (!code) return;
+
+  const i = await api(`/items/${encodeURIComponent(code)}`);
+  const g = groups.find((x) => x.itms_grp_cod === i.itms_grp_cod) || {};
+  const kv = (rows, cls = "") => rows.map(([k, x]) => `<tr><td class="help">${k}</td><td class="${cls}">${esc(x || "")}</td></tr>`).join("");
+  $("#it-detail").innerHTML = `<div class="card"><div class="card-head">${esc(i.item_code)} — ${esc(i.item_name)}</div>
+    <div class="grid-2"><table><tbody>${kv([["Item group", g.itms_grp_nam], ["Inventory unit", i.invntry_uom],
+      ["Sales / purchase tax", `${i.vat_gourp_sa || ""} / ${i.vat_group_pu || ""}`], ["Default warehouse", i.dflt_wh], ["Preferred vendor", i.card_code],
+      ["Valuation", "Moving average"], ["Item cost", fmt(i.avg_price)], ["Last purchase price", fmt(i.last_pur_prc)]])}</tbody></table>
+    <table><tbody>${kv([["Inventory account", g.bal_invnt_ac], ["Cost of goods sold", g.sale_cost_ac], ["Revenue account", g.revenues_ac],
+      ["Expense account", g.expenses_ac], ["Price difference", g.price_dif_ac]], "mono")}</tbody></table></div></div>
+    <div class="grid-2">
+      <div class="card"><div class="card-head">Stock per warehouse (OITW)</div><table><thead><tr><th>Warehouse</th><th class="num">In stock</th><th class="num">Committed</th><th class="num">Ordered</th><th class="num">Available</th></tr></thead><tbody>
+        ${i.warehouses.map((w) => `<tr><td>${esc(w.whs_code)} — ${esc((whs.find((x) => x.whs_code === w.whs_code) || {}).whs_name || "")}</td>
+          <td class="num">${Number(w.on_hand)}</td><td class="num">${Number(w.is_commited)}</td><td class="num">${Number(w.on_order)}</td><td class="num">${Number(w.available)}</td></tr>`).join("")
+          || `<tr><td colspan="5" class="empty">Not an inventory item.</td></tr>`}</tbody></table></div>
+      <div class="card"><div class="card-head">Prices (ITM1)</div><table><thead><tr><th>Price list</th><th class="num">Price</th><th></th></tr></thead><tbody>
+        ${i.prices.map((p) => `<tr><td>${esc(p.list_name)}${p.own ? "" : ' <span class="help">(from base list)</span>'}</td>
+          <td class="num"><input class="pr-val" data-list="${p.list_num}" type="number" step="0.01" min="0" value="${Number(p.price).toFixed(2)}" style="width:110px;text-align:right"></td>
+          <td><button class="btn small ghost pr-save" data-list="${p.list_num}">Save</button></td></tr>`).join("")}</tbody></table></div></div>`;
+  $$(".pr-save").forEach((btn) => (btn.onclick = async () => {
+    const val = $(`.pr-val[data-list="${btn.dataset.list}"]`).value;
+    if (await act(() => api(`/items/${encodeURIComponent(i.item_code)}/prices/${btn.dataset.list}`, { method: "PUT", body: JSON.stringify({ price: val }) }), "Price saved")) route();
+  }));
+};
+
+// ---------- Warehouses & Price Lists ----------
+views.warehouses = async (c) => {
+  const [whs, plists] = await Promise.all([api("/warehouses"), api("/price-lists")]);
+  c.innerHTML = `<div class="page-head"><div><h1>Warehouses &amp; Price Lists</h1><div class="sub">Warehouses (OWHS) and price lists (OPLN)</div></div></div>
+    <div class="grid-2">
+      <div class="card"><div class="card-head">Warehouses</div><table><thead><tr><th>Code</th><th>Name</th><th>Street</th><th>City</th></tr></thead><tbody>
+        ${whs.map((w) => `<tr><td class="mono">${esc(w.whs_code)}</td><td>${esc(w.whs_name)}</td><td>${esc(w.street || "")}</td><td>${esc(w.city || "")}</td></tr>`).join("")}</tbody></table>
+        <div class="card-body"><div class="toolbar" style="margin:0"><div class="field"><label>Code</label><input id="wh-code" maxlength="8" style="width:80px"></div>
+          <div class="field"><label>Name</label><input id="wh-name" maxlength="100"></div><div class="field"><label>City</label><input id="wh-city" maxlength="100"></div>
+          <button class="btn secondary" id="wh-add">Add</button></div></div></div>
+      <div class="card"><div class="card-head">Price lists</div><table><thead><tr><th>No.</th><th>Name</th><th>Base price list</th><th class="num">Factor</th></tr></thead><tbody>
+        ${plists.map((p) => `<tr><td>${p.list_num}</td><td>${esc(p.list_name)}</td>
+          <td>${p.base_num === p.list_num ? '<span class="help">own prices</span>' : esc((plists.find((x) => x.list_num === p.base_num) || {}).list_name || "")}</td>
+          <td class="num">${Number(p.factor)}</td></tr>`).join("")}</tbody></table></div>
+    </div>`;
+  $("#wh-add").onclick = async () => {
+    if (await act(() => post("/warehouses", { whs_code: $("#wh-code").value, whs_name: $("#wh-name").value, city: $("#wh-city").value || null }), "Warehouse added")) route();
   };
 };
 

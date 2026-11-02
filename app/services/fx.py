@@ -11,6 +11,13 @@ item's local amount is posted per open item / reconciliation account against
 the T030H balance sheet adjustment account (LKORR) with valuation gain
 (LHBEW) or loss (LSBEW), and reversed on the next day, so each valuation
 starts again from the historical local amounts.
+
+G/L accounts kept in a foreign currency (SKB1-WAERS) without open item
+management are valued by balance: the account's foreign-currency balance at
+the key-date rate against its local balance, posted the same way. A valuation
+method (T044A) chooses the exchange rate type for debit and for credit
+balances (e.g. bank buying rate G for receivables, selling rate B for
+payables).
 """
 
 from __future__ import annotations
@@ -19,12 +26,13 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.documents import AccountingDocumentHeader, AccountingDocumentItem
 from app.models.organizational import ExchangeRate
-from app.models.payments import ExchangeDifferenceAccounts
+from app.models.gl_master import GLAccountCompanyCode
+from app.models.payments import ExchangeDifferenceAccounts, ValuationMethod
 from app.services.fiscal import PostingError, company_code
 
 _CENT = Decimal("0.01")
@@ -59,12 +67,15 @@ def difference_accounts(session: Session, mandt: str, ktopl: str, hkont: str) ->
 
 
 def valuate(session: Session, mandt: str, bukrs: str, key_date: date, *, post: bool = False,
-            usnam: str = "SYSTEM") -> dict:
+            method: str = "KTO", usnam: str = "SYSTEM") -> dict:
     """Value foreign-currency open items at ``key_date``; optionally post and reverse the result."""
     from app.services.posting import DocumentRequest, LineRequest, post_document
     from app.services.reversal import reverse_document
 
     cc = company_code(session, mandt, bukrs)
+    vm = session.get(ValuationMethod, (mandt, method))
+    if vm is None:
+        raise PostingError(f"Valuation method {method} is not defined (T044A)")
     marker = f"FCV{key_date:%Y%m%d}"
     if post and session.scalars(select(AccountingDocumentHeader).where(
             AccountingDocumentHeader.mandt == mandt, AccountingDocumentHeader.bukrs == bukrs,
@@ -82,21 +93,50 @@ def valuate(session: Session, mandt: str, bukrs: str, key_date: date, *, post: b
     ).all()
 
     lines, per_account = [], defaultdict(lambda: Decimal("0"))
-    rates: dict[str, Decimal] = {}
+    rates: dict[tuple[str, str], Decimal] = {}
+
+    def key_rate(waers: str, debit: bool) -> Decimal:
+        kurst = vm.kurst_s if debit else vm.kurst_h
+        if (waers, kurst) not in rates:
+            rates[(waers, kurst)] = rate(session, mandt, waers, cc.waers, key_date, kurst)
+        return rates[(waers, kurst)]
+
     for it in items:
         waers = it.header.waers
-        if waers not in rates:
-            rates[waers] = rate(session, mandt, waers, cc.waers, key_date)
         sign = 1 if it.shkzg == "S" else -1
         before = sign * it.dmbtr
-        after = sign * (it.wrbtr * rates[waers]).quantize(_CENT, ROUND_HALF_UP)
+        used_rate = key_rate(waers, it.shkzg == "S")
+        after = sign * (it.wrbtr * used_rate).quantize(_CENT, ROUND_HALF_UP)
         diff = after - before
         per_account[it.hkont] += diff
         lines.append({
             "belnr": it.belnr, "gjahr": it.gjahr, "buzei": it.buzei, "koart": it.koart,
             "account": it.kunnr or it.lifnr or it.hkont, "hkont": it.hkont, "waers": waers,
             "wrbtr": sign * it.wrbtr, "rate_hist": (it.dmbtr / it.wrbtr).quantize(_RATE, ROUND_HALF_UP) if it.wrbtr else None,
-            "rate_key": rates[waers], "local_before": before, "local_after": after, "difference": diff,
+            "rate_key": used_rate, "local_before": before, "local_after": after, "difference": diff,
+        })
+
+    # G/L accounts managed in a foreign currency, without open items: balance valuation
+    signed_fc = case((AccountingDocumentItem.shkzg == "S", AccountingDocumentItem.wrbtr), else_=-AccountingDocumentItem.wrbtr)
+    signed_lc = case((AccountingDocumentItem.shkzg == "S", AccountingDocumentItem.dmbtr), else_=-AccountingDocumentItem.dmbtr)
+    for gl in session.scalars(select(GLAccountCompanyCode).where(
+            GLAccountCompanyCode.mandt == mandt, GLAccountCompanyCode.bukrs == bukrs,
+            GLAccountCompanyCode.waers != cc.waers, GLAccountCompanyCode.xopvw.is_(False))):
+        fc, lc = session.execute(select(func.sum(signed_fc), func.sum(signed_lc)).join(AccountingDocumentItem.header).where(
+            AccountingDocumentItem.mandt == mandt, AccountingDocumentItem.bukrs == bukrs,
+            AccountingDocumentItem.hkont == gl.saknr, AccountingDocumentHeader.bstat == " ",
+            AccountingDocumentHeader.budat <= key_date)).one()
+        if not fc and not lc:
+            continue
+        fc, lc = fc or Decimal("0"), lc or Decimal("0")
+        used_rate = key_rate(gl.waers, fc >= 0)
+        after = (fc * used_rate).quantize(_CENT, ROUND_HALF_UP)
+        diff = after - lc
+        per_account[gl.saknr] += diff
+        lines.append({
+            "belnr": None, "gjahr": None, "buzei": None, "koart": "S", "account": gl.saknr, "hkont": gl.saknr,
+            "waers": gl.waers, "wrbtr": fc, "rate_hist": (lc / fc).quantize(_RATE, ROUND_HALF_UP) if fc else None,
+            "rate_key": used_rate, "local_before": lc, "local_after": after, "difference": diff, "balance": True,
         })
 
     postings = []
@@ -110,7 +150,8 @@ def valuate(session: Session, mandt: str, bukrs: str, key_date: date, *, post: b
             debit, credit = acc.lsbew, acc.lkorr
         postings.append({"hkont": hkont, "difference": diff, "debit": debit, "credit": credit})
 
-    result = {"bukrs": bukrs, "key_date": key_date, "waers": cc.waers, "rates": rates,
+    result = {"bukrs": bukrs, "key_date": key_date, "waers": cc.waers, "method": method,
+              "rates": {f"{w}/{k}": r for (w, k), r in rates.items()},
               "items": lines, "postings": postings, "total": sum(per_account.values(), Decimal("0")),
               "document": None, "reversal": None}
     if post and postings:

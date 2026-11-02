@@ -360,9 +360,11 @@ views.documents = async (c) => {
 
 // ---------- Trial Balance ----------
 views["trial-balance"] = async (c) => {
-  const tb = await api(`/reports/trial-balance?bukrs=${state.bukrs}&gjahr=${state.gjahr}`);
+  const curtp = new URLSearchParams(location.hash.split("?")[1] || "").get("curtp") || "10";
+  const tb = await api(`/reports/trial-balance?bukrs=${state.bukrs}&gjahr=${state.gjahr}&curtp=${curtp}`);
   c.innerHTML = `
-    <div class="page-head"><div><h1>Trial Balance</h1><div class="sub">Company code ${esc(state.bukrs)} · FY ${tb.gjahr}</div></div>
+    <div class="page-head"><div><h1>Trial Balance</h1><div class="sub">Company code ${esc(state.bukrs)} · FY ${tb.gjahr} · ${curtp === "10" ? "local currency" : `group currency ${esc(tb.waers)}`}</div></div>
+      <select onchange="location.hash='#/trial-balance?curtp='+this.value"><option value="10" ${curtp === "10" ? "selected" : ""}>Local currency (10)</option><option value="30" ${curtp === "30" ? "selected" : ""}>Group currency (30)</option></select>
       <span class="chip ${tb.balanced ? "ok" : "no"}">${tb.balanced ? "Balanced" : "Out of balance"}</span></div>
     <div class="card"><table><thead><tr><th>Account</th><th>Name</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
     <tbody>${tb.lines.map((l) => `<tr><td class="mono">${l.saknr}</td><td>${esc(l.name)}</td>
@@ -781,6 +783,7 @@ views.fx = async (c) => {
     <div class="card"><div class="card-head">FX Valuation of Open Items (FAGL_FCV)</div><div class="card-body">
       <div class="toolbar" style="margin:0">
         <div class="field"><label class="req">Key date</label><input id="fx-key" type="date" value="${todayISO()}"></div>
+        <div class="field"><label>Valuation method</label><select id="fx-method"><option value="KTO">KTO · middle rate</option><option value="BG">BG · buying / selling rate</option></select></div>
         <button class="btn secondary" id="fx-test">Test run</button>
         <button class="btn" id="fx-post">Post valuation</button>
       </div>
@@ -791,6 +794,7 @@ views.fx = async (c) => {
       <tbody>${rates.map((r) => `<tr><td>${esc(r.kurst)}</td><td>${esc(r.fcurr)}</td><td>${esc(r.tcurr)}</td><td>${r.gdatu}</td><td class="num">${Number(r.ukurs).toFixed(5)}</td></tr>`).join("")
         || `<tr><td colspan="5" class="empty">No exchange rates.</td></tr>`}</tbody></table>
       <div class="card-body"><div class="form-grid">
+        <div class="field"><label>Rate type</label><select id="xr-type"><option>M</option><option>G</option><option>B</option></select></div>
         <div class="field"><label>From currency</label><input id="xr-from" value="USD"></div>
         <div class="field"><label>To currency</label><input id="xr-to" value="${esc(ccWaers())}"></div>
         <div class="field"><label>Valid from</label><input id="xr-date" type="date" value="${todayISO()}"></div>
@@ -800,10 +804,10 @@ views.fx = async (c) => {
   const run = async (post) => {
     if (post && !confirm(`Post the FX valuation for ${$("#fx-key").value}? It is reversed on the next day.`)) return;
     try {
-      const r = await api("/fx-valuation", { method: "POST", body: JSON.stringify({ bukrs: state.bukrs, key_date: $("#fx-key").value, post }) });
+      const r = await api("/fx-valuation", { method: "POST", body: JSON.stringify({ bukrs: state.bukrs, key_date: $("#fx-key").value, post, method: $("#fx-method").value }) });
       if (post) toast(r.document ? `Valuation ${r.document.belnr} posted, reversed by ${r.reversal.belnr}` : "Nothing to post", "good");
       $("#fx-result").innerHTML = `<table><thead><tr><th>Document</th><th>Account</th><th class="num">Amount</th><th>Curr</th><th class="num">Hist. rate</th><th class="num">Key-date rate</th><th class="num">Local before</th><th class="num">Local after</th><th class="num">Difference</th></tr></thead>
-        <tbody>${r.items.map((i) => `<tr><td class="mono"><a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a></td>
+        <tbody>${r.items.map((i) => `<tr><td class="mono">${i.balance ? "Balance" : `<a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a>`}</td>
           <td class="mono">${esc(i.account)}</td><td class="num">${fmt(i.wrbtr)}</td><td>${esc(i.waers)}</td>
           <td class="num">${i.rate_hist ?? ""}</td><td class="num">${i.rate_key}</td><td class="num">${fmt(i.local_before)}</td>
           <td class="num">${fmt(i.local_after)}</td><td class="num" style="color:${Number(i.difference) >= 0 ? "var(--good)" : "var(--bad)"}">${fmt(i.difference)}</td></tr>`).join("")
@@ -817,7 +821,7 @@ views.fx = async (c) => {
   $("#fx-post").onclick = () => run(true);
   $("#xr-save").onclick = async () => {
     try {
-      await api("/exchange-rates", { method: "POST", body: JSON.stringify({ kurst: "M", fcurr: $("#xr-from").value, tcurr: $("#xr-to").value, gdatu: $("#xr-date").value, ukurs: $("#xr-rate").value }) });
+      await api("/exchange-rates", { method: "POST", body: JSON.stringify({ kurst: $("#xr-type").value, fcurr: $("#xr-from").value, tcurr: $("#xr-to").value, gdatu: $("#xr-date").value, ukurs: $("#xr-rate").value }) });
       toast("Exchange rate saved", "good"); route();
     } catch (e) { toast(e.message, "bad"); }
   };

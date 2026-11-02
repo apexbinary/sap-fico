@@ -191,6 +191,8 @@ class _ResolvedLine:
     mwsts: Decimal | None = None
     ktosl: str | None = None
     terms: object | None = None  # T052 terms of payment (sub-ledger invoice lines)
+    dmbe2: Decimal | None = None  # Amount in the 2nd local currency (T001A)
+    dmbe3: Decimal | None = None  # Amount in the 3rd local currency (T001A)
     xopvw: bool = False  # Open item management (D/K always; G/L per SKB1-XOPVW)
 
 
@@ -252,7 +254,10 @@ def _post(
 
         xopvw = pk.koart in ("D", "K")
         if pk.koart == "S":
-            xopvw = _validate_gl_account(session, mandt, req.bukrs, ln.account).xopvw
+            gl = _validate_gl_account(session, mandt, req.bukrs, ln.account)
+            xopvw = gl.xopvw
+            if gl.waers and gl.waers != local_currency and req.waers != gl.waers:
+                raise PostingError(f"G/L account {ln.account} is managed in {gl.waers}; post it in that currency")
             hkont, saknr, kunnr, lifnr = ln.account, ln.account, None, None
         elif pk.koart == "D":
             hkont = _reconciliation_account(session, mandt, req.bukrs, "D", ln.account)
@@ -314,6 +319,7 @@ def _post(
     if req.waers != local_currency:
         _absorb_rounding(all_lines, req.lines)
     _check_balanced(all_lines, req.waers, local_currency)
+    extra_currencies = _additional_currencies(session, mandt, req, all_lines, local_currency, kursf)
     if req.bstat == " ":
         from app.services import tolerance
 
@@ -330,7 +336,8 @@ def _post(
         blart=req.blart, bldat=req.bldat, budat=req.budat, monat=monat, usnam=req.usnam, tcode=req.tcode,
         xblnr=req.xblnr, bktxt=req.bktxt, waers=req.waers, kursf=kursf,
         wwert=req.budat if req.waers != local_currency else None,
-        hwaer=local_currency, bstat=req.bstat, awtyp="BKPF", kokrs=kokrs,
+        hwaer=local_currency, hwae2=extra_currencies[0], hwae3=extra_currencies[1],
+        bstat=req.bstat, awtyp="BKPF", kokrs=kokrs,
         ppnam=req.usnam if req.bstat == "V" else None, dbblg=req.dbblg,
     )
     if req.belnr:  # FBV2: change a parked document in place, keeping its number
@@ -365,7 +372,7 @@ def _post(
             buzid=rl.buzid, bschl=rl.bschl, koart=rl.koart, shkzg=rl.shkzg,
             bstat=None if posted else req.bstat,
             umskz=(src.umskz if src else None), hkont=rl.hkont, saknr=rl.saknr,
-            kunnr=rl.kunnr, lifnr=rl.lifnr, wrbtr=rl.wrbtr, dmbtr=rl.dmbtr,
+            kunnr=rl.kunnr, lifnr=rl.lifnr, wrbtr=rl.wrbtr, dmbtr=rl.dmbtr, dmbe2=rl.dmbe2, dmbe3=rl.dmbe3,
             mwskz=rl.mwskz, ktosl=rl.ktosl, wmwst=rl.wmwst, mwsts=rl.mwsts,
             gsber=(src.gsber if src else None),
             sgtxt=(src.sgtxt if src else None),
@@ -480,6 +487,49 @@ def line_from_item(item: AccountingDocumentItem) -> LineRequest:
         umskz=item.umskz, rebzg=item.rebzg, rebzj=item.rebzj, rebzz=item.rebzz, zlsch=item.zlsch,
         zlspr=item.zlspr, anln2=item.anln2 or "0000", anbwa=item.anbwa, bzdat=item.bzdat, buzid=item.buzid,
     )
+
+
+def _additional_currencies(session, mandt, req, lines, local, kursf) -> tuple[str | None, str | None]:
+    """Fill DMBE2 / DMBE3 for the company code's additional local currencies (T001A).
+
+    Lines are translated from the document currency; a line with only a local
+    amount (a realized exchange difference) takes whatever balances the
+    document in that currency. Cent differences go to the largest line.
+    """
+    from app.models.organizational import AdditionalLocalCurrencies
+    from app.services import fx
+
+    extra = session.get(AdditionalLocalCurrencies, (mandt, req.bukrs))
+    found: list[str | None] = [None, None]
+    if extra is None:
+        return found[0], found[1]
+    for n, (waers, kurst, attr) in enumerate(((extra.waers2, extra.kurst2, "dmbe2"), (extra.waers3, extra.kurst3, "dmbe3"))):
+        if not waers:
+            continue
+        found[n] = waers
+        from_doc = fx.rate(session, mandt, req.waers, waers, req.budat, kurst)
+        from_local = fx.rate(session, mandt, local, waers, req.budat, kurst)
+        translated = [l for l in lines if l.wrbtr]
+        for l in translated:
+            setattr(l, attr, to_local(l.wrbtr, from_doc))
+        # Lines with only a local amount (realized exchange differences) balance the rest in this
+        # currency, as they do in local currency; without such a line they are simply translated.
+        local_only = [l for l in lines if not l.wrbtr]
+        if local_only:
+            rest = sum((getattr(l, attr) if l.shkzg == "S" else -getattr(l, attr) for l in translated), Decimal("0"))
+            first, others = local_only[0], local_only[1:]
+            for l in others:
+                setattr(l, attr, to_local(l.dmbtr, from_local))
+                rest += getattr(l, attr) if l.shkzg == "S" else -getattr(l, attr)
+            setattr(first, attr, rest if first.shkzg == "H" else -rest)
+        diff = sum((getattr(l, attr) if l.shkzg == "S" else -getattr(l, attr) for l in lines), Decimal("0"))
+        if diff and abs(diff) <= _CENT * len(lines):
+            side = "H" if diff > 0 else "S"
+            candidates = [l for l in lines if l.shkzg == side]
+            if candidates:
+                biggest = max(candidates, key=lambda l: getattr(l, attr))
+                setattr(biggest, attr, getattr(biggest, attr) + abs(diff))
+    return found[0], found[1]
 
 
 def _absorb_rounding(lines: list[_ResolvedLine], requested: list[LineRequest]) -> None:

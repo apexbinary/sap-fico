@@ -20,7 +20,8 @@ Creates:
   * Financial statement version INT and retained earnings 109000 (T030 BIL)
   * Functional areas 0100/0300/0400/0500 on cost centers and P&L accounts
   * Dunning procedure 0001 (four levels) and dunning data for the demo customer
-  * USD exchange rates (TCURR) and exchange rate difference accounts (T030H)
+  * USD exchange rates M/G/B (TCURR), valuation methods (T044A), exchange rate
+    difference accounts (T030H), group currency USD (T001A), USD bank account 113200
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
 Run:  python -m app.seed
@@ -68,6 +69,7 @@ from app.models.organizational import (
     CompanyCode,
     ControllingArea,
     ControllingAreaAssignment,
+    AdditionalLocalCurrencies,
     Currency,
     ExchangeRate,
     FiscalYearPeriod,
@@ -97,6 +99,7 @@ from app.models.payments import (
     PaymentMethod,
     PaymentTerms,
     UserToleranceGroup,
+    ValuationMethod,
 )
 from app.models.tax import Country, TaxAccount, TaxCode, TaxRate
 
@@ -119,6 +122,8 @@ def _gl_accounts():
         ("109000", "Retained earnings", True, "GL00", None, None),
         ("113100", "Bank (main account)", True, "GL00", None, None),
         ("113109", "Bank clearing account (open items)", True, "GL00", None, None),
+        ("113200", "Bank USD account", True, "GL00", None, None),
+        ("113209", "Bank USD - valuation adjustment", True, "GL00", None, None),
         ("140000", "Trade receivables - domestic", True, "RECN", "D", None),
         ("140099", "Receivables - FX valuation adjustment", True, "GL00", None, None),
         ("154000", "Input tax (VST)", True, "GL00", None, "<"),
@@ -178,6 +183,9 @@ REVERSAL_KEYS = {
 }
 
 
+# G/L accounts kept in a foreign currency (SKB1-WAERS); valued by balance on the key date
+ACCOUNT_CURRENCY = {"113200": "USD"}
+
 # Functional area of P&L accounts posted without a cost center (cost-of-sales P&L)
 ACCOUNT_FUNCTIONAL_AREAS = {
     "400000": "0100", "480000": "0100", "476000": "0400", "477000": "0300", "479000": "0400",
@@ -207,6 +215,14 @@ def seed() -> None:
                              (date(2026, 9, 1), "0.95"), (date(2026, 12, 1), "0.88")]:
             put(ExchangeRate(mandt=MANDT, kurst="M", fcurr="USD", tcurr="EUR", gdatu=gdatu,
                                  ukurs=Decimal(ukurs), ffact=1, tfact=1))
+            # bank buying (G) and selling (B) rates, 1% around the middle rate
+            for kurst, factor in (("G", Decimal("0.99")), ("B", Decimal("1.01"))):
+                put(ExchangeRate(mandt=MANDT, kurst=kurst, fcurr="USD", tcurr="EUR", gdatu=gdatu,
+                                 ukurs=(Decimal(ukurs) * factor).quantize(Decimal("0.00001")), ffact=1, tfact=1))
+        # Valuation methods (T044A): middle rate, or lower-of-cost with buying / selling rates
+        put(ValuationMethod(mandt=MANDT, bwmet="KTO", txt="Middle rate for all balances", kurst_s="M", kurst_h="M"))
+        put(ValuationMethod(mandt=MANDT, bwmet="BG", txt="Buying rate debit, selling rate credit",
+                            kurst_s="G", kurst_h="B"))
 
         # --- Country & tax procedure ---
         put(Country(mandt=MANDT, land1="DE", landx="Germany", kalsm="TAXD", intca="DE", waers="EUR", xegld=True))
@@ -223,12 +239,14 @@ def seed() -> None:
         # --- Fiscal year variant K4 (calendar) + open periods ---
         put(FiscalYearVariant(mandt=MANDT, periv=PERIV, xmon=True, anzbp=12, anzsp=4, beztx="Calendar year, 4 spec. periods"))
 
-        # --- Company code 1000 ---
+        # --- Company code 1000 ---  (group currency USD as 2nd local currency, see T001A below)
         put(CompanyCode(
             mandt=MANDT, bukrs=BUKRS, butxt="Demo Company AG", ort01="Walldorf", land1="DE",
             waers="EUR", spras="E", ktopl=KTOPL, periv=PERIV, kokfi="1", stceg="DE123456789",
             land1_iso="DE", waers_iso="EUR",
         ))
+
+        put(AdditionalLocalCurrencies(mandt=MANDT, bukrs=BUKRS, curtp2="30", waers2="USD", kurst2="M"))
 
         # Open posting periods for all account types ('+')
         put(PostingPeriodControl(
@@ -294,7 +312,7 @@ def seed() -> None:
                              func_area=None if is_bs else ACCOUNT_FUNCTIONAL_AREAS.get(saknr), erdat="20260101", ernam="SEED"))
             put(GLAccountText(mandt=MANDT, spras="E", ktopl=KTOPL, saknr=saknr, txt20=name[:20], txt50=name, mcod1=name[:25].upper()))
             put(GLAccountCompanyCode(
-                mandt=MANDT, bukrs=BUKRS, saknr=saknr, waers="EUR", xkres=True,
+                mandt=MANDT, bukrs=BUKRS, saknr=saknr, waers=ACCOUNT_CURRENCY.get(saknr, "EUR"), xkres=True,
                 mwskz=taxcat, mitkz=recon, xopvw=recon is not None or saknr in OPEN_ITEM_GL,
                 fstag="G001", zuawa="001", erdat="20260101", ernam="SEED",
             ))
@@ -412,7 +430,7 @@ def seed() -> None:
             put(DunningCharge(mandt=MANDT, mahna="0001", mahns=mahns, waers="EUR", mahng=Decimal(charge)))
 
         # Exchange rate differences per open-item / reconciliation account (T030H)
-        for hkont, korr in [("140000", "140099"), ("160000", "160099"), ("113109", "140099")]:
+        for hkont, korr in [("140000", "140099"), ("160000", "160099"), ("113109", "140099"), ("113200", "113209")]:
             put(ExchangeDifferenceAccounts(mandt=MANDT, ktopl=KTOPL, hkont=hkont, lsrea="230000", lhrea="280000",
                                                lsbew="230010", lhbew="280010", lkorr=korr))
 

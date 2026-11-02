@@ -1,4 +1,5 @@
-"""End-to-end check for foreign currency: translation, rounding, valuation, realized differences.
+"""End-to-end check for foreign currency: translation, rounding, valuation, realized differences,
+group currency (2nd local currency), foreign-currency G/L accounts and valuation methods.
 
 USD rates (seed): 0.90 from 2026-06-01, 0.95 from 2026-09-01, 0.88 from 2026-12-01.
 Run after app.seed:  python -m app.verify_fx  (rerunnable: an already valuated
@@ -82,6 +83,44 @@ def main() -> None:
         assert any(i.hkont == "230000" and i.shkzg == "S" and i.dmbtr == D("23.80") for i in pdoc.items)
         assert any(i.hkont == "113100" and i.dmbtr == D("1047.20") for i in pdoc.items)
         assert s.get(type(item), (MANDT, BUKRS, item.belnr, item.gjahr, item.buzei)).augbl == pay["belnr"]
+
+        # 5) group currency USD (T001A): every line carries DMBE2; the group-currency trial balance balances
+        assert inv.hwae2 == "USD" and item.dmbe2 == D("1190.00"), "USD document: group currency = document currency"
+        eur = odd.items[0]
+        print(f"5 Group currency: USD invoice line {item.dmbe2} USD; EUR-translated vendor line {eur.dmbtr} EUR = {eur.dmbe2} USD")
+        tb_usd = reporting.trial_balance_currency(s, MANDT, BUKRS, 2026, "30")
+        print(f"  Trial balance in {tb_usd['waers']}: debit {tb_usd['total_debit']} credit {tb_usd['total_credit']}")
+        assert tb_usd["balanced"]
+
+        # 6) a USD G/L account takes only USD postings and is valued by balance
+        try:
+            post_document(s, DocumentRequest(bukrs=BUKRS, blart="SA", bldat=date(2026, 6, 10), budat=date(2026, 6, 10),
+                                             waers="EUR", lines=[LineRequest(bschl="40", account="113200", wrbtr=D("10.00")),
+                                                                 LineRequest(bschl="50", account="100000", wrbtr=D("10.00"))]))
+        except PostingError as exc:
+            print("6 rejected (account currency):", exc)
+        else:
+            raise AssertionError("113200 is managed in USD")
+        post_document(s, DocumentRequest(bukrs=BUKRS, blart="SA", bldat=date(2026, 6, 10), budat=date(2026, 6, 10),
+                                         waers="USD", bktxt="USD deposit", lines=[
+                                             LineRequest(bschl="40", account="113200", wrbtr=D("1000.00")),
+                                             LineRequest(bschl="50", account="100000", wrbtr=D("1000.00"))]))
+        val = fx.valuate(s, MANDT, BUKRS, date(2026, 9, 30))
+        bank = next(l for l in val["items"] if l.get("balance") and l["hkont"] == "113200")
+        print(f"  Balance valuation 113200: {bank['wrbtr']} USD, {bank['local_before']} -> {bank['local_after']} EUR"
+              f" (diff {bank['difference']})")
+        assert bank["local_after"] == (bank["wrbtr"] * D("0.95")).quantize(D("0.01"))
+        assert bank["difference"] == bank["local_after"] - bank["local_before"]
+        assert any(p["hkont"] == "113200" and "113209" in (p["debit"], p["credit"]) for p in val["postings"])
+
+        # 7) valuation method BG: debit balances at the buying rate (G), credit balances at the selling rate (B)
+        bg = fx.valuate(s, MANDT, BUKRS, date(2026, 9, 30), method="BG")
+        debit_item = next(l for l in bg["items"] if not l.get("balance") and l["wrbtr"] > 0)
+        credit_item = next((l for l in bg["items"] if not l.get("balance") and l["wrbtr"] < 0), None)
+        print(f"7 Method BG: debit item at {debit_item['rate_key']}"
+              + (f", credit item at {credit_item['rate_key']}" if credit_item else ""))
+        assert debit_item["rate_key"] == D("0.94050")
+        assert credit_item is None or credit_item["rate_key"] == D("0.95950")
 
         tb = reporting.trial_balance(s, MANDT, BUKRS, 2026)
         print(f"Trial balance balanced={tb['balanced']}")

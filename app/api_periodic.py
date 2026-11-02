@@ -155,8 +155,9 @@ class ValuationIn(BaseModel):
     bukrs: str
     key_date: date = Field(..., description="Key date of the valuation")
     post: bool = Field(False, description="False = test run (list only)")
+    method: str = Field("KTO", description="Valuation method (T044A)")
 
 
 @router.post("/fx-valuation", summary="Foreign currency valuation of open items (FAGL_FCV)")
 def fx_valuation(body: ValuationIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
-    return _run_or_422(lambda: fx.valuate(s, _m(mandt), body.bukrs, body.key_date, post=body.post))
+    return _run_or_422(lambda: fx.valuate(s, _m(mandt), body.bukrs, body.key_date, post=body.post, method=body.method))

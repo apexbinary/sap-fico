@@ -172,10 +172,15 @@ def get_document(
 
 @router.get("/reports/trial-balance", tags=["Reports"], summary="Trial balance (S_ALR_87012277)")
 def trial_balance(
-    bukrs: str, gjahr: int, period_to: int = 16,
+    bukrs: str, gjahr: int, period_to: int = 16, curtp: str = Query("10", description="10 local, 30 group, 40 hard"),
     mandt: str = Query(default=None),
     session: Session = Depends(get_session),
 ) -> dict:
+    if curtp != "10":
+        try:
+            return reporting.trial_balance_currency(session, mandt or settings.default_client, bukrs, gjahr, curtp, period_to)
+        except (ValueError, PostingError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     return reporting.trial_balance(session, mandt or settings.default_client, bukrs, gjahr, period_to)
 
 

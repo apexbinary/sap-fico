@@ -10,6 +10,7 @@ Tables modelled here:
     T042I  Bank determination: ranking of house banks per payment method
     T043G  Tolerances for customers/vendors (permitted payment differences)
     T030H  Exchange rate difference accounts per open-item / reconciliation account
+    T044A  Valuation methods for the foreign currency valuation (rate types per balance)
     T043   User -> employee tolerance group
     T043T  Employee tolerances (posting limits, cash discount, payment differences)
     T053R  Reason codes for payment differences
@@ -250,3 +251,19 @@ class CheckRegister(Base):
     voidr: Mapped[str | None] = mapped_column(String(2))  # Void reason code
     voidd: Mapped[date | None] = mapped_column()  # Voided on
     voidu: Mapped[str | None] = mapped_column(String(12))  # Voided by
+
+
+class ValuationMethod(Base):
+    """T044A — Valuation method: which exchange rate type values debit and credit balances.
+
+    Non-key column names follow the OB59 screen and still need checking against
+    the SAP data dictionary.
+    """
+
+    __tablename__ = "t044a"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    bwmet: Mapped[str] = mapped_column(String(4), primary_key=True)  # Valuation method
+    txt: Mapped[str] = mapped_column(String(40))  # Description
+    kurst_s: Mapped[str] = mapped_column(String(4), default="M")  # Rate type for debit balances
+    kurst_h: Mapped[str] = mapped_column(String(4), default="M")  # Rate type for credit balances

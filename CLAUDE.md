@@ -269,8 +269,12 @@ reconciled against the reconciliation accounts; revision 0007 backfills them.
 clearing in foreign currency with realized gains/losses (T030H LHREA/LSREA),
 FX valuation of open items with test run, posting against LKORR/LHBEW/LSBEW
 and reversal on the next day, exchange rate maintenance, UI.
-Known gaps: valuation of foreign-currency G/L balances (non open item),
-second/third local currencies, rate types other than M.
+Also done: balance valuation of G/L accounts kept in a foreign currency
+(SKB1-WAERS, e.g. USD bank 113200; such accounts accept only postings in their
+currency), 2nd/3rd local currency (T001A: group currency USD; BKPF-HWAE2,
+BSEG-DMBE2, group-currency trial balance), rate types G/B and valuation
+methods (T044A: KTO middle rate, BG buying/selling rate). T001A/T044A non-key
+column names are to be checked in SAP.
 
 **Dunning — done:** procedure 0001 (4 levels, 14-day interval, 3 grace days,
 charges from level 2), proposal with level rise of at most one per run,

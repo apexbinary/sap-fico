@@ -64,6 +64,7 @@ from app.models.gl_master import (
     GLAccountText,
 )
 from app.models.organizational import (
+    AdditionalLocalCurrencies,
     BusinessArea,
     ChartOfAccounts,
     Client,
@@ -104,6 +105,7 @@ from app.models.payments import (
     PaymentMethod,
     PaymentTerms,
     UserToleranceGroup,
+    ValuationMethod,
 )
 from app.models.tax import (
     Country,
@@ -119,7 +121,7 @@ __all__ = [
     "Client", "CompanyCode", "ChartOfAccounts", "FiscalYearVariant",
     "FiscalYearPeriod", "ControllingArea", "ControllingAreaAssignment",
     "BusinessArea", "CreditControlArea", "Currency", "ExchangeRate",
-    "PostingPeriodControl",
+    "PostingPeriodControl", "AdditionalLocalCurrencies",
     # gl master
     "GLAccountCOA", "GLAccountText", "GLAccountCompanyCode", "GLAccountGroup",
     "FieldStatusVariant", "FieldStatusGroup",
@@ -139,7 +141,7 @@ __all__ = [
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
     "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",
     "ExchangeDifferenceAccounts", "UserToleranceGroup", "EmployeeTolerance", "PaymentDifferenceReason",
-    "AvailableAmount", "CheckLot", "CheckRegister",
+    "AvailableAmount", "CheckLot", "CheckRegister", "ValuationMethod",
     # financial statement version
     "FinancialStatementVersion", "FSVNode", "FSVAccountAssignment",
     # payment run (F110)

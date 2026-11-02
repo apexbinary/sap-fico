@@ -260,3 +260,23 @@ class PostingPeriodControl(Base):
     frgj2: Mapped[int] = mapped_column(default=0)  # From year 2
     tope2: Mapped[int] = mapped_column(default=16)  # To period 2 (special)
     tagj2: Mapped[int] = mapped_column(default=9999)  # To year 2
+
+
+class AdditionalLocalCurrencies(Base):
+    """T001A — Additional local currencies of a company code (2nd / 3rd local currency).
+
+    Currency type 30 is the group currency, 40 the hard currency; each is
+    translated with its own exchange rate type. Non-key column names follow the
+    OB22 screen and still need checking against the SAP data dictionary.
+    """
+
+    __tablename__ = "t001a"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    curtp2: Mapped[str | None] = mapped_column(String(2))  # Currency type of the 2nd local currency (30 group)
+    waers2: Mapped[str | None] = mapped_column(String(5))  # 2nd local currency
+    kurst2: Mapped[str] = mapped_column(String(4), default="M")  # Exchange rate type for the 2nd currency
+    curtp3: Mapped[str | None] = mapped_column(String(2))  # Currency type of the 3rd local currency (40 hard)
+    waers3: Mapped[str | None] = mapped_column(String(5))  # 3rd local currency
+    kurst3: Mapped[str] = mapped_column(String(4), default="M")  # Exchange rate type for the 3rd currency

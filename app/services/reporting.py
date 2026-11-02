@@ -104,6 +104,64 @@ def trial_balance(
     }
 
 
+def trial_balance_currency(session: Session, mandt: str, bukrs: str, gjahr: int, curtp: str,
+                           period_to: int = 16) -> dict:
+    """Trial balance in an additional local currency (T001A, currency type 30 / 40) from the line items.
+
+    Balance sheet accounts are cumulated over all years up to ``gjahr`` (there is
+    no separate carryforward in these currencies); P&L accounts cover ``gjahr``
+    and earlier years' P&L shows in the retained earnings account (T030 BIL).
+    Items posted before the currency was configured are translated at the rate
+    of their posting date.
+    """
+    from app.models.documents import AccountingDocumentHeader
+    from app.models.gl_master import GLAccountCOA
+    from app.models.organizational import AdditionalLocalCurrencies, CompanyCode
+    from app.services import fx
+
+    extra = session.get(AdditionalLocalCurrencies, (mandt, bukrs))
+    if extra is None or curtp not in (extra.curtp2, extra.curtp3):
+        raise ValueError(f"Company code {bukrs} has no additional currency of type {curtp} (T001A)")
+    waers, kurst, column = ((extra.waers2, extra.kurst2, AccountingDocumentItem.dmbe2) if curtp == extra.curtp2
+                            else (extra.waers3, extra.kurst3, AccountingDocumentItem.dmbe3))
+    cc = session.get(CompanyCode, (mandt, bukrs))
+    bs = {a.saknr for a in session.scalars(select(GLAccountCOA).where(
+        GLAccountCOA.mandt == mandt, GLAccountCOA.ktopl == cc.ktopl, GLAccountCOA.xbilk.is_(True)))}
+    rows = session.execute(select(
+        AccountingDocumentItem.hkont, AccountingDocumentItem.shkzg, AccountingDocumentHeader.gjahr,
+        AccountingDocumentHeader.monat, AccountingDocumentHeader.budat, column, AccountingDocumentItem.dmbtr,
+    ).join(AccountingDocumentItem.header).where(
+        AccountingDocumentItem.mandt == mandt, AccountingDocumentItem.bukrs == bukrs,
+        AccountingDocumentHeader.bstat == " ", AccountingDocumentHeader.gjahr <= gjahr)).all()
+    from app.models.payments import AutomaticAccountDetermination
+
+    bil = session.get(AutomaticAccountDetermination, (mandt, cc.ktopl, "BIL", "", "X", ""))
+    retained = bil.konts if bil else "RETAINED"
+    by_account: dict[str, dict] = {}
+    rates: dict = {}
+    for hkont, shkzg, year, monat, budat, amount, local in rows:
+        if year < gjahr and hkont not in bs:
+            hkont = retained  # earlier years' P&L is in retained earnings, as after the carryforward
+        elif not (year < gjahr or monat <= period_to):
+            continue
+        if amount is None:  # posted before T001A: translate the local amount
+            if budat not in rates:
+                rates[budat] = fx.rate(session, mandt, cc.waers, waers, budat, kurst)
+            amount = (local * rates[budat]).quantize(Decimal("0.01"))
+        acc = by_account.setdefault(hkont, {"saknr": hkont, "debit": Decimal("0"), "credit": Decimal("0")})
+        acc["debit" if shkzg == "S" else "credit"] += amount
+    lines = []
+    for acc in sorted(by_account.values(), key=lambda a: a["saknr"]):
+        name = session.scalars(select(GLAccountText.txt50).where(
+            GLAccountText.mandt == mandt, GLAccountText.saknr == acc["saknr"])).first()
+        lines.append({**acc, "name": name, "balance": acc["debit"] - acc["credit"]})
+    total_debit = sum((l["debit"] for l in lines), Decimal("0"))
+    total_credit = sum((l["credit"] for l in lines), Decimal("0"))
+    return {"bukrs": bukrs, "gjahr": gjahr, "period_to": period_to, "curtp": curtp, "waers": waers,
+            "lines": lines, "total_debit": total_debit, "total_credit": total_credit,
+            "balanced": total_debit == total_credit}
+
+
 def partner_balances(session: Session, mandt: str, bukrs: str, koart: str, gjahr: int, period_to: int = 16) -> dict:
     """Customer (D) / vendor (K) balances from KNC1/LFC1, reconciled against the G/L (FD10N / FK10N).
 

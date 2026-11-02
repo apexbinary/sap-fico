@@ -221,6 +221,97 @@ def financial_statement(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/reports/partner-balances", tags=["Reports"],
+            summary="Customer / vendor balances with G/L reconciliation (FD10N / FK10N)")
+def partner_balances(
+    bukrs: str, koart: str, gjahr: int, period_to: int = 16,
+    mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> dict:
+    if koart not in ("D", "K"):
+        raise HTTPException(status_code=400, detail="koart must be 'D' (customer) or 'K' (vendor)")
+    return reporting.partner_balances(session, _m(mandt), bukrs, koart, gjahr, period_to)
+
+
+@router.get("/reports/pl-functional-area", tags=["Reports"], summary="P&L by functional area (cost of sales)")
+def pl_functional_area(
+    bukrs: str, gjahr: int, period_from: int = 1, period_to: int = 16,
+    mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> dict:
+    try:
+        return fsv.pl_by_functional_area(session, _m(mandt), bukrs, gjahr, period_from=period_from, period_to=period_to)
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class FSVNodeIn(BaseModel):
+    parent: int
+    txt45: str = Field(..., max_length=45)
+    ergsl: str | None = Field(None, max_length=10)
+    sign: int = 1
+
+
+class FSVNodeChange(BaseModel):
+    txt45: str | None = Field(None, max_length=45)
+    seqno: int | None = None
+    sign: int | None = None
+
+
+class FSVRangeIn(BaseModel):
+    vonkt: str
+    biskt: str
+    soll: bool = True
+    haben: bool = True
+
+
+def _fsv(fn):
+    try:
+        return fn()
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/fsv/{versn}", tags=["Financial statement version"], summary="FSV items and account ranges (OB58)")
+def fsv_structure(versn: str, mandt: str = Query(default=None), session: Session = Depends(get_session)) -> list[dict]:
+    return fsv.structure(session, _m(mandt), versn)
+
+
+@router.post("/fsv/{versn}/nodes", tags=["Financial statement version"], summary="Add an FSV item")
+def fsv_add_node(versn: str, body: FSVNodeIn, mandt: str = Query(default=None), session: Session = Depends(get_session)) -> dict:
+    node = _fsv(lambda: fsv.add_node(session, _m(mandt), versn, parent=body.parent, txt45=body.txt45,
+                                     ergsl=body.ergsl, sign=body.sign))
+    return {"id": node.id, "ergsl": node.ergsl}
+
+
+@router.patch("/fsv/{versn}/nodes/{node_id}", tags=["Financial statement version"], summary="Change an FSV item")
+def fsv_change_node(versn: str, node_id: int, body: FSVNodeChange, mandt: str = Query(default=None),
+                    session: Session = Depends(get_session)) -> dict:
+    node = _fsv(lambda: fsv.update_node(session, _m(mandt), versn, node_id, txt45=body.txt45, seqno=body.seqno,
+                                        sign=body.sign))
+    return {"id": node.id, "txt45": node.txt45}
+
+
+@router.delete("/fsv/{versn}/nodes/{node_id}", tags=["Financial statement version"], summary="Delete an FSV item")
+def fsv_delete_node(versn: str, node_id: int, mandt: str = Query(default=None), session: Session = Depends(get_session)) -> dict:
+    _fsv(lambda: fsv.delete_node(session, _m(mandt), versn, node_id))
+    return {"deleted": node_id}
+
+
+@router.post("/fsv/{versn}/nodes/{node_id}/ranges", tags=["Financial statement version"], summary="Assign an account range")
+def fsv_add_range(versn: str, node_id: int, body: FSVRangeIn, mandt: str = Query(default=None),
+                  session: Session = Depends(get_session)) -> dict:
+    _fsv(lambda: fsv.add_assignment(session, _m(mandt), versn, node_id, vonkt=body.vonkt, biskt=body.biskt,
+                                    soll=body.soll, haben=body.haben))
+    return body.model_dump()
+
+
+@router.delete("/fsv/{versn}/nodes/{node_id}/ranges/{vonkt}", tags=["Financial statement version"],
+               summary="Remove an account range")
+def fsv_delete_range(versn: str, node_id: int, vonkt: str, mandt: str = Query(default=None),
+                     session: Session = Depends(get_session)) -> dict:
+    _fsv(lambda: fsv.delete_assignment(session, _m(mandt), versn, node_id, vonkt))
+    return {"deleted": vonkt}
+
+
 class CarryForwardIn(BaseModel):
     bukrs: str
     gjahr: int = Field(..., description="Fiscal year to carry forward from")

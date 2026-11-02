@@ -29,6 +29,7 @@ from app.models.controlling import (
     CostCenter,
     CostElement,
     CostElementCO,
+    FunctionalArea,
     InternalOrder,
     OperatingConcern,
     ProfitabilitySegment,
@@ -81,10 +82,12 @@ from app.models.partners import (
     CustomerBankDetails,
     CustomerCompanyCode,
     CustomerDunningData,
+    CustomerTotals,
     SepaMandate,
     Vendor,
     VendorBankDetails,
     VendorCompanyCode,
+    VendorTotals,
 )
 from app.models.payment_run import PaymentRunControl, PaymentRunItem, PaymentRunPayee
 from app.models.payments import (
@@ -128,7 +131,7 @@ __all__ = [
     "WithholdingTaxCode",
     # partners
     "Customer", "CustomerCompanyCode", "Vendor", "VendorCompanyCode", "VendorBankDetails",
-    "CustomerBankDetails", "SepaMandate", "CustomerDunningData",
+    "CustomerBankDetails", "SepaMandate", "CustomerDunningData", "CustomerTotals", "VendorTotals",
     # dunning
     "DunningProcedure", "DunningLevel", "DunningCharge", "DunningRunControl",
     "DunningAccount", "DunningItem",
@@ -145,7 +148,7 @@ __all__ = [
     "CostCenter", "CostElement", "CostElementCO", "InternalOrder",
     "ProfitCenter", "COLineItem", "CODocumentHeader",
     "AllocationCycle", "AllocationSegment", "AllocationReceiver",
-    "SettlementRule", "SettlementDistribution", "OperatingConcern", "ProfitabilitySegment",
+    "SettlementRule", "SettlementDistribution", "OperatingConcern", "ProfitabilitySegment", "FunctionalArea",
     # assets
     "AssetClass", "DepreciationArea", "AssetAccountDetermination",
     "AssetTransactionType", "Asset", "AssetDepreciationTerms", "AssetAllocation",

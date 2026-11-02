@@ -104,6 +104,49 @@ def trial_balance(
     }
 
 
+def partner_balances(session: Session, mandt: str, bukrs: str, koart: str, gjahr: int, period_to: int = 16) -> dict:
+    """Customer (D) / vendor (K) balances from KNC1/LFC1, reconciled against the G/L (FD10N / FK10N).
+
+    Each reconciliation account's G/L balance must equal the sum of its
+    partners' balances; a difference means the sub-ledger and G/L disagree.
+    """
+    from app.models.partners import (
+        Customer,
+        CustomerCompanyCode,
+        CustomerTotals,
+        Vendor,
+        VendorCompanyCode,
+        VendorTotals,
+    )
+    from app.services.fsv import partner_closing
+
+    if koart == "D":
+        model, key, master, names = CustomerTotals, "kunnr", CustomerCompanyCode, Customer
+    elif koart == "K":
+        model, key, master, names = VendorTotals, "lifnr", VendorCompanyCode, Vendor
+    else:
+        raise ValueError("koart must be D or K")
+    lines, per_recon = [], {}
+    for row in session.scalars(select(model).where(model.mandt == mandt, model.bukrs == bukrs, model.gjahr == gjahr)
+                               .order_by(getattr(model, key))):
+        partner = getattr(row, key)
+        debit = sum((getattr(row, f"um{p:02d}s") or Decimal("0") for p in range(1, period_to + 1)), Decimal("0"))
+        credit = sum((getattr(row, f"um{p:02d}h") or Decimal("0") for p in range(1, period_to + 1)), Decimal("0"))
+        balance = partner_closing(row, period_to)
+        m = session.get(master, (mandt, partner, bukrs))
+        recon = m.akont if m else None
+        per_recon[recon] = per_recon.get(recon, Decimal("0")) + balance
+        n = session.get(names, (mandt, partner))
+        lines.append({"partner": partner, "name": n.name1 if n else None, "akont": recon,
+                      "carryforward": row.umsav, "debit": debit, "credit": credit, "balance": balance})
+    recon = []
+    for akont, sub_total in sorted(per_recon.items(), key=lambda kv: kv[0] or ""):
+        gl = account_balance(session, mandt, bukrs, gjahr, akont, period_to)["balance"] if akont else Decimal("0")
+        recon.append({"akont": akont, "subledger": sub_total, "gl": gl, "difference": gl - sub_total})
+    return {"koart": koart, "bukrs": bukrs, "gjahr": gjahr, "period_to": period_to, "lines": lines,
+            "reconciliation": recon, "reconciled": all(r["difference"] == 0 for r in recon)}
+
+
 def open_items(
     session: Session,
     mandt: str,

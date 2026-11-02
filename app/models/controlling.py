@@ -12,6 +12,7 @@ Tables modelled here:
     T811K  Allocation segment receivers (tracing factors)
     COBRA  Settlement rule header of a CO object (internal order)
     COBRB  Settlement rule distribution rules (receiver, percentage, validity)
+    TFKB   Functional areas (cost-of-sales accounting)
     TKEB   Operating concern (CO-PA)
     CE4IDEA  Profitability segments of operating concern IDEA (characteristics)
     COEP   CO object line items (actual postings)
@@ -333,3 +334,13 @@ class ProfitabilitySegment(Base):
     land1: Mapped[str | None] = mapped_column(String(3))  # Country of the customer
     brsch: Mapped[str | None] = mapped_column(String(4))  # Industry
     kukla: Mapped[str | None] = mapped_column(String(2))  # Customer classification
+
+
+class FunctionalArea(Base):
+    """TFKB — Functional area (+ TFKBT text in fkbtx)."""
+
+    __tablename__ = "tfkb"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    fkber: Mapped[str] = mapped_column(String(16), primary_key=True)  # Functional area
+    fkbtx: Mapped[str] = mapped_column(String(25))  # Name

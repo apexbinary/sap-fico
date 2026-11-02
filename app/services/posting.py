@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.controlling import CostElement, CostElementCO
@@ -386,6 +387,7 @@ def _post(
             aufnr=(src.aufnr if src else None),
             prctr=(src.prctr if src else None),
             kokrs=kokrs,
+            func_area=_functional_area(session, mandt, ktopl, kokrs, rl),
             xopvw=rl.xopvw and posted,
             anln1=(src.account if src and rl.koart == "A" else None),
             anln2=(src.anln2 if src and rl.koart == "A" else None),
@@ -527,10 +529,44 @@ def _check_balanced(lines: list[_ResolvedLine], waers: str, local: str) -> None:
         )
 
 
+def _functional_area(session: Session, mandt: str, ktopl: str, kokrs: str | None, rl: _ResolvedLine) -> str | None:
+    """Functional area of a P&L line: from its cost center (CSKS-FKBER), else its G/L account (SKA1)."""
+    if rl.koart != "S" or not rl.saknr:
+        return None
+    from app.models.controlling import CostCenter
+    from app.models.gl_master import GLAccountCOA
+
+    coa = session.get(GLAccountCOA, (mandt, ktopl, rl.saknr))
+    if coa is None or coa.xbilk:
+        return None  # balance sheet accounts carry no functional area
+    if rl.src is not None and rl.src.kostl and kokrs:
+        center = session.scalars(select(CostCenter).where(
+            CostCenter.mandt == mandt, CostCenter.kokrs == kokrs, CostCenter.kostl == rl.src.kostl)).first()
+        if center is not None and center.fkber:
+            return center.fkber
+    return coa.func_area
+
+
+def _update_partner_totals(session: Session, mandt: str, bukrs: str, gjahr: int, monat: int, rl: _ResolvedLine) -> None:
+    """KNC1 / LFC1: customer and vendor transaction figures per period."""
+    from app.models.partners import CustomerTotals, VendorTotals
+
+    model, partner = (CustomerTotals, rl.kunnr) if rl.koart == "D" else (VendorTotals, rl.lifnr)
+    row = session.get(model, (mandt, partner, bukrs, gjahr))
+    if row is None:
+        row = model(mandt=mandt, bukrs=bukrs, gjahr=gjahr, **({"kunnr": partner} if rl.koart == "D" else {"lifnr": partner}))
+        session.add(row)
+        session.flush([row])
+    col = f"um{monat:02d}{'s' if rl.shkzg == 'S' else 'h'}"
+    setattr(row, col, (getattr(row, col) or Decimal("0")) + rl.dmbtr)
+
+
 def _update_totals(
     session: Session, mandt: str, bukrs: str, gjahr: int, monat: int,
     rl: _ResolvedLine, currency: str,
 ) -> None:
+    if rl.koart in ("D", "K"):
+        _update_partner_totals(session, mandt, bukrs, gjahr, monat, rl)
     rbusa = (rl.src.gsber if rl.src and rl.src.gsber else "")
     key = (mandt, "0", "00", bukrs, gjahr, rl.hkont, rbusa, rl.shkzg)
     row = session.get(GLAccountTotals, key)

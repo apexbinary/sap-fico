@@ -259,8 +259,11 @@ FRST/RCUR/OOFF from SEPA_MANDATE-FIRSTUSE_DATE/DOCID.
 **Financial Statement Version — done:** FSV tables, balance sheet / P&L report
 with comparison year, debit/credit-dependent assignment, net result in equity,
 unassigned-account check, balance carryforward to the next year, UI screen.
-Known gaps: FSV maintenance UI (edit nodes/assignments), functional areas,
-carryforward of sub-ledger balances (open items are not year-bound here).
+Also done: FSV maintenance (items, order, account ranges; special items
+protected), functional areas (TFKB; BSEG-FUNC_AREA from CSKS-FKBER, else
+SKA1-FUNC_AREA) with a cost-of-sales P&L, customer/vendor transaction figures
+KNC1/LFC1 (posting engine + carryforward of UMSAV) with a balances report
+reconciled against the reconciliation accounts; revision 0007 backfills them.
 
 **Foreign currency — done:** automatic translation with rounding absorption,
 clearing in foreign currency with realized gains/losses (T030H LHREA/LSREA),

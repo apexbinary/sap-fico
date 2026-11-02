@@ -399,6 +399,7 @@ views["financial-statement"] = async (c) => {
       <div class="field"><label>Up to period</label><input id="fs-per" type="number" min="1" max="16" value="${per}"></div>
       <button class="btn" id="fs-go">Show</button>
       <button class="btn secondary" id="fs-cf">Carry forward ${gjahr} → ${gjahr + 1}</button>
+      <a class="btn ghost" href="#/fsv-edit?versn=${encodeURIComponent(fs.versn)}">Maintain FSV</a>
     </div>
     <div class="tiles">
       <div class="tile"><div class="label">Total assets</div><div class="value">${fmt(fs.total_assets)}</div></div>
@@ -408,7 +409,15 @@ views["financial-statement"] = async (c) => {
     ${fs.unassigned.length ? `<div class="card"><div class="card-body" style="color:var(--bad)">Accounts not assigned to the FSV: ${fs.unassigned.map(esc).join(", ")}</div></div>` : ""}
     <div class="card"><table><thead><tr><th>Item</th><th class="num">${gjahr}</th><th class="num">${cmp}</th><th class="num">Difference</th><th class="num">%</th></tr></thead>
       <tbody>${rows.join("")}</tbody></table></div>
-    <div class="help">Click an item to show its accounts. Balance sheet accounts include balances carried forward from the previous year.</div>`;
+    <div class="help">Click an item to show its accounts. Balance sheet accounts include balances carried forward from the previous year.</div>
+    <div id="fs-func"></div>`;
+  api(`/reports/pl-functional-area?bukrs=${state.bukrs}&gjahr=${gjahr}&period_to=${per}`).then((f) => {
+    $("#fs-func").innerHTML = `<div class="card"><div class="card-head">P&amp;L by Functional Area (cost of sales) · ${gjahr}</div>
+      <table><thead><tr><th>Functional area</th><th class="num">Amount (debit +)</th></tr></thead>
+      <tbody>${f.lines.map((l) => `<tr><td><span class="mono">${esc(l.fkber || "—")}</span> ${esc(l.name || "")}
+        <div class="help">${l.accounts.map((a) => `${esc(a.saknr)} ${fmt(a.amount)}`).join(" · ")}</div></td><td class="num">${fmt(l.amount)}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td>Net result (profit positive)</td><td class="num">${fmt(f.net_result)}</td></tr></tfoot></table></div>`;
+  }).catch(() => {});
 
   document.querySelectorAll(".fs-node").forEach((tr) => (tr.onclick = () => {
     document.querySelectorAll(`.fs-acct[data-parent="${tr.dataset.id}"]`).forEach((r) => (r.hidden = !r.hidden));
@@ -419,6 +428,77 @@ views["financial-statement"] = async (c) => {
       toast(`Carried ${r.accounts} account(s) into ${r.to_gjahr}; retained earnings ${fmt(r.retained_earnings)}`, "good"); route(); }
     catch (e) { toast(e.message, "bad"); }
   };
+};
+
+// ---------- FSV maintenance (OB58) ----------
+views["fsv-edit"] = async (c) => {
+  const versn = new URLSearchParams(location.hash.split("?")[1] || "").get("versn") || "INT";
+  const items = await api(`/fsv/${versn}`);
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Maintain Financial Statement Version ${esc(versn)}</h1>
+      <div class="sub">Items, display order and account ranges (debit / credit balance) · special items cannot be deleted</div></div>
+      <a class="btn secondary" href="#/financial-statement">Back to balance sheet</a></div>
+    <div class="card"><table><thead><tr><th>Item</th><th>Key</th><th>Account ranges</th><th></th></tr></thead>
+    <tbody>${items.map((n) => `<tr><td style="padding-left:${14 + n.depth * 22}px">${n.kind ? "<strong>" : ""}${esc(n.txt45)}${n.kind ? "</strong>" : ""}</td>
+      <td class="mono">${esc(n.ergsl)}</td>
+      <td class="help">${n.ranges.map((r) => `<span class="mono">${esc(r.vonkt)}–${esc(r.biskt)}</span>${r.soll && r.haben ? "" : r.soll ? " (debit)" : " (credit)"}
+        <a href="#" class="fsv-rdel" data-n="${n.id}" data-v="${esc(r.vonkt)}" title="Remove range">✕</a>`).join("<br>")}</td>
+      <td style="white-space:nowrap">${n.kind === "N" || n.kind === "U" ? "" : `<button class="btn small ghost fsv-act" data-a="child" data-n="${n.id}">+ Item</button>`}
+        ${n.kind || n.depth === 0 ? "" : `<button class="btn small ghost fsv-act" data-a="range" data-n="${n.id}">+ Range</button>`}
+        <button class="btn small ghost fsv-act" data-a="rename" data-n="${n.id}" data-t="${esc(n.txt45)}">Rename</button>
+        ${n.kind ? "" : `<button class="btn small ghost fsv-act" data-a="delete" data-n="${n.id}">Delete</button>`}</td></tr>`).join("")}</tbody></table></div>
+    <div class="card" id="fsv-form" hidden><div class="card-body"><div class="form-grid" id="fsv-fields"></div>
+      <button class="btn" id="fsv-save" style="margin-top:12px">Save</button> <button class="btn ghost" id="fsv-cancel" style="margin-top:12px">Cancel</button></div></div>`;
+  const base = `/fsv/${versn}/nodes`;
+  const done = (msg) => { toast(msg, "good"); route(); };
+  const form = (fields, onSave) => {
+    $("#fsv-fields").innerHTML = fields; $("#fsv-form").hidden = false; $("#fsv-save").onclick = onSave;
+    $("#fsv-cancel").onclick = () => ($("#fsv-form").hidden = true);
+  };
+  document.querySelectorAll(".fsv-act").forEach((b) => (b.onclick = () => {
+    const id = Number(b.dataset.n);
+    const call = async (fn, msg) => { try { await fn(); done(msg); } catch (e) { toast(e.message, "bad"); } };
+    if (b.dataset.a === "child") form(`<div class="field"><label class="req">Text</label><input id="fx-txt" maxlength="45"></div>
+        <div class="field"><label>Item key</label><input id="fx-key" maxlength="10" placeholder="automatic"></div>`,
+      () => call(() => api(base, { method: "POST", body: JSON.stringify({ parent: id, txt45: $("#fx-txt").value, ergsl: $("#fx-key").value || null }) }), "Item added"));
+    if (b.dataset.a === "range") form(`<div class="field"><label class="req">From account</label><input id="fx-von"></div>
+        <div class="field"><label class="req">To account</label><input id="fx-bis"></div>
+        <div class="field"><label>Balance</label><select id="fx-side"><option value="both">Debit and credit</option><option value="S">Debit only</option><option value="H">Credit only</option></select></div>`,
+      () => call(() => api(`${base}/${id}/ranges`, { method: "POST", body: JSON.stringify({ vonkt: $("#fx-von").value, biskt: $("#fx-bis").value,
+        soll: $("#fx-side").value !== "H", haben: $("#fx-side").value !== "S" }) }), "Range assigned"));
+    if (b.dataset.a === "rename") form(`<div class="field"><label class="req">Text</label><input id="fx-txt" maxlength="45" value="${esc(b.dataset.t)}"></div>`,
+      () => call(() => api(`${base}/${id}`, { method: "PATCH", body: JSON.stringify({ txt45: $("#fx-txt").value }) }), "Item renamed"));
+    if (b.dataset.a === "delete" && confirm("Delete this item and its account ranges?")) call(() => api(`${base}/${id}`, { method: "DELETE" }), "Item deleted");
+  }));
+  document.querySelectorAll(".fsv-rdel").forEach((a) => (a.onclick = async (ev) => {
+    ev.preventDefault();
+    try { await api(`${base}/${a.dataset.n}/ranges/${encodeURIComponent(a.dataset.v)}`, { method: "DELETE" }); done("Range removed"); }
+    catch (e) { toast(e.message, "bad"); }
+  }));
+};
+
+// ---------- Customer / vendor balances (FD10N / FK10N) ----------
+views["partner-balances"] = async (c) => {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const koart = q.get("koart") || "D", gjahr = Number(q.get("gjahr") || state.gjahr);
+  const r = await api(`/reports/partner-balances?bukrs=${state.bukrs}&koart=${koart}&gjahr=${gjahr}`);
+  c.innerHTML = `
+    <div class="page-head"><div><h1>${koart === "D" ? "Customer" : "Vendor"} Balances</h1>
+      <div class="sub">Transaction figures ${koart === "D" ? "KNC1" : "LFC1"} · fiscal year ${gjahr} · reconciled against the G/L</div></div>
+      <span class="chip ${r.reconciled ? "ok" : "no"}">${r.reconciled ? "Sub-ledger = G/L" : "Difference to G/L"}</span></div>
+    <div class="toolbar">
+      <div class="field"><label>Account type</label><select id="pb-koart"><option value="D" ${koart === "D" ? "selected" : ""}>Customers</option><option value="K" ${koart === "K" ? "selected" : ""}>Vendors</option></select></div>
+      <div class="field"><label>Fiscal year</label><input id="pb-gjahr" type="number" value="${gjahr}"></div>
+      <button class="btn" id="pb-go">Show</button>
+    </div>
+    <div class="card"><table><thead><tr><th>Partner</th><th>Name</th><th>Recon. account</th><th class="num">Carried forward</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+      <tbody>${r.lines.map((l) => `<tr><td class="mono">${esc(l.partner)}</td><td>${esc(l.name || "")}</td><td class="mono">${esc(l.akont || "")}</td>
+        <td class="num">${Number(l.carryforward) ? fmt(l.carryforward) : ""}</td><td class="num">${fmt(l.debit)}</td><td class="num">${fmt(l.credit)}</td>
+        <td class="num">${fmt(l.balance)}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">No transaction figures.</td></tr>`}</tbody></table></div>
+    <div class="card"><div class="card-head">Reconciliation with the G/L</div><table><thead><tr><th>Recon. account</th><th class="num">Sub-ledger</th><th class="num">G/L</th><th class="num">Difference</th></tr></thead>
+      <tbody>${r.reconciliation.map((x) => `<tr><td class="mono">${esc(x.akont || "")}</td><td class="num">${fmt(x.subledger)}</td><td class="num">${fmt(x.gl)}</td>
+        <td class="num" style="color:${Number(x.difference) ? "var(--bad)" : "inherit"}">${fmt(x.difference)}</td></tr>`).join("")}</tbody></table></div>`;
+  $("#pb-go").onclick = () => { location.hash = `#/partner-balances?koart=${$("#pb-koart").value}&gjahr=${$("#pb-gjahr").value}`; };
 };
 
 // ---------- Open Items ----------

@@ -1,4 +1,5 @@
-"""End-to-end check for the financial statement version and balance carryforward.
+"""End-to-end check for the financial statement version, balance carryforward,
+customer/vendor transaction figures, functional areas and FSV maintenance.
 
 Posts a prior-year (2025) opening and sale, then checks the 2026 balance sheet /
 P&L before and after carrying 2025 forward. Run after app.seed (works on top of
@@ -94,7 +95,36 @@ def main() -> None:
         assert retained["current"] == profit_2025, retained
         assert _node(after["tree"], "21")["previous"] == _node(fs25["tree"], "21")["current"]
         assert reporting.trial_balance(s, MANDT, BUKRS, 2026)["balanced"]
-        print("\nOK - balance sheet / P&L by FSV balances, and the carryforward opens 2026 correctly.")
+
+        # customer / vendor transaction figures reconcile with the G/L, carryforward included
+        for koart in ("D", "K"):
+            pb = reporting.partner_balances(s, MANDT, BUKRS, koart, 2026)
+            print(f"Partner balances {koart}: {len(pb['lines'])} partner(s), reconciled={pb['reconciled']}",
+                  [(r["akont"], str(r["subledger"]), str(r["gl"])) for r in pb["reconciliation"]])
+            assert pb["reconciled"], pb["reconciliation"]
+        alpha = next(l for l in reporting.partner_balances(s, MANDT, BUKRS, "D", 2026)["lines"] if l["partner"] == "0000010000")
+        assert alpha["carryforward"] != 0, "the 2025 customer balance was carried forward"
+
+        # P&L by functional area: same result as the FSV, admin costs under 0400
+        fa = fsv.pl_by_functional_area(s, MANDT, BUKRS, 2026)
+        print("P&L by functional area:", [(l["fkber"], str(l["amount"])) for l in fa["lines"]])
+        assert fa["net_result"] == after["net_result"]
+        assert any(l["fkber"] == "0400" and l["amount"] > 0 for l in fa["lines"])
+
+        # FSV maintenance: a new item with a range takes the account out of its old item
+        node = fsv.add_node(s, MANDT, "INT", parent=3, txt45="Bank charges")
+        fsv.add_assignment(s, MANDT, "INT", node.id, vonkt="479000", biskt="479000")
+        moved = fsv.financial_statement(s, MANDT, BUKRS, 2026)
+        assert moved["balanced"] and not moved["unassigned"]
+        print(f"FSV item {node.id} 'Bank charges' added; most specific range wins -> balanced={moved['balanced']}")
+        fsv.delete_node(s, MANDT, "INT", node.id)
+        try:
+            fsv.delete_node(s, MANDT, "INT", 22)
+        except Exception as exc:  # special item
+            print("Deleting the net result item is rejected:", exc)
+        else:
+            raise AssertionError("special items must not be deletable")
+        print("\nOK - balance sheet / P&L by FSV, carryforward (G/L and partners), functional areas and FSV maintenance.")
     finally:
         s.close()
 

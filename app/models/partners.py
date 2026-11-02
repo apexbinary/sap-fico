@@ -9,6 +9,8 @@ Tables modelled here:
     KNBK   Customer master — bank details
     SEPA_MANDATE  SEPA direct debit mandates (customer -> our creditor ID)
     KNB5   Customer master — dunning data per company code and dunning area
+    KNC1   Customer transaction figures per company code and fiscal year
+    LFC1   Vendor transaction figures per company code and fiscal year
 
 Open items are not stored in separate BSID/BSIK index tables here; they are
 derived from BSEG line items where the account type is D/K and the clearing
@@ -24,6 +26,7 @@ from sqlalchemy import ForeignKeyConstraint, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.models.documents import AMOUNT
 from app.models.organizational import MANDT
 
 
@@ -232,3 +235,95 @@ class CustomerDunningData(Base):
     madat: Mapped[date | None] = mapped_column()  # Last dunned on
     mahns: Mapped[int] = mapped_column(default=0)  # Dunning level
     knrma: Mapped[str | None] = mapped_column(String(10))  # Dunning recipient
+
+
+class CustomerTotals(Base):
+    """KNC1 — Customer transaction figures: balance carried forward (UMSAV) and debit (UMnnS) and
+    credit (UMnnH) postings in local currency for periods 01-16; kept by the
+    posting engine and the balance carryforward."""
+
+    __tablename__ = "knc1"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kunnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Customer number
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    gjahr: Mapped[int] = mapped_column(primary_key=True)  # Fiscal year
+    umsav: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Balance carried forward
+    um01s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 01
+    um02s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 02
+    um03s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 03
+    um04s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 04
+    um05s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 05
+    um06s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 06
+    um07s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 07
+    um08s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 08
+    um09s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 09
+    um10s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 10
+    um11s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 11
+    um12s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 12
+    um13s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 13
+    um14s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 14
+    um15s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 15
+    um16s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 16
+    um01h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 01
+    um02h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 02
+    um03h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 03
+    um04h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 04
+    um05h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 05
+    um06h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 06
+    um07h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 07
+    um08h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 08
+    um09h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 09
+    um10h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 10
+    um11h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 11
+    um12h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 12
+    um13h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 13
+    um14h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 14
+    um15h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 15
+    um16h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 16
+
+
+class VendorTotals(Base):
+    """LFC1 — Vendor transaction figures: balance carried forward (UMSAV) and debit (UMnnS) and
+    credit (UMnnH) postings in local currency for periods 01-16; kept by the
+    posting engine and the balance carryforward."""
+
+    __tablename__ = "lfc1"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    lifnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Vendor number
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    gjahr: Mapped[int] = mapped_column(primary_key=True)  # Fiscal year
+    umsav: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Balance carried forward
+    um01s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 01
+    um02s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 02
+    um03s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 03
+    um04s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 04
+    um05s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 05
+    um06s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 06
+    um07s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 07
+    um08s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 08
+    um09s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 09
+    um10s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 10
+    um11s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 11
+    um12s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 12
+    um13s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 13
+    um14s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 14
+    um15s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 15
+    um16s: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Debit period 16
+    um01h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 01
+    um02h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 02
+    um03h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 03
+    um04h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 04
+    um05h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 05
+    um06h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 06
+    um07h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 07
+    um08h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 08
+    um09h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 09
+    um10h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 10
+    um11h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 11
+    um12h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 12
+    um13h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 13
+    um14h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 14
+    um15h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 15
+    um16h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 16

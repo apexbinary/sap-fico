@@ -18,6 +18,7 @@ Creates:
   * Employee tolerances (T043T, user JDOE in group JUNI), reason codes 01/02 (T053R),
     check payment method C with check lot 100001-100500, T042Y available amount
   * Financial statement version INT and retained earnings 109000 (T030 BIL)
+  * Functional areas 0100/0300/0400/0500 on cost centers and P&L accounts
   * Dunning procedure 0001 (four levels) and dunning data for the demo customer
   * USD exchange rates (TCURR) and exchange rate difference accounts (T030H)
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
@@ -46,6 +47,7 @@ from app.models.controlling import (
     CostCenter,
     CostElement,
     CostElementCO,
+    FunctionalArea,
     InternalOrder,
     OperatingConcern,
     SettlementDistribution,
@@ -176,6 +178,14 @@ REVERSAL_KEYS = {
 }
 
 
+# Functional area of P&L accounts posted without a cost center (cost-of-sales P&L)
+ACCOUNT_FUNCTIONAL_AREAS = {
+    "400000": "0100", "480000": "0100", "476000": "0400", "477000": "0300", "479000": "0400",
+    "880000": "0300", "880100": "0400", "880200": "0400", "230000": "0400", "230010": "0400",
+    "280000": "0400", "280010": "0400", "276000": "0400", "960000": "0400",
+}
+
+
 def seed() -> None:
     init_db()
     s = SessionLocal()
@@ -230,13 +240,13 @@ def seed() -> None:
         put(OperatingConcern(mandt=MANDT, erkrs="IDEA", erkrs_txt="Demo operating concern", waers="EUR", xkontb=True))
         put(ControllingArea(mandt=MANDT, kokrs=KOKRS, bezei="Controlling area 1000", waers="EUR", ctyp="10", ktopl=KTOPL, lmona=PERIV, bukrs=BUKRS, khinr="H1000", erkrs="IDEA"))
         put(ControllingAreaAssignment(mandt=MANDT, kokrs=KOKRS, bukrs=BUKRS))
-        for kostl, ktext, ltext, kosar in [
-            ("0000001000", "Admin", "Administration cost center", "1"),
-            ("0000002000", "Sales", "Sales cost center", "3"),
-            ("0000003000", "Production", "Production cost center", "4"),
+        for kostl, ktext, ltext, kosar, fkber in [
+            ("0000001000", "Admin", "Administration cost center", "1", "0400"),
+            ("0000002000", "Sales", "Sales cost center", "3", "0300"),
+            ("0000003000", "Production", "Production cost center", "4", "0100"),
         ]:
             put(CostCenter(mandt=MANDT, kokrs=KOKRS, kostl=kostl, datbi=HIGH, datab=LOW, ktext=ktext, ltext=ltext,
-                           bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar=kosar))
+                           bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar=kosar, fkber=fkber))
         # Secondary cost element for assessments (category 42, no G/L account)
         put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar="943000", erdat="20260101"))
         put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar="943000", datbi=HIGH, datab=LOW, katyp="42",
@@ -276,8 +286,12 @@ def seed() -> None:
                                    hkont="477000", prozs=Decimal("40"), perbz="PER", gabja=2026, gabpe=1))
 
         # --- G/L accounts ---
+        for fkber, fkbtx in [("0100", "Production"), ("0300", "Sales and distribution"),
+                             ("0400", "Administration"), ("0500", "Research and development")]:
+            put(FunctionalArea(mandt=MANDT, fkber=fkber, fkbtx=fkbtx))
         for saknr, name, is_bs, grp, recon, taxcat in _gl_accounts():
-            put(GLAccountCOA(mandt=MANDT, ktopl=KTOPL, saknr=saknr, xbilk=is_bs, gvtyp=None if is_bs else "X", ktoks=grp, erdat="20260101", ernam="SEED"))
+            put(GLAccountCOA(mandt=MANDT, ktopl=KTOPL, saknr=saknr, xbilk=is_bs, gvtyp=None if is_bs else "X", ktoks=grp,
+                             func_area=None if is_bs else ACCOUNT_FUNCTIONAL_AREAS.get(saknr), erdat="20260101", ernam="SEED"))
             put(GLAccountText(mandt=MANDT, spras="E", ktopl=KTOPL, saknr=saknr, txt20=name[:20], txt50=name, mcod1=name[:25].upper()))
             put(GLAccountCompanyCode(
                 mandt=MANDT, bukrs=BUKRS, saknr=saknr, waers="EUR", xkres=True,

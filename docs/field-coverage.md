@@ -170,6 +170,17 @@ STC1 lines (one tax authority each). Every part is maintained on the Tax Setup s
 | Open amount (FC) of partner lines | BalFcDeb / BalFcCred | — | 🔒 reduced by payments and reconciliations |
 | Distribution rules, tax amount, base amount, system currency amounts | OcrCode, … | — | ⏸ cost accounting and system-currency reporting not built |
 
+### Dunning (Business Partners -> Dunning Wizard)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Dunning term code / name / interest % p.a. / straight to highest level / minimum days between letters | ODUT Code / Name / Interest / Highest / DaysBtwn | text / number / checkbox | ✅ |
+| Levels: after days overdue / fee / minimum balance / letter text | DUT1 Days / Fee / MinBal / LetterText | number / text | ✅ |
+| Dunning level / last dunning date of an open item | JDT1 DunnLevel / DunDate | — | 🔒 invoices, installments and journal entries |
+| Wizard: date / customer / straight to highest / post interest and fees | ODWZ DunDate / — / Highest / PostFees | date / dropdown / checkbox | ✅ preview, then execute |
+| Letters per customer: level, overdue total, interest, fee, posted journal entry; items with days overdue and old -> new level | DWZ1 / DWZ2 | — | 🔒 printable letter |
+| ⚠ DWZ1 / DWZ2 (letters and their items) are not verified B1 table names | | | |
+| Letter templates (layouts), e-mail sending, dunning of vendors with debit balances, interest by item days since due when not dunned before | | — | ⏸ interest runs from the due date for the first letter, then from the last dunning |
+
 ### Exchange rate differences (Financials)
 | Field | Column | Type | Status |
 |---|---|---|---|
@@ -241,7 +252,9 @@ Trial balance, balance sheet, profit and loss: period / as-of selection (date), 
 | Price list | ListNum (OPLN) | dropdown | ✅ default prices |
 | Total discount % | Discount | number | ✅ default document discount |
 | Credit limit / commitment limit | CreditLine / DebtLine | number | ✅ stored; ⏸ credit-limit warning on documents |
-| Interest on arrears, dunning term, priority, effective discount groups, bank details, payment methods | IntrstRate, DunTerm, … | — | ⏸ dunning, BP bank accounts and payment methods not in scope |
+| Dunning term | DunTerm (ODUT) | dropdown | ✅ customers |
+| Interest on arrears % p.a. | IntrstRate | number | ✅ else the dunning term's rate |
+| Priority, effective discount groups, bank details, payment methods | … | — | ⏸ BP bank accounts and payment methods not in scope |
 
 ### Accounting tab
 | Field | Column | Type | Status |
@@ -526,7 +539,8 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 
 | B1 function | Why not (yet) |
 |---|---|
-| Payment wizard, payment methods, credit cards, bills of exchange, dunning | next on the priority list (dunning, payment wizard) / not in scope |
+| Payment wizard | next on the priority list |
+| Payment methods, credit cards, bills of exchange | not in scope |
 | Bank statement formats (MT940, camt.053), FC bank account reconciliation | not built yet |
 | Conversion differences (system currency) | not built yet |
 | Freight / additional expenses (OEXD), document rounding, down payments | not in the agreed scope |

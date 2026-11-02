@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Integer, String
+from sqlalchemy import Date, ForeignKey, ForeignKeyConstraint, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -290,3 +290,57 @@ class ExternalReconciliationLine(Base):
     trans_row_id: Mapped[int | None] = mapped_column("TransRowId")  # JDT1 Line_ID
     bank_seq: Mapped[int | None] = mapped_column("BankSeq")  # OBNK Sequence
     recon_sum: Mapped[Decimal] = mapped_column("ReconSum", AMOUNT)  # +money in / -money out
+
+
+# ------------------------------------------------------------- dunning
+class DunningRun(Base):
+    """ODWZ — Dunning wizard run on a date."""
+
+    __tablename__ = "odwz"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    wizard_name: Mapped[str] = mapped_column("WizardName", String(50))
+    dun_date: Mapped[date] = mapped_column("DunDate", Date)
+    highest: Mapped[str] = mapped_column("Highest", String(1), default="N")
+    post_fees: Mapped[str] = mapped_column("PostFees", String(1), default="N")  # interest and fees posted
+    letters = relationship("DunningLetter", order_by="DunningLetter.letter_num", cascade="all, delete-orphan")
+
+
+class DunningLetter(Base):
+    """DWZ1 — Dunning letter of a run for one business partner (not a verified B1 table)."""
+
+    __tablename__ = "dwz1"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", ForeignKey("odwz.AbsEntry"), primary_key=True)
+    letter_num: Mapped[int] = mapped_column("LetterNum", primary_key=True)
+    card_code: Mapped[str] = mapped_column("CardCode", String(15))
+    card_name: Mapped[str | None] = mapped_column("CardName", String(100))
+    level: Mapped[int] = mapped_column("Level")  # highest new level in the letter
+    total_open: Mapped[Decimal] = mapped_column("TotalOpen", AMOUNT)
+    interest: Mapped[Decimal] = mapped_column("Interest", AMOUNT, default=Decimal("0"))
+    fee: Mapped[Decimal] = mapped_column("Fee", AMOUNT, default=Decimal("0"))
+    trans_id: Mapped[int | None] = mapped_column("TransId")  # journal entry of interest and fee
+    letter_text: Mapped[str | None] = mapped_column("LetterText", String(1000))
+    items = relationship("DunningLetterItem", order_by="DunningLetterItem.line_num", cascade="all, delete-orphan")
+
+
+class DunningLetterItem(Base):
+    """DWZ2 — Overdue open item in a dunning letter (not a verified B1 table)."""
+
+    __tablename__ = "dwz2"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    letter_num: Mapped[int] = mapped_column("LetterNum", primary_key=True)
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    trans_id: Mapped[int] = mapped_column("TransId")
+    line_id: Mapped[int] = mapped_column("Line_ID")
+    trans_type: Mapped[str] = mapped_column("TransType", String(20))
+    doc_num: Mapped[str | None] = mapped_column("DocNum", String(11))
+    due_date: Mapped[date] = mapped_column("DueDate", Date)
+    days_overdue: Mapped[int] = mapped_column("DaysOvrdue")
+    open_amount: Mapped[Decimal] = mapped_column("OpenAmount", AMOUNT)
+    old_level: Mapped[int] = mapped_column("OldLevel")
+    new_level: Mapped[int] = mapped_column("NewLevel")
+    interest: Mapped[Decimal] = mapped_column("Interest", AMOUNT, default=Decimal("0"))
+
+    __table_args__ = (ForeignKeyConstraint(["AbsEntry", "LetterNum"], ["dwz1.AbsEntry", "dwz1.LetterNum"]),)

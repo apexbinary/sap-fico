@@ -172,3 +172,9 @@ table.lines select, table.lines input { min-width: 0; }
 .field textarea { width: 100%; resize: vertical; font: inherit; }
 .field select[disabled], .field input[readonly], .field textarea[readonly] { opacity: 0.8; }
 h3.section { margin: 16px 0 6px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+/* printable dunning letters */
+@media print {
+  .shell, .sidenav, .no-print, .toast { display: none !important; }
+  .content { margin: 0; padding: 0; }
+  .card.letter { page-break-after: always; border: none; box-shadow: none; }
+}

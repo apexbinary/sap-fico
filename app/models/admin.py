@@ -147,6 +147,31 @@ class PaymentTermsInstallment(Base):
     inst_prcnt: Mapped[Decimal] = mapped_column("InstPrcnt", Numeric(19, 6))  # Share of the total %
 
 
+class DunningTerm(Base):
+    """ODUT — Dunning term: levels (DUT1) and the annual interest on arrears."""
+
+    __tablename__ = "odut"
+
+    code: Mapped[str] = mapped_column("Code", String(8), primary_key=True)
+    name: Mapped[str] = mapped_column("Name", String(50))
+    interest: Mapped[Decimal] = mapped_column("Interest", Numeric(19, 6), default=Decimal("0"))  # % p.a. on arrears
+    highest: Mapped[str] = mapped_column("Highest", String(1), default="N")  # Y: straight to the highest level due
+    days_between: Mapped[int] = mapped_column("DaysBtwn", default=7, server_default="7")  # minimum days between letters
+
+
+class DunningLevel(Base):
+    """DUT1 — Level of a dunning term: reached after a number of days overdue, with a fee and a letter."""
+
+    __tablename__ = "dut1"
+
+    term_code: Mapped[str] = mapped_column("TermCode", String(8), ForeignKey("odut.Code"), primary_key=True)
+    level: Mapped[int] = mapped_column("Level", primary_key=True)  # 1..n
+    days: Mapped[int] = mapped_column("Days")  # effective after days overdue
+    fee: Mapped[Decimal] = mapped_column("Fee", Numeric(19, 6), default=Decimal("0"))  # LC
+    min_balance: Mapped[Decimal] = mapped_column("MinBal", Numeric(19, 6), default=Decimal("0"))  # minimum overdue total
+    letter_text: Mapped[str | None] = mapped_column("LetterText", String(1000))
+
+
 class CashDiscount(Base):
     """OCDC — Cash discount: discount % when paid within a number of days (tiers in CDC1)."""
 

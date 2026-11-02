@@ -18,7 +18,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.database import SessionLocal, init_db
-from app.models.admin import (CashDiscount, CashDiscountLine, Company, Country, Currency, ExchangeRate, HsnCode,
+from app.models.admin import (CashDiscount, CashDiscountLine, DunningLevel, DunningTerm, Company, Country, Currency, ExchangeRate, HsnCode,
                               NumberingSeries, PaymentTerms, PaymentTermsInstallment, PostingPeriod, Project, SalesEmployee, State, TaxAuthority, TaxComponent, TaxDetermination,
                               TaxGroup, TaxType, TransactionCode)
 from app.models.banking import Bank, HouseBankAccount
@@ -80,6 +80,7 @@ CHART = [
     ("72", "Other Income", 7, "7", "N", "I", "N", "N"),
     ("721000", "Interest Income", 7, "72", "Y", "I", "N", "N"),
     ("722000", "Cash Discount Received", 7, "72", "Y", "I", "N", "N"),
+    ("723000", "Dunning Fees", 7, "72", "Y", "I", "N", "N"),
 ]
 
 # GST tax authorities (OSTA): code, name, output account, input account
@@ -222,6 +223,15 @@ def seed() -> None:
                              extra_month=0, extra_days=30, inst_num=3))
             for n, (days, pct) in enumerate([(30, "33.33"), (60, "33.33"), (90, "33.34")], start=1):
                 put(PaymentTermsInstallment(ctg_code=5, ints_no=n, inst_month=0, inst_days=days, inst_prcnt=Decimal(pct)))
+        # dunning: friendly reminder after 7 days, 2nd after 30 days (fee 250), final after 60 days (fee 500)
+        if s.get(DunningTerm, "STD") is None:
+            put(DunningTerm(code="STD", name="Standard dunning", interest=Decimal("18"), highest="N", days_between=7))
+            for lvl, days, fee, text in [
+                    (1, 7, "0", "This is a friendly reminder that the items below are overdue. Please arrange payment."),
+                    (2, 30, "250", "Despite our reminder the items below are still unpaid. Please pay within 7 days."),
+                    (3, 60, "500", "Final notice: unless the items below are paid within 7 days we will take further steps.")]:
+                put(DunningLevel(term_code="STD", level=lvl, days=days, fee=Decimal(fee), min_balance=Decimal("100"),
+                                 letter_text=text))
         eom = s.get(PaymentTerms, 3)
         if eom.pymnt_group == "End of next month" and eom.pay_du_month == "N":  # before "start from" existed
             eom.pay_du_month = "E"
@@ -239,7 +249,8 @@ def seed() -> None:
                 inventory="115000", allocation="212000", price_diff="512000", expense="611000",
                 inv_offset_inc="513000", inv_offset_dec="513000", exch_gain="711000", exch_loss="712000",
                 opening_bal="313000", bank_charges="613000", checks_received="117000", unreal_gain="713000",
-                unreal_loss="714000", cash_disc_allowed="615000", cash_disc_received="722000"))
+                unreal_loss="714000", cash_disc_allowed="615000", cash_disc_received="722000",
+                dunning_interest="721000", dunning_fee="723000"))
         put_new(Bank(abs_entry=1, bank_code="HDFC", bank_name="HDFC Bank Ltd", country_cod="IN", swift_num="HDFCINBB"), 1)
         put_new(HouseBankAccount(abs_entry=1, bank_code="HDFC", account="50100123456789", branch="HDFC0000123",
                                  gl_account="112000", acct_name="HDFC current account", country="IN", currency=LOCAL), 1)
@@ -353,6 +364,8 @@ def _seed_partners_and_items(s, put) -> None:
         bp.ship_to_def = bp.ship_to_def or "Main"
         if bp.slp_code is None:
             bp.slp_code = slp
+        if kind == "C" and bp.dun_term is None:
+            bp.dun_term = "STD"
     for code, name, group, inv, uom, vat_sa, vat_pu, price, pur, vendor, firm, bars, hsn in ITEMS:
         if s.get(Item, code) is None:
             put(Item(item_code=code, item_name=name, itms_grp_cod=group, invnt_item="Y" if inv else "N",

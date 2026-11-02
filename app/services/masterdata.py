@@ -94,13 +94,15 @@ class PartnerRequest:
     discount: Decimal = Decimal("0")
     debt_line: Decimal = Decimal("0")
     free_text: str | None = None
+    dun_term: str | None = None
+    intrst_rate: Decimal = Decimal("0")
 
 
 # fields copied unchanged from the request to OCRD
 PARTNER_FIELDS = ["card_name", "card_type", "group_code", "currency", "group_num", "list_num", "vat_group",
                   "lic_trad_num", "phone1", "phone2", "cellular", "fax", "e_mail", "intrnt_site", "address",
                   "zip_code", "city", "country", "cntct_prsn", "credit_line", "notes", "card_f_name", "slp_code",
-                  "project_cod", "discount", "debt_line", "free_text"]
+                  "project_cod", "discount", "debt_line", "free_text", "dun_term", "intrst_rate"]
 
 
 def validate_partner_fields(session: Session, data: dict, card_type: str) -> None:
@@ -117,6 +119,13 @@ def validate_partner_fields(session: Session, data: dict, card_type: str) -> Non
     check_sales_employee(session, data.get("slp_code"))
     check_project(session, data.get("project_cod"))
     check_country(session, data.get("country"))
+    if data.get("dun_term"):
+        from app.models.admin import DunningTerm
+
+        if session.get(DunningTerm, data["dun_term"]) is None:
+            raise B1Error(f"Dunning term {data['dun_term']} does not exist")
+    if data.get("intrst_rate") is not None and not (0 <= Decimal(data["intrst_rate"]) < 100):
+        raise B1Error("The interest on arrears must be between 0 and 100 %")
     for key in ("discount",):
         if data.get(key) is not None and not (0 <= Decimal(data[key]) < 100):
             raise B1Error("The total discount must be between 0 and 100 %")

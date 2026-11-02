@@ -60,6 +60,8 @@ class BusinessPartner(Base):
     discount: Mapped[Decimal] = mapped_column("Discount", AMOUNT, default=Decimal("0"), server_default="0")  # Total discount %
     debt_line: Mapped[Decimal] = mapped_column("DebtLine", AMOUNT, default=Decimal("0"), server_default="0")  # Commitment limit
     free_text: Mapped[str | None] = mapped_column("Free_Text", String(254))  # Remarks tab
+    dun_term: Mapped[str | None] = mapped_column("DunTerm", String(8))  # Dunning term (ODUT)
+    intrst_rate: Mapped[Decimal] = mapped_column("IntrstRate", AMOUNT, default=Decimal("0"), server_default="0")  # Interest on arrears % p.a.
     address: Mapped[str | None] = mapped_column("Address", String(100))  # Bill-to street
     zip_code: Mapped[str | None] = mapped_column("ZipCode", String(20))
     city: Mapped[str | None] = mapped_column("City", String(100))

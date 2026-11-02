@@ -118,7 +118,8 @@ def _bp_out(bp: BusinessPartner) -> dict:
             "cntct_prsn": bp.cntct_prsn, "slp_code": bp.slp_code, "project_cod": bp.project_cod,
             "bill_to_def": bp.bill_to_def, "ship_to_def": bp.ship_to_def, "credit_line": bp.credit_line,
             "debt_line": bp.debt_line, "discount": bp.discount, "balance": bp.balance, "dnotes_bal": bp.dnotes_bal,
-            "orders_bal": bp.orders_bal, "frozen": bp.frozen_for == "Y", "notes": bp.notes, "free_text": bp.free_text}
+            "orders_bal": bp.orders_bal, "frozen": bp.frozen_for == "Y", "notes": bp.notes, "free_text": bp.free_text,
+            "dun_term": bp.dun_term, "intrst_rate": bp.intrst_rate}
 
 
 @router.get("/partner-groups", tags=["Business partners"], summary="Business partner groups (OCRG)")
@@ -158,6 +159,8 @@ class PartnerFields(BaseModel):
     discount: Decimal | None = Field(None, ge=0, lt=100)
     notes: str | None = Field(None, max_length=100)
     free_text: str | None = Field(None, max_length=254)
+    dun_term: str | None = Field(None, max_length=8)
+    intrst_rate: Decimal | None = Field(None, ge=0, lt=100)
 
 
 class PartnerIn(PartnerFields):

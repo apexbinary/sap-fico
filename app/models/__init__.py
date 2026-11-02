@@ -7,6 +7,8 @@ from app.models.admin import (
     ExchangeRate,
     NumberingSeries,
     CashDiscount,
+    DunningLevel,
+    DunningTerm,
     CashDiscountLine,
     PaymentTerms,
     PaymentTermsInstallment,
@@ -26,14 +28,14 @@ from app.models.finance import (Account, AccountDetermination, ExchangeRateRun, 
                                 JournalLine)
 from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatementRow, CheckForReceipt, Deposit,
                                  ExternalReconciliation, ExternalReconciliationLine, HouseBankAccount, IncomingPayment,
-                                 OutgoingPayment)
+                                 OutgoingPayment, DunningRun, DunningLetter, DunningLetterItem)
 from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_INSTALLMENTS, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
 
 __all__ = [
     # administration
-    "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms", "PaymentTermsInstallment", "CashDiscount", "CashDiscountLine",
+    "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms", "PaymentTermsInstallment", "CashDiscount", "CashDiscountLine", "DunningTerm", "DunningLevel",
     "SalesEmployee", "Project", "TransactionCode", "Country", "State", "TaxAuthority", "TaxComponent", "TaxType", "HsnCode", "TaxDetermination",
     # financials
     "Account", "JournalEntry", "JournalLine", "AccountDetermination", "ExchangeRateRun", "ExchangeRateRunLine",
@@ -45,5 +47,6 @@ __all__ = [
     "DOCUMENT_CLASSES", "DOCUMENT_TABLES", "DOCUMENT_INSTALLMENTS", "WarehouseJournal",
     # banking
     "IncomingPayment", "OutgoingPayment", "PAYMENT_CLASSES", "CheckForReceipt", "Deposit",
+    "DunningRun", "DunningLetter", "DunningLetterItem",
     "Bank", "HouseBankAccount", "BankStatement", "BankStatementRow", "ExternalReconciliation", "ExternalReconciliationLine",
 ]

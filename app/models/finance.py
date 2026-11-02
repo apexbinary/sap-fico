@@ -106,6 +106,8 @@ class JournalLine(Base):
     bal_fc_deb: Mapped[Decimal] = mapped_column("BalFcDeb", AMOUNT, default=Decimal("0"), server_default="0")  # Open debit (FC)
     bal_fc_cred: Mapped[Decimal] = mapped_column("BalFcCred", AMOUNT, default=Decimal("0"), server_default="0")  # Open credit (FC)
     extr_match: Mapped[int | None] = mapped_column("ExtrMatch")  # External (bank) reconciliation number (OMTH)
+    dunn_level: Mapped[int] = mapped_column("DunnLevel", default=0, server_default="0")  # Dunning level of the open item
+    dun_date: Mapped[date | None] = mapped_column("DunDate")  # Last dunning date
     mth_date: Mapped[date | None] = mapped_column("MthDate")  # Date of the external reconciliation
     line_memo: Mapped[str | None] = mapped_column("LineMemo", String(50))
     ref_date: Mapped[date] = mapped_column("RefDate")
@@ -151,6 +153,8 @@ class AccountDetermination(Base):
     unreal_loss: Mapped[str] = mapped_column("UnrlzLossAcct", String(15), server_default="714000")  # Unrealized exchange loss
     cash_disc_allowed: Mapped[str] = mapped_column("CashDiscAlwAcct", String(15), server_default="615000")  # Customers' cash discount
     cash_disc_received: Mapped[str] = mapped_column("CashDiscRcvAcct", String(15), server_default="722000")  # Vendors' cash discount
+    dunning_interest: Mapped[str] = mapped_column("DunIntrstAcct", String(15), server_default="721000")  # Interest on arrears
+    dunning_fee: Mapped[str] = mapped_column("DunFeeAcct", String(15), server_default="723000")  # Dunning fees
 
 
 class ExchangeRateRun(Base):

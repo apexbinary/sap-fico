@@ -78,6 +78,9 @@ const PARTNER_PAYMENT = (vendor) => [
   { k: "discount", label: "Total discount %", type: "number", step: "0.01", min: 0, maxv: 99.99, value: 0 },
   { k: "credit_line", label: "Credit limit", type: "number", step: "0.01", min: 0, value: 0 },
   { k: "debt_line", label: "Commitment limit", type: "number", step: "0.01", min: 0, value: 0 },
+  ...(vendor ? [] : [
+    { k: "dun_term", label: "Dunning term", type: "select", options: () => (state.dunningTerms || []).map((t) => [t.code, `${t.code} — ${t.name}`]), value: "STD" },
+    { k: "intrst_rate", label: "Interest on arrears % p.a.", type: "number", step: "0.01", min: 0, maxv: 99.99, value: 0 }]),
 ];
 const PARTNER_ACCOUNTING = (vendor) => [
   { k: "vat_group", label: "Tax group", type: "select", options: O.taxes(vendor ? "I" : "O") },
@@ -105,7 +108,8 @@ const CONTACT_FIELDS = [
 
 views.partners = async (c) => {
   const code = query().get("code"), type = query().get("type") || "";
-  const [list, groups] = await Promise.all([api(`/partners${type ? `?card_type=${type}` : ""}`), api("/partner-groups")]);
+  const [list, groups, dunTerms] = await Promise.all([api(`/partners${type ? `?card_type=${type}` : ""}`), api("/partner-groups"), api("/dunning/terms")]);
+  state.dunningTerms = dunTerms;
   c.innerHTML = `<div class="page-head"><div><h1>Business Partner Master Data</h1><div class="sub">Customers, vendors and leads (OCRD)</div></div>
       <a class="btn" href="#/partners?new=1">+ New business partner</a></div>
     <div class="toolbar"><div class="field"><label>Type</label><select id="bp-filter">${opt("", "All", type)}${Object.entries(CARD_TYPES).map(([k, v]) => opt(k, v, type)).join("")}</select></div></div>

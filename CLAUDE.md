@@ -241,16 +241,20 @@ auto-matching through the same service, "Payments & Clearing" UI screen.
 Also done: G/L open-item clearing (F-03), payment-difference tolerances
 (T043G -> ZDI), tax adjustment on cash discount (proportional to the
 invoice's tax lines), header-only zero-balance clearing documents.
-Known gaps: local currency only; T043G column names need checking against
-the SAP DDIC; tolerances per employee (T043T) and reason codes are missing.
+Also done: employee tolerances (T043/T043T: document, item, cash discount and
+payment-difference limits per user group), reason codes (T053R, BSEG-RSTGR,
+charge-off via T030 ZDI with the reason as modifier). Still to verify in SAP:
+the non-key column names of T043G and T043T.
 
 **Automatic payment program F110 — done:** vendors (SEPA transfer, pain.001)
 and customers (SEPA direct debit with mandates, pain.008); proposal with the
 due / cash-discount rule, credit-memo offset, method and house bank
 determination, exception list; payment run posting to the bank clearing
 account 113109, which the bank statement clears automatically.
-Known gaps: editing a proposal item by item, available amounts per bank
-(T042Y), checks, mandate sequence handling beyond RCUR/OOFF.
+Also done: blocking/releasing single proposal items, available amounts per
+house bank account (T042Y), check payments (method C, check lots PCEC, check
+register PAYR, printable checks, void with payment reversal), SEPA sequence
+FRST/RCUR/OOFF from SEPA_MANDATE-FIRSTUSE_DATE/DOCID.
 
 **Financial Statement Version — done:** FSV tables, balance sheet / P&L report
 with comparison year, debit/credit-dependent assignment, net result in equity,

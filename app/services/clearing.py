@@ -45,8 +45,12 @@ from sqlalchemy.orm import Session
 from app.models.documents import AccountingDocumentItem, PostingKey
 from app.models.gl_master import GLAccountCompanyCode
 from app.models.partners import CustomerCompanyCode, VendorCompanyCode
-from app.models.payments import AutomaticAccountDetermination, CustomerVendorTolerance
-from app.services import fx, payment_terms
+from app.models.payments import (
+    AutomaticAccountDetermination,
+    CustomerVendorTolerance,
+    PaymentDifferenceReason,
+)
+from app.services import fx, payment_terms, tolerance
 from app.services.fiscal import PostingError, company_code
 from app.services.posting import DocumentRequest, LineRequest, post_document, to_local
 
@@ -102,6 +106,7 @@ class PaymentRequest:
     apply_discount: bool = True  # Take cash discount per the items' terms
     blart: str | None = None  # Document type (default DZ / KZ, or AB for pure clearing)
     waers: str | None = None  # Payment currency for a payment on account (else the items' currency)
+    rstgr: str | None = None  # Reason code for a payment difference or residual item (T053R)
     xblnr: str | None = None  # Reference
     bktxt: str | None = None  # Header text
     sgtxt: str | None = None  # Item text on the payment lines
@@ -141,6 +146,12 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
     keys = _KEYS[req.koart]
     inv_side = keys["inv_side"]
     cc = company_code(session, mandt, req.bukrs)
+    reason = None
+    if req.rstgr:
+        reason = session.get(PaymentDifferenceReason, (mandt, req.bukrs, req.rstgr))
+        if reason is None:
+            raise PostingError(f"Reason code {req.rstgr} is not defined for company code {req.bukrs} (T053R)")
+    user_tol = tolerance.employee_tolerance(session, mandt, req.bukrs, req.usnam)
     if req.koart == "S":
         _check_open_item_account(session, mandt, req.bukrs, req.account)
     items = [_open_item(session, mandt, req, *key) for key in req.items]
@@ -194,14 +205,17 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
         for it in items:
             d = Decimal("0")
             if req.apply_discount and req.koart != "S" and it.shkzg == inv_side:
-                d = payment_terms.cash_discount(it, req.budat)[1]
+                pct, d = payment_terms.cash_discount(it, req.budat)
+                if d:
+                    tolerance.check_cash_discount(user_tol, req.usnam, pct)
             discounts.append(d)
         discount = sum(discounts, Decimal("0"))
         residual = open_total - discount - (req.amount if normal else -req.amount)
 
         if req.mode == "clear" and residual:
             tol = _tolerance(session, mandt, req.bukrs, req.koart, req.account)
-            if tol is None or not _within(tol, req.koart, residual, open_total):
+            if (tol is None or not _within(tol, req.koart, residual, open_total)
+                    or not tolerance.difference_allowed(user_tol, residual, open_total)):
                 raise PostingError(
                     f"Difference of {residual} {waers} remains (open {open_total}, cash discount "
                     f"{discount}, paid {req.amount}) and exceeds the payment-difference tolerance; "
@@ -222,10 +236,12 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
                                          sgtxt="Tax adjustment on cash discount"))
         if difference:
             side = inv_side if difference > 0 else ("H" if inv_side == "S" else "S")
+            komok = req.rstgr if reason is not None and reason.xausb else ""
             lines.append(LineRequest(
                 bschl="40" if side == "S" else "50",
-                account=_auto_account(session, mandt, cc.ktopl, "ZDI", credit=side == "H"),
-                wrbtr=abs(difference), sgtxt="Payment difference within tolerance",
+                account=_auto_account(session, mandt, cc.ktopl, "ZDI", credit=side == "H", komok=komok),
+                wrbtr=abs(difference), sgtxt=(reason.txt40 if reason else "Payment difference within tolerance")[:50],
+                rstgr=req.rstgr,
             ))
 
         header_only = not (req.amount or discount or residual or difference or foreign)
@@ -246,6 +262,7 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
                 bschl=keys["residual"][0 if residual > 0 else 1], account=req.account,
                 wrbtr=abs(residual), zuonr=ref.zuonr, zfbdt=ref.zfbdt, zterm=ref.zterm,
                 sgtxt=f"Residual item {ref.belnr}", rebzg=ref.belnr, rebzj=ref.gjahr, rebzz=ref.buzei,
+                rstgr=req.rstgr,
             ))
 
     realized = Decimal("0")
@@ -326,8 +343,12 @@ def _signed(it: AccountingDocumentItem, inv_side: str) -> Decimal:
     return it.wrbtr if it.shkzg == inv_side else -it.wrbtr
 
 
-def _auto_account(session: Session, mandt: str, ktopl: str, ktosl: str, *, credit: bool = False) -> str:
-    row = session.get(AutomaticAccountDetermination, (mandt, ktopl, ktosl, "", "", ""))
+def _auto_account(
+    session: Session, mandt: str, ktopl: str, ktosl: str, *, credit: bool = False, komok: str = "",
+) -> str:
+    """T030 account for a transaction key; an account modifier (e.g. a reason code) falls back to ''."""
+    row = (session.get(AutomaticAccountDetermination, (mandt, ktopl, ktosl, "", komok, "")) if komok else None) \
+        or session.get(AutomaticAccountDetermination, (mandt, ktopl, ktosl, "", "", ""))
     if row is None:
         raise PostingError(f"No G/L account for transaction key {ktosl} in chart of accounts {ktopl} (T030)")
     return (row.konth or row.konts) if credit else row.konts

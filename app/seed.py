@@ -15,6 +15,8 @@ Creates:
   * F110: methods T (SEPA transfer) / E (SEPA direct debit), bank determination,
     vendor/customer bank details, a SEPA mandate for the demo customer
   * Payment-difference tolerances (T043G, key ZDI) and open-item G/L account 113109
+  * Employee tolerances (T043T, user JDOE in group JUNI), reason codes 01/02 (T053R),
+    check payment method C with check lot 100001-100500, T042Y available amount
   * Financial statement version INT and retained earnings 109000 (T030 BIL)
   * Dunning procedure 0001 (four levels) and dunning data for the demo customer
   * USD exchange rates (TCURR) and exchange rate difference accounts (T030H)
@@ -82,12 +84,17 @@ from app.models.partners import (
 )
 from app.models.payments import (
     AutomaticAccountDetermination,
+    AvailableAmount,
     BankDetermination,
+    CheckLot,
     CompanyCodePaymentMethod,
     CustomerVendorTolerance,
+    EmployeeTolerance,
     ExchangeDifferenceAccounts,
+    PaymentDifferenceReason,
     PaymentMethod,
     PaymentTerms,
+    UserToleranceGroup,
 )
 from app.models.tax import Country, TaxAccount, TaxCode, TaxRate
 
@@ -122,6 +129,7 @@ def _gl_accounts():
         ("175000", "Output tax (MWS)", True, "GL00", None, ">"),
         ("400000", "Consumption of raw materials", False, "PL00", None, "V1"),
         ("476000", "Office supplies expense", False, "PL00", None, "V1"),
+        ("479000", "Bank charges", False, "PL00", None, None),
         ("477000", "Marketing expenses", False, "PL00", None, None),
         ("960000", "Internal order settlement", False, "PL00", None, None),
         ("480000", "Depreciation expense", False, "PL00", None, None),
@@ -394,6 +402,20 @@ def seed() -> None:
             put(ExchangeDifferenceAccounts(mandt=MANDT, ktopl=KTOPL, hkont=hkont, lsrea="230000", lhrea="280000",
                                                lsbew="230010", lhbew="280010", lkorr=korr))
 
+        # Employee tolerances (T043T): default group and a junior clerk group; user JDOE is a junior
+        for togru, betrh, betrp, sktpr, zubet, zuprz in [
+            ("", "1000000.00", "500000.00", "5.00", "5.00", "2.00"),
+            ("JUNI", "1000.00", "1000.00", "3.00", "1.00", "1.00"),
+        ]:
+            put(EmployeeTolerance(mandt=MANDT, bukrs=BUKRS, togru=togru, waers="EUR", betrh=Decimal(betrh),
+                                  betrp=Decimal(betrp), sktpr=Decimal(sktpr), zubet=Decimal(zubet), zuprz=Decimal(zuprz)))
+        put(UserToleranceGroup(mandt=MANDT, usnam="JDOE", bukrs=BUKRS, togru="JUNI"))
+        # Reason codes for payment differences; 01 is charged off to bank charges (T030 ZDI, modifier 01)
+        put(PaymentDifferenceReason(mandt=MANDT, bukrs=BUKRS, rstgr="01", txt40="Bank charges deducted", xausb=True))
+        put(PaymentDifferenceReason(mandt=MANDT, bukrs=BUKRS, rstgr="02", txt40="Price difference", xausb=False))
+        put(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="ZDI", bwmod="", komok="01", bklas="",
+                                          konts="479000", konth="479000"))
+
         # Default tolerance group: differences up to 2.00 EUR and 1% are posted automatically.
         put(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
 
@@ -413,7 +435,7 @@ def seed() -> None:
         put(VendorBankDetails(mandt=MANDT, lifnr="0000020000", banks="DE", bankl="20000000", bankn="0987654321", koinh="Beta Supplies AG", iban="DE84200000000987654321"))
         # Second vendor without bank details: shows up as an F110 exception.
         put(Vendor(mandt=MANDT, lifnr="0000020001", ktokk="LIEF", name1="Gamma Logistics GmbH", land1="DE", ort01="Hamburg", spras="E"))
-        put(VendorCompanyCode(mandt=MANDT, lifnr="0000020001", bukrs=BUKRS, akont="160000", zterm="0001", zuawa="001", zwels="T"))
+        put(VendorCompanyCode(mandt=MANDT, lifnr="0000020001", bukrs=BUKRS, akont="160000", zterm="0001", zuawa="001", zwels="TC"))
 
         # --- Asset Accounting ---
         put(DepreciationArea(mandt=MANDT, afaber="01", afbe_txt="Book depreciation", buhbkt="1"))
@@ -440,7 +462,13 @@ def seed() -> None:
         # --- Automatic payment program (F110) ---
         put(PaymentMethod(mandt=MANDT, land1="DE", zlsch="T", text1="Bank transfer (SEPA)", xbkkt=True, blart="ZP", progn="SEPA_CT"))
         put(PaymentMethod(mandt=MANDT, land1="DE", zlsch="E", text1="SEPA direct debit", xeinz=True, blart="ZP", progn="SEPA_DD"))
-        for zlsch in ("T", "E"):
+        put(PaymentMethod(mandt=MANDT, land1="DE", zlsch="C", text1="Check", xschk=True, blart="ZP", progn="CHECK"))
+        # Checks: one lot of prenumbered checks; live counter (CHECL) is created, never re-merged
+        if s.get(CheckLot, (MANDT, BUKRS, "DB", "GIRO", "0001")) is None:
+            put(CheckLot(mandt=MANDT, zbukr=BUKRS, hbkid="DB", hktid="GIRO", stapl="0001",
+                         fstap="100001", lstap="100500"))
+        put(AvailableAmount(mandt=MANDT, zbukr=BUKRS, hbkid="DB", hktid="GIRO", waers="EUR", bfbet=Decimal("1000000.00")))
+        for zlsch in ("T", "E", "C"):
             put(CompanyCodePaymentMethod(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, minbt=Decimal("1.00")))
             # F110 posts to the bank clearing account; the bank statement later clears it.
             put(BankDetermination(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, waers="EUR", rangf=1, hbkid="DB", hktid="GIRO", ukont="113109"))

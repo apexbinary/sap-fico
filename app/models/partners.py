@@ -211,6 +211,8 @@ class SepaMandate(Base):
     sign_city: Mapped[str | None] = mapped_column(String(35))  # Place of signature
     pay_type: Mapped[str] = mapped_column(String(4), default="RCUR")  # RCUR recurring / OOFF one-off
     status: Mapped[str] = mapped_column(String(1), default="1")  # 0 entered, 1 active, 4 locked, 5 cancelled
+    firstuse_date: Mapped[date | None] = mapped_column()  # Date of first use (FRST collection)
+    firstuse_docid: Mapped[str | None] = mapped_column(String(10))  # Payment document of the first use
 
 
 class CustomerDunningData(Base):

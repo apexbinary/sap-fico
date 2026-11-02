@@ -10,10 +10,17 @@ Tables modelled here:
     T042I  Bank determination: ranking of house banks per payment method
     T043G  Tolerances for customers/vendors (permitted payment differences)
     T030H  Exchange rate difference accounts per open-item / reconciliation account
+    T043   User -> employee tolerance group
+    T043T  Employee tolerances (posting limits, cash discount, payment differences)
+    T053R  Reason codes for payment differences
+    T042Y  Available amounts per house bank account (payment program)
+    PCEC   Check lots (prenumbered checks per house bank account)
+    PAYR   Check register (issued, printed and voided checks)
 """
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import Numeric, String
@@ -147,3 +154,99 @@ class ExchangeDifferenceAccounts(Base):
     lsbew: Mapped[str] = mapped_column(String(10))  # Valuation loss
     lhbew: Mapped[str] = mapped_column(String(10))  # Valuation gain
     lkorr: Mapped[str] = mapped_column(String(10))  # Balance sheet adjustment account
+
+
+class UserToleranceGroup(Base):
+    """T043 — Assignment of a user to an employee tolerance group."""
+
+    __tablename__ = "t043"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    usnam: Mapped[str] = mapped_column(String(12), primary_key=True)  # User name
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    togru: Mapped[str] = mapped_column(String(4))  # Tolerance group
+
+
+class EmployeeTolerance(Base):
+    """T043T — Employee tolerances per company code and tolerance group ('' = default).
+
+    Column names other than the keys follow the OBA4 screen and still need
+    checking against the SAP data dictionary.
+    """
+
+    __tablename__ = "t043t"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    togru: Mapped[str] = mapped_column(String(4), primary_key=True, default="")  # Tolerance group
+    waers: Mapped[str] = mapped_column(String(5))  # Currency of the limits
+    betrh: Mapped[Decimal] = mapped_column(Numeric(13, 2))  # Maximum amount per document
+    betrp: Mapped[Decimal] = mapped_column(Numeric(13, 2))  # Maximum amount per open item (customer/vendor)
+    sktpr: Mapped[Decimal] = mapped_column(Numeric(5, 2))  # Maximum cash discount percentage
+    zubet: Mapped[Decimal] = mapped_column(Numeric(13, 2), default=Decimal("0"))  # Payment difference: amount
+    zuprz: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"))  # Payment difference: percent
+
+
+class PaymentDifferenceReason(Base):
+    """T053R — Reason code for payment differences (+ T053S text in txt40)."""
+
+    __tablename__ = "t053r"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    rstgr: Mapped[str] = mapped_column(String(3), primary_key=True)  # Reason code
+    txt40: Mapped[str] = mapped_column(String(40))  # Reason text
+    xausb: Mapped[bool] = mapped_column(default=False)  # Charge off difference via separate G/L account
+
+
+class AvailableAmount(Base):
+    """T042Y — Amount available for outgoing payments from a house bank account."""
+
+    __tablename__ = "t042y"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    zbukr: Mapped[str] = mapped_column(String(4), primary_key=True)  # Paying company code
+    hbkid: Mapped[str] = mapped_column(String(5), primary_key=True)  # House bank
+    hktid: Mapped[str] = mapped_column(String(5), primary_key=True)  # Account ID
+    waers: Mapped[str] = mapped_column(String(5), primary_key=True)  # Currency
+    bfbet: Mapped[Decimal] = mapped_column(Numeric(15, 2))  # Available amount for outgoing payments
+
+
+class CheckLot(Base):
+    """PCEC — Lot of prenumbered checks for a house bank account."""
+
+    __tablename__ = "pcec"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    zbukr: Mapped[str] = mapped_column(String(4), primary_key=True)  # Paying company code
+    hbkid: Mapped[str] = mapped_column(String(5), primary_key=True)  # House bank
+    hktid: Mapped[str] = mapped_column(String(5), primary_key=True)  # Account ID
+    stapl: Mapped[str] = mapped_column(String(4), primary_key=True)  # Lot number
+    fstap: Mapped[str] = mapped_column(String(13))  # First check number of the lot
+    lstap: Mapped[str] = mapped_column(String(13))  # Last check number of the lot
+    checl: Mapped[str | None] = mapped_column(String(13))  # Last check number used
+
+
+class CheckRegister(Base):
+    """PAYR — Check register (payment medium file for checks)."""
+
+    __tablename__ = "payr"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    zbukr: Mapped[str] = mapped_column(String(4), primary_key=True)  # Paying company code
+    hbkid: Mapped[str] = mapped_column(String(5), primary_key=True)  # House bank
+    hktid: Mapped[str] = mapped_column(String(5), primary_key=True)  # Account ID
+    rzawe: Mapped[str] = mapped_column(String(1), primary_key=True)  # Payment method
+    chect: Mapped[str] = mapped_column(String(13), primary_key=True)  # Check number
+    vblnr: Mapped[str | None] = mapped_column(String(10))  # Payment document number
+    gjahr: Mapped[int | None] = mapped_column()  # Fiscal year of the payment document
+    lifnr: Mapped[str | None] = mapped_column(String(10))  # Vendor (payee)
+    znme1: Mapped[str | None] = mapped_column(String(35))  # Payee name
+    rwbtr: Mapped[Decimal] = mapped_column(Numeric(15, 2))  # Amount paid
+    waers: Mapped[str] = mapped_column(String(5))  # Currency
+    zaldt: Mapped[date] = mapped_column()  # Payment date
+    laufd: Mapped[date | None] = mapped_column()  # Payment run date
+    laufi: Mapped[str | None] = mapped_column(String(6))  # Payment run identification
+    voidr: Mapped[str | None] = mapped_column(String(2))  # Void reason code
+    voidd: Mapped[date | None] = mapped_column()  # Voided on
+    voidu: Mapped[str | None] = mapped_column(String(12))  # Voided by

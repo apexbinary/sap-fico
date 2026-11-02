@@ -8,11 +8,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_session
 from app.models.bank import HouseBankAccount
+from app.models.payments import PaymentDifferenceReason
 from app.services import clearing
 from app.services.fiscal import PostingError
 
@@ -41,6 +43,8 @@ class PaymentIn(BaseModel):
     items: list[OpenItemRef] = []
     mode: Literal["clear", "residual", "partial", "on_account"] = "clear"
     apply_discount: bool = True
+    rstgr: str | None = Field(None, description="Reason code for a payment difference / residual item")
+    usnam: str = "SYSTEM"
     xblnr: str | None = None
     bktxt: str | None = None
     sgtxt: str | None = None
@@ -58,6 +62,8 @@ class ClearingIn(BaseModel):
     budat: date
     items: list[OpenItemRef]
     mode: Literal["clear", "residual"] = "clear"
+    rstgr: str | None = None
+    usnam: str = "SYSTEM"
     bktxt: str | None = None
 
 
@@ -92,6 +98,7 @@ def post_payment(body: PaymentIn, mandt: str = Query(default=None), s: Session =
             budat=body.budat, bldat=body.bldat, amount=body.amount, hkont=acct.hkont,
             items=[(i.belnr, i.gjahr, i.buzei) for i in body.items], mode=body.mode,
             apply_discount=body.apply_discount, xblnr=body.xblnr, bktxt=body.bktxt, sgtxt=body.sgtxt,
+            rstgr=body.rstgr, usnam=body.usnam,
         ))
     except PostingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -103,7 +110,15 @@ def post_clearing(body: ClearingIn, mandt: str = Query(default=None), s: Session
         return clearing.post_payment(s, clearing.PaymentRequest(
             mandt=_m(mandt), bukrs=body.bukrs, koart=body.koart, account=_acct(body.koart, body.account),
             budat=body.budat, items=[(i.belnr, i.gjahr, i.buzei) for i in body.items],
-            mode=body.mode, apply_discount=False, bktxt=body.bktxt,
+            mode=body.mode, apply_discount=False, bktxt=body.bktxt, rstgr=body.rstgr, usnam=body.usnam,
         ))
     except PostingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/payments/reasons", summary="Reason codes for payment differences (T053R)")
+def reasons(bukrs: str, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> list[dict]:
+    rows = s.scalars(select(PaymentDifferenceReason).where(
+        PaymentDifferenceReason.mandt == _m(mandt), PaymentDifferenceReason.bukrs == bukrs)
+        .order_by(PaymentDifferenceReason.rstgr)).all()
+    return [{"rstgr": r.rstgr, "txt40": r.txt40, "xausb": r.xausb} for r in rows]

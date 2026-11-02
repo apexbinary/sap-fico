@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -96,3 +96,50 @@ def sepa_dd(laufd: date, laufi: str, mandt: str = Query(default=None), s: Sessio
     name = f"F110_{laufd:%Y%m%d}_{laufi}_pain008.xml"
     return Response(xml, media_type="application/xml",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+class ItemBlockIn(BaseModel):
+    bukrs: str
+    belnr: str
+    gjahr: int
+    buzei: int
+    block: bool = True
+
+
+@router.post("/{laufd}/{laufi}/items/block", summary="Block / release an item in the payment proposal")
+def block_item(laufd: date, laufi: str, body: ItemBlockIn, mandt: str = Query(default=None),
+               s: Session = Depends(get_session)) -> dict:
+    run = _run_or_422(lambda: f110.set_item_block(s, _m(mandt), laufd, laufi, body.bukrs, body.belnr, body.gjahr,
+                                                  body.buzei, block=body.block))
+    return f110.run_summary(run)
+
+
+@router.get("/{laufd}/{laufi}/checks", response_class=HTMLResponse, summary="Printable checks of a payment run")
+def print_checks(laufd: date, laufi: str, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> str:
+    return _run_or_422(lambda: f110.checks_html(s, _m(mandt), laufd, laufi))
+
+
+check_router = APIRouter(prefix="/checks", tags=["Automatic Payment Program (F110)"])
+
+
+@check_router.get("", summary="Check register (PAYR)")
+def check_register(mandt: str = Query(default=None), s: Session = Depends(get_session)) -> list[dict]:
+    return [{"zbukr": c.zbukr, "hbkid": c.hbkid, "hktid": c.hktid, "chect": c.chect, "vblnr": c.vblnr,
+             "gjahr": c.gjahr, "znme1": c.znme1, "rwbtr": c.rwbtr, "waers": c.waers, "zaldt": c.zaldt,
+             "laufd": c.laufd, "laufi": c.laufi, "voidr": c.voidr, "voidd": c.voidd}
+            for c in f110.checks_of(s, _m(mandt))]
+
+
+class VoidIn(BaseModel):
+    zbukr: str
+    hbkid: str
+    hktid: str
+    chect: str
+    voidr: str = Field("01", description="Void reason")
+    reverse_payment: bool = Field(False, description="Also reset and reverse the payment document (FCH8)")
+
+
+@check_router.post("/void", summary="Void a check (FCH9), optionally reversing the payment (FCH8)")
+def void(body: VoidIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    return _run_or_422(lambda: f110.void_check(s, _m(mandt), body.zbukr, body.hbkid, body.hktid, body.chect,
+                                               voidr=body.voidr, reverse_payment=body.reverse_payment))

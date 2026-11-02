@@ -468,7 +468,10 @@ views.payments = async (c) => {
           <option value="partial">Partial payment (one item stays open)</option>
           <option value="on_account">Payment on account (no items)</option></select></div>
       </div>
-      <label style="display:flex;gap:6px;align-items:center;margin-top:12px"><input type="checkbox" id="p-disc" checked> Take cash discount per terms of payment</label>
+      <div style="display:flex;gap:18px;align-items:center;margin-top:12px;flex-wrap:wrap">
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="p-disc" checked> Take cash discount per terms of payment</label>
+        <label style="display:flex;gap:6px;align-items:center">Reason for a difference <select id="p-reason"><option value="">—</option></select></label>
+      </div>
     </div></div>
     <div class="card"><div class="card-head">Open Items <button class="btn small secondary" id="p-fill">Amount = selected net</button></div><div id="p-items"></div></div>
     <div class="card"><div class="card-body">
@@ -483,6 +486,9 @@ views.payments = async (c) => {
     </div></div>`;
 
   let tol = null;  // permitted payment differences (T043G) of the selected partner
+  api(`/payments/reasons?bukrs=${state.bukrs}`).then((rs) => {
+    $("#p-reason").innerHTML += rs.map((r) => `<option value="${esc(r.rstgr)}">${esc(r.rstgr)} ${esc(r.txt40)}</option>`).join("");
+  }).catch(() => {});
   const isGL = () => $("#p-koart").value === "S";
   const fillAcct = () => {
     $("#p-acct").innerHTML = accountOptions($("#p-koart").value);
@@ -544,7 +550,8 @@ views.payments = async (c) => {
   const post = async () => {
     const sel = selected().map((i) => ({ belnr: i.belnr, gjahr: i.gjahr, buzei: i.buzei }));
     const paid = Number($("#p-amt").value || 0);
-    const base = { bukrs: state.bukrs, koart: $("#p-koart").value, account: $("#p-acct").value, budat: $("#p-budat").value, items: sel, mode: $("#p-mode").value };
+    const base = { bukrs: state.bukrs, koart: $("#p-koart").value, account: $("#p-acct").value, budat: $("#p-budat").value,
+      items: sel, mode: $("#p-mode").value, rstgr: $("#p-reason").value || null };
     try {
       let r;
       if (paid > 0) {
@@ -876,7 +883,7 @@ views["payment-run"] = async (c) => {
         <div class="field"><label class="req">Posting date</label><input id="r-zaldt" type="date" value="${todayISO()}"></div>
         <div class="field"><label class="req">Next payment date</label><input id="r-nedat" type="date" value="${addDays(todayISO(), 14)}"></div>
         <div class="field"><label>Docs entered up to</label><input id="r-cpudt" type="date" value="${todayISO()}"></div>
-        <div class="field"><label class="req">Payment methods</label><input id="r-zwels" value="TE" title="T = SEPA transfer to vendors, E = SEPA direct debit from customers"></div>
+        <div class="field"><label class="req">Payment methods</label><input id="r-zwels" value="TEC" title="T = SEPA transfer, E = SEPA direct debit, C = check"></div>
         <div class="field"><label>Vendor from</label><input id="r-low" placeholder="all"></div>
         <div class="field"><label>Vendor to</label><input id="r-high" placeholder="all"></div>
         <div class="field"><label>Customer from</label><input id="r-klow" placeholder="all"></div>
@@ -885,7 +892,26 @@ views["payment-run"] = async (c) => {
       <button class="btn" id="r-propose" style="margin-top:12px">Create Proposal</button>
       <div class="help">Settles items that would be overdue by the next payment date, or whose cash discount would shrink by then. Credit memos are offset. Payments post to the bank clearing account; the bank statement clears it.</div>
     </div></div>
-    <div id="r-detail"></div>`;
+    <div id="r-detail"></div>
+    <div id="r-checks"></div>`;
+
+  api("/checks").then((checks) => {
+    if (!checks.length) return;
+    $("#r-checks").innerHTML = `<div class="card"><div class="card-head">Check Register (PAYR)</div>
+      <table><thead><tr><th>Check</th><th>House bank</th><th>Payee</th><th class="num">Amount</th><th>Date</th><th>Payment doc</th><th>Status</th><th></th></tr></thead>
+      <tbody>${checks.map((c) => `<tr><td class="mono">${esc(c.chect)}</td><td>${esc(c.hbkid)}/${esc(c.hktid)}</td><td>${esc(c.znme1 || "")}</td>
+        <td class="num">${fmt(c.rwbtr)} ${esc(c.waers)}</td><td>${c.zaldt}</td>
+        <td class="mono">${c.vblnr ? `<a href="#/documents?doc=${c.vblnr}:${c.gjahr}">${c.vblnr}</a>` : ""}</td>
+        <td>${c.voidr ? `<span class="chip no">Void ${esc(c.voidr)}</span>` : `<span class="chip ok">Issued</span>`}</td>
+        <td>${c.voidr ? "" : `<button class="btn small ghost ck-void" data-c='${JSON.stringify(c)}'>Void &amp; reverse</button>`}</td></tr>`).join("")}</tbody></table></div>`;
+    document.querySelectorAll(".ck-void").forEach((b) => (b.onclick = async () => {
+      const c = JSON.parse(b.dataset.c);
+      if (!confirm(`Void check ${c.chect} and reverse payment ${c.vblnr}?`)) return;
+      try { await api("/checks/void", { method: "POST", body: JSON.stringify({ zbukr: c.zbukr, hbkid: c.hbkid, hktid: c.hktid, chect: c.chect, reverse_payment: true }) });
+        toast(`Check ${c.chect} voided`, "good"); route(); }
+      catch (e) { toast(e.message, "bad"); }
+    }));
+  }).catch(() => {});
 
   $("#r-propose").onclick = async () => {
     const body = {
@@ -911,7 +937,8 @@ views["payment-run"] = async (c) => {
         · ${r.payments} payment(s) · ${fmt(r.total)} · discount ${fmt(r.discount)}</span>
       <span style="display:flex;gap:8px">
         ${r.xecht ? `${r.has_transfers ? `<a class="btn small" href="/api${path}/sepa">SEPA transfers (pain.001)</a>` : ""}
-          ${r.has_direct_debits ? `<a class="btn small" href="/api${path}/sepa-dd">SEPA direct debits (pain.008)</a>` : ""}`
+          ${r.has_direct_debits ? `<a class="btn small" href="/api${path}/sepa-dd">SEPA direct debits (pain.008)</a>` : ""}
+          ${r.has_checks ? `<a class="btn small" target="_blank" href="/api${path}/checks">Print checks</a>` : ""}`
           : `<button class="btn small secondary" id="r-del">Delete proposal</button>
              <button class="btn small" id="r-exec" ${r.payments ? "" : "disabled"}>Execute payment run</button>`}
       </span></div>
@@ -926,9 +953,18 @@ views["payment-run"] = async (c) => {
         <td style="color:var(--bad);white-space:normal">${esc(p.exception || "")}</td></tr>
       ${p.items.map((i) => `<tr class="sub-row"><td></td><td colspan="2" class="mono help">↳ <a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a></td>
         <td class="help">${esc(i.xblnr || i.sgtxt || "")}</td><td class="help">due ${i.faedt || ""}${i.zlspr ? ` · block ${esc(i.zlspr)}` : ""}</td>
-        <td class="num help">${Number(i.wskto) ? fmt(i.wskto) : ""}</td><td class="num help">${fmt(i.wrbtr)}</td><td colspan="2"></td></tr>`).join("")}`).join("")
+        <td class="num help">${Number(i.wskto) ? fmt(i.wskto) : ""}</td><td class="num help">${fmt(i.wrbtr)}</td>
+        <td colspan="2">${r.xecht ? "" : p.zlsch ? `<button class="btn small ghost it-block" data-k="${i.belnr}:${i.gjahr}:${i.buzei}" data-b="1">Block</button>`
+          : i.zlspr === "*" ? `<button class="btn small ghost it-block" data-k="${i.belnr}:${i.gjahr}:${i.buzei}" data-b="0">Release</button>` : ""}</td></tr>`).join("")}`).join("")
       || `<tr><td colspan="9" class="empty">Nothing due for payment.</td></tr>`}</tbody></table></div>`;
 
+  document.querySelectorAll(".it-block").forEach((b) => (b.onclick = async () => {
+    const [belnr, gj, buzei] = b.dataset.k.split(":");
+    try {
+      await api(`${path}/items/block`, { method: "POST", body: JSON.stringify({ bukrs: state.bukrs, belnr, gjahr: Number(gj), buzei: Number(buzei), block: b.dataset.b === "1" }) });
+      toast(b.dataset.b === "1" ? "Item blocked in the proposal" : "Item released", "good"); route();
+    } catch (e) { toast(e.message, "bad"); }
+  }));
   if (!r.xecht) {
     $("#r-del").onclick = async () => {
       try { await api(path, { method: "DELETE" }); toast("Proposal deleted", "good"); location.hash = "#/payment-run"; }

@@ -155,6 +155,43 @@ def main() -> None:
         else:
             raise AssertionError("113100 is not managed on an open item basis")
 
+        # 8) employee tolerances (T043T): JDOE is in group JUNI (1000 EUR per document, 1.00 difference)
+        def jdoe_doc(amount):
+            return DocumentRequest(bukrs=BUKRS, blart="SA", bldat=date(2026, 5, 9), budat=date(2026, 5, 9),
+                                   waers="EUR", usnam="JDOE", bktxt="Tolerance test", lines=[
+                                       LineRequest(bschl="40", account="476000", wrbtr=D(amount)),
+                                       LineRequest(bschl="50", account="113100", wrbtr=D(amount))])
+        try:
+            post_document(s, jdoe_doc("1500.00"))
+        except PostingError as exc:
+            print("8 rejected (user limit):", exc)
+        else:
+            raise AssertionError("JDOE may not post 1500 EUR")
+        post_document(s, jdoe_doc("900.00"))
+        inv8 = _customer_invoice(s, date(2026, 5, 10), "595.00", "500.00", ref="PAY-8")
+        k8 = _partner_line(inv8, "D")
+        try:
+            post_payment(s, PaymentRequest(bukrs=BUKRS, koart="D", account=CUST, budat=date(2026, 5, 11),
+                                           amount=D("593.50"), hkont=BANK, items=[k8], usnam="JDOE"))
+        except PostingError as exc:
+            print("8 rejected (JDOE difference 1.50 > 1.00):", str(exc)[:70])
+        else:
+            raise AssertionError("JDOE may only write off 1.00")
+
+        # 9) reason codes (T053R): 01 is charged off to bank charges 479000; 02 goes to the residual item
+        bank_fees = post_payment(s, PaymentRequest(bukrs=BUKRS, koart="D", account=CUST, budat=date(2026, 5, 11),
+                                                   amount=D("593.50"), hkont=BANK, items=[k8], rstgr="01"))
+        fee_doc = s.get(AccountingDocumentHeader, (MANDT, BUKRS, bank_fees["belnr"], bank_fees["gjahr"]))
+        fee = next(i for i in fee_doc.items if i.rstgr == "01")
+        print(f"9 Difference {bank_fees['difference']} with reason 01 -> {fee.hkont} ({fee.sgtxt})")
+        assert fee.hkont == "479000" and fee.wrbtr == D("1.50")
+        inv9 = _customer_invoice(s, date(2026, 5, 10), "238.00", "200.00", ref="PAY-9")
+        res9 = post_payment(s, PaymentRequest(bukrs=BUKRS, koart="D", account=CUST, budat=date(2026, 5, 11),
+                                              amount=D("200.00"), hkont=BANK, items=[_partner_line(inv9, "D")],
+                                              mode="residual", rstgr="02"))
+        res_doc = s.get(AccountingDocumentHeader, (MANDT, BUKRS, res9["belnr"], res9["gjahr"]))
+        assert any(i.rstgr == "02" and i.wrbtr == D("38.00") for i in res_doc.items), "residual carries the reason"
+
         # 5) error paths
         inv5 = _customer_invoice(s, date(2026, 5, 2), "119.00", "100.00", ref="PAY-5")
         k5 = _partner_line(inv5, "D")

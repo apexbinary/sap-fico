@@ -89,12 +89,18 @@ from app.models.partners import (
 from app.models.payment_run import PaymentRunControl, PaymentRunItem, PaymentRunPayee
 from app.models.payments import (
     AutomaticAccountDetermination,
+    AvailableAmount,
     BankDetermination,
+    CheckLot,
+    CheckRegister,
     CompanyCodePaymentMethod,
     CustomerVendorTolerance,
+    EmployeeTolerance,
     ExchangeDifferenceAccounts,
+    PaymentDifferenceReason,
     PaymentMethod,
     PaymentTerms,
+    UserToleranceGroup,
 )
 from app.models.tax import (
     Country,
@@ -129,7 +135,8 @@ __all__ = [
     # payments
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
     "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",
-    "ExchangeDifferenceAccounts",
+    "ExchangeDifferenceAccounts", "UserToleranceGroup", "EmployeeTolerance", "PaymentDifferenceReason",
+    "AvailableAmount", "CheckLot", "CheckRegister",
     # financial statement version
     "FinancialStatementVersion", "FSVNode", "FSVAccountAssignment",
     # payment run (F110)

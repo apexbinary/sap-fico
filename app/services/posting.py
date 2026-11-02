@@ -83,6 +83,7 @@ class LineRequest:
     bzdat: date | None = None  # Asset value date
     buzid: str | None = None  # Line item ID (T = tax line, e.g. copied by a reversal)
     dmbtr: Decimal | None = None  # Fixed local amount (clearing at the item's historical rate)
+    rstgr: str | None = None  # Reason code for a payment difference (T053R)
 
 
 @dataclass
@@ -312,6 +313,10 @@ def _post(
     if req.waers != local_currency:
         _absorb_rounding(all_lines, req.lines)
     _check_balanced(all_lines, req.waers, local_currency)
+    if req.bstat == " ":
+        from app.services import tolerance
+
+        tolerance.check_document(session, mandt, req.bukrs, req.usnam, all_lines)
 
     posted = req.bstat == " "
     if req.bstat not in (" ", "V", "D"):
@@ -375,6 +380,7 @@ def _post(
             wskto=(src.wskto if src else None),
             zlsch=(src.zlsch if src else None),
             zlspr=(src.zlspr if src else None),
+            rstgr=(src.rstgr if src else None),
             sknto=(to_local(src.wskto, kursf) if src and src.wskto else None),
             kostl=(src.kostl if src else None),
             aufnr=(src.aufnr if src else None),

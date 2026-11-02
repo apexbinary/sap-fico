@@ -14,6 +14,8 @@ from decimal import Decimal
 
 from app.database import SessionLocal
 from app.models.documents import AccountingDocumentItem
+from app.models.partners import SepaMandate
+from app.models.payments import AvailableAmount
 from app.services import bank as bank_svc
 from app.services import clearing
 from app.services import payment_run as f110
@@ -134,6 +136,52 @@ def main() -> None:
         still_open = [o for o in clearing.proposal(s, MANDT, BUKRS, "S", "113109", date(2026, 6, 12))
                       if o["belnr"] in f110_docs]
         assert not still_open, f"113109 items of this run still open: {still_open}"
+
+        # Mandate sequence: the first collection of a mandate is FRST, later ones RCUR
+        mandate = s.get(SepaMandate, (MANDT, "MND-0000010000-001"))
+        seq = dd.find(".//p:PmtTpInf/p:SeqTp", NS8).text
+        print(f"Mandate first used by {mandate.firstuse_docid}; this run sends {seq}")
+        assert seq == ("FRST" if mandate.firstuse_docid == next(p.vblnr for p in debits) else "RCUR")
+
+        # Second run: checks for Gamma (no IBAN -> method C), block/release, T042Y available amount
+        g = _vendor_doc(s, GAMMA, date(2026, 6, 15), "700.00", ref="INV-G")
+        h = _vendor_doc(s, BETA, date(2026, 6, 15), "300.00", ref="INV-H")
+        laufi2 = "C" + laufi[1:]
+        run2 = f110.create_proposal(s, MANDT, laufd=laufd, laufi=laufi2, zbukr=BUKRS, zwels="TC",
+                                    zaldt=date(2026, 6, 20), nedat=date(2026, 7, 4))
+        summary2 = f110.run_summary(run2)
+        gp = next(p for p in summary2["payees"] if any(i["belnr"] == g[0] for i in p["items"]))
+        print(f"Run {laufi2}: Gamma paid by method {gp['zlsch']} ({gp['rwbtr']} EUR)")
+        assert gp["zlsch"] == "C" and not gp["exception"]
+        beta = next(p for p in summary2["payees"] if any(i["belnr"] == h[0] for i in p["items"]))
+        run2 = f110.set_item_block(s, MANDT, laufd, laufi2, BUKRS, h[0], h[1], h[2], block=True)
+        blocked = next(p for p in f110.run_summary(run2)["payees"] if any(i["belnr"] == h[0] for i in p["items"]))
+        assert blocked["zlsch"] == "" and "blocked in the proposal" in blocked["exception"]
+        run2 = f110.set_item_block(s, MANDT, laufd, laufi2, BUKRS, h[0], h[1], h[2], block=False)
+        back = next(p for p in f110.run_summary(run2)["payees"] if any(i["belnr"] == h[0] for i in p["items"]))
+        assert back["zlsch"] == beta["zlsch"] and back["rwbtr"] == beta["rwbtr"], "release restores the group"
+        print(f"  Item {h[0]} blocked and released again: group amount {back['rwbtr']}")
+
+        avail = s.get(AvailableAmount, (MANDT, BUKRS, "DB", "GIRO", "EUR"))
+        avail.bfbet = D("100.00")
+        s.commit()
+        tight = f110.run_summary(f110.create_proposal(s, MANDT, laufd=laufd, laufi=laufi2, zbukr=BUKRS, zwels="TC",
+                                                      zaldt=date(2026, 6, 20), nedat=date(2026, 7, 4)))
+        assert any("Available amount" in (p["exception"] or "") for p in tight["payees"])
+        print("  With 100 EUR available (T042Y) payments are held back:",
+              next(p["exception"] for p in tight["payees"] if "Available amount" in (p["exception"] or "")))
+        avail.bfbet = D("1000000.00")
+        s.commit()
+        f110.create_proposal(s, MANDT, laufd=laufd, laufi=laufi2, zbukr=BUKRS, zwels="TC",
+                             zaldt=date(2026, 6, 20), nedat=date(2026, 7, 4))
+        run2 = f110.execute(s, MANDT, laufd, laufi2)
+        check = next(c for c in f110.checks_of(s, MANDT, laufd, laufi2) if c.lifnr == GAMMA)
+        html = f110.checks_html(s, MANDT, laufd, laufi2)
+        print(f"  Check {check.chect} for {check.znme1}: {check.rwbtr} EUR (payment {check.vblnr})")
+        assert "Gamma Logistics GmbH" in html and check.rwbtr >= D("700.00")
+        voided = f110.void_check(s, MANDT, BUKRS, "DB", "GIRO", check.chect, reverse_payment=True)
+        print(f"  Check voided, payment reversed by {voided['reversal']['belnr']}")
+        assert get(g).augbl is None, "the invoice is open again after FCH8"
 
         tb = reporting.trial_balance(s, MANDT, BUKRS, 2026)
         print(f"Trial balance: debit {tb['total_debit']}  credit {tb['total_credit']}  balanced={tb['balanced']}")

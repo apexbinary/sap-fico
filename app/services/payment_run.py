@@ -21,7 +21,16 @@ groups that fail a check (net credit balance, missing bank details or SEPA
 mandate, amount limits, no house bank) keep their exception and are skipped by
 the payment run. The payment run posts each remaining group through the
 clearing service; the media are SEPA credit transfer (pain.001.001.03) and
-SEPA direct debit (pain.008.001.02) files.
+SEPA direct debit (pain.008.001.02) files, and printed checks for payment
+methods with T042Z-XSCHK (numbered from the house bank's check lot PCEC and
+recorded in the check register PAYR).
+
+More rules: a method that needs bank details is skipped for a partner without
+an IBAN when another method of the partner's list fits; house banks are taken
+in T042I order as long as the T042Y available amount suffices; single items
+of a proposal can be blocked and released again; SEPA collections send FRST
+on a mandate's first use, RCUR afterwards and OOFF for one-off mandates,
+which cannot be used a second time.
 """
 
 from __future__ import annotations
@@ -46,7 +55,14 @@ from app.models.partners import (
     VendorCompanyCode,
 )
 from app.models.payment_run import PaymentRunControl, PaymentRunItem, PaymentRunPayee
-from app.models.payments import BankDetermination, CompanyCodePaymentMethod, PaymentMethod
+from app.models.payments import (
+    AvailableAmount,
+    BankDetermination,
+    CheckLot,
+    CheckRegister,
+    CompanyCodePaymentMethod,
+    PaymentMethod,
+)
 from app.services import clearing, payment_terms
 from app.services.fiscal import PostingError, company_code
 
@@ -103,6 +119,7 @@ def create_proposal(
         if e.zlsch in zwels and e.zlsch in methods
     }
     ranges = {"K": (lifnr_low, lifnr_high), "D": (kunnr_low, kunnr_high)}
+    used: dict[tuple[str, str, str], Decimal] = {}  # amounts already assigned per house bank account (T042Y)
 
     for koart, cfg in _PARTNER.items():
         allowed = {z: e for z, e in supported.items() if methods[z].xeinz == cfg["incoming"]}
@@ -134,7 +151,7 @@ def create_proposal(
         for partner, items in by_partner.items():
             due = [it for it in items if it.shkzg != cfg["inv_side"] or _due(it, zaldt, nedat)]
             if any(it.shkzg == cfg["inv_side"] for it in due):
-                _propose_partner(session, run, cc, koart, partner, due, allowed, methods)
+                _propose_partner(session, run, cc, koart, partner, due, allowed, methods, used)
 
     session.commit()
     session.refresh(run)
@@ -148,7 +165,12 @@ def _due(it: AccountingDocumentItem, zaldt: date, nedat: date) -> bool:
     return payment_terms.cash_discount(it, zaldt)[0] > payment_terms.cash_discount(it, nedat)[0]
 
 
-def _propose_partner(session, run, cc, koart, partner, items, allowed, methods) -> None:
+def _has_iban(session, mandt, koart, partner) -> bool:
+    model, col = (VendorBankDetails, VendorBankDetails.lifnr) if koart == "K" else (CustomerBankDetails, CustomerBankDetails.kunnr)
+    return session.scalars(select(model).where(model.mandt == mandt, col == partner, model.iban.is_not(None))).first() is not None
+
+
+def _propose_partner(session, run, cc, koart, partner, items, allowed, methods, used) -> None:
     mandt, inv_side = run.mandt, _PARTNER[koart]["inv_side"]
     if koart == "K":
         name = session.get(Vendor, (mandt, partner))
@@ -157,6 +179,9 @@ def _propose_partner(session, run, cc, koart, partner, items, allowed, methods) 
         name = session.get(Customer, (mandt, partner))
         master = session.get(CustomerCompanyCode, (mandt, partner, run.zbukr))
     partner_methods = [m for m in (master.zwels if master and master.zwels else "") if m in allowed]
+    if not _has_iban(session, mandt, koart, partner):  # prefer a method that needs no bank details
+        viable = [m for m in partner_methods if not (methods[m].xbkkt and not methods[m].xeinz)]
+        partner_methods = viable or partner_methods
 
     groups: dict[str, list[AccountingDocumentItem]] = defaultdict(list)
     excluded: list[tuple[AccountingDocumentItem, str]] = []
@@ -188,7 +213,7 @@ def _propose_partner(session, run, cc, koart, partner, items, allowed, methods) 
             payee.rwbtr += signed(it)
             payee.rskon += disc
         payee.rwbtr -= payee.rskon
-        payee.exception = _check_group(session, payee, koart, allowed[zlsch], methods.get(zlsch))
+        payee.exception = _check_group(session, payee, koart, allowed[zlsch], methods.get(zlsch), used)
         run.payees.append(payee)
 
     if excluded:
@@ -218,7 +243,7 @@ def _regup(payee, it, signed, disc) -> PaymentRunItem:
     )
 
 
-def _check_group(session, payee, koart, t042e, t042z) -> str | None:
+def _check_group(session, payee, koart, t042e, t042z, used) -> str | None:
     """Fill partner bank / mandate and house bank data; return an exception reason or None."""
     mandt = payee.mandt
     if payee.rwbtr <= 0:
@@ -246,12 +271,24 @@ def _check_group(session, payee, koart, t042e, t042z) -> str | None:
     if t042e.maxbt and payee.rwbtr > t042e.maxbt:
         return f"Amount {payee.rwbtr} above maximum {t042e.maxbt} for payment method {payee.zlsch}"
 
-    rank = session.scalars(select(BankDetermination).where(
+    ranks = session.scalars(select(BankDetermination).where(
         BankDetermination.mandt == mandt, BankDetermination.zbukr == payee.zbukr,
         BankDetermination.zlsch == payee.zlsch, BankDetermination.waers == payee.waers,
-    ).order_by(BankDetermination.rangf)).first()
-    if rank is None:
+    ).order_by(BankDetermination.rangf)).all()
+    if not ranks:
         return f"No house bank (T042I) for payment method {payee.zlsch} in {payee.waers}"
+    rank = None
+    for candidate in ranks:
+        key = (candidate.hbkid, candidate.hktid, payee.waers)
+        available = session.get(AvailableAmount, (mandt, payee.zbukr, *key))
+        outgoing = koart == "K"
+        if not outgoing or available is None or used.get(key, Decimal("0")) + payee.rwbtr <= available.bfbet:
+            rank = candidate
+            if outgoing:
+                used[key] = used.get(key, Decimal("0")) + payee.rwbtr
+            break
+    if rank is None:
+        return f"Available amount (T042Y) of the house banks for method {payee.zlsch} is exhausted"
     acct = session.get(HouseBankAccount, (mandt, payee.zbukr, rank.hbkid, rank.hktid))
     payee.hbkid, payee.hktid, payee.ukont = rank.hbkid, rank.hktid, rank.ukont
     payee.ubknt, payee.ubiban = (acct.bankn, acct.iban) if acct else (None, None)
@@ -262,7 +299,177 @@ def _active_mandate(session, mandt, bukrs, kunnr, on_date) -> SepaMandate | None
     return session.scalars(select(SepaMandate).where(
         SepaMandate.mandt == mandt, SepaMandate.snd_id == kunnr, SepaMandate.rec_id == bukrs,
         SepaMandate.status == "1", SepaMandate.sign_date <= on_date,
+        # a one-off mandate (OOFF) is spent after its first collection
+        ~((SepaMandate.pay_type == "OOFF") & SepaMandate.firstuse_date.is_not(None)),
     ).order_by(SepaMandate.sign_date.desc())).first()
+
+
+def _sequence(mandate: SepaMandate, payee: PaymentRunPayee) -> str:
+    """SEPA sequence type of a collection: OOFF, FRST (first use of the mandate) or RCUR."""
+    if mandate.pay_type == "OOFF":
+        return "OOFF"
+    return "FRST" if mandate.firstuse_docid == payee.vblnr else "RCUR"
+
+
+def _issue_check(session, run, payee) -> CheckRegister:
+    """Take the next number of the house bank's check lot and record the check (PAYR)."""
+    mandt = run.mandt
+    lots = session.scalars(select(CheckLot).where(
+        CheckLot.mandt == mandt, CheckLot.zbukr == payee.zbukr, CheckLot.hbkid == payee.hbkid,
+        CheckLot.hktid == payee.hktid).order_by(CheckLot.stapl)).all()
+    for lot in lots:
+        nxt = int(lot.checl) + 1 if lot.checl else int(lot.fstap)
+        if nxt <= int(lot.lstap):
+            lot.checl = str(nxt).zfill(len(lot.fstap))
+            check = CheckRegister(
+                mandt=mandt, zbukr=payee.zbukr, hbkid=payee.hbkid, hktid=payee.hktid, rzawe=payee.zlsch,
+                chect=lot.checl, vblnr=payee.vblnr, gjahr=payee.gjahr, lifnr=payee.lifnr or None,
+                znme1=payee.name1, rwbtr=payee.rwbtr, waers=payee.waers, zaldt=run.zaldt,
+                laufd=run.laufd, laufi=run.laufi,
+            )
+            session.add(check)
+            return check
+    raise PostingError(f"No check number left in the check lots of house bank {payee.hbkid}/{payee.hktid} (PCEC)")
+
+
+def checks_of(session: Session, mandt: str, laufd: date | None = None, laufi: str | None = None) -> list[CheckRegister]:
+    stmt = select(CheckRegister).where(CheckRegister.mandt == mandt)
+    if laufd:
+        stmt = stmt.where(CheckRegister.laufd == laufd, CheckRegister.laufi == laufi)
+    return session.scalars(stmt.order_by(CheckRegister.hbkid, CheckRegister.chect)).all()
+
+
+def void_check(
+    session: Session, mandt: str, zbukr: str, hbkid: str, hktid: str, chect: str, *, voidr: str = "01",
+    reverse_payment: bool = False, usnam: str = "SYSTEM",
+) -> dict:
+    """Void an issued check (FCH9); optionally reset and reverse its payment document (FCH8)."""
+    from app.services.reversal import reset_clearing
+
+    check = session.scalars(select(CheckRegister).where(
+        CheckRegister.mandt == mandt, CheckRegister.zbukr == zbukr, CheckRegister.hbkid == hbkid,
+        CheckRegister.hktid == hktid, CheckRegister.chect == chect)).first()
+    if check is None:
+        raise PostingError(f"Check {chect} of house bank {hbkid}/{hktid} is not in the check register")
+    if check.voidr:
+        raise PostingError(f"Check {chect} is already void (reason {check.voidr})")
+    check.voidr, check.voidd, check.voidu = voidr, date.today(), usnam
+    result = {"chect": chect, "voidr": voidr, "reversal": None}
+    session.commit()
+    if reverse_payment and check.vblnr:
+        result["reversal"] = reset_clearing(session, mandt, zbukr, check.vblnr, check.gjahr, reverse=True)["reversal"]
+    return result
+
+
+def checks_html(session: Session, mandt: str, laufd: date, laufi: str) -> str:
+    """Printable checks of a payment run."""
+    from html import escape
+
+    run = get_run(session, mandt, laufd, laufi)
+    checks = checks_of(session, mandt, laufd, laufi)
+    if not checks:
+        raise PostingError("The payment run issued no checks")
+    cc = company_code(session, mandt, run.zbukr)
+    blocks = "".join(f"""<div class="check"><div class="row"><strong>{escape(cc.butxt)}</strong>
+<span>Check no. {escape(c.chect)}</span></div><div class="row"><span>Date {c.zaldt.isoformat()}</span>
+<span class="amt">{escape(c.waers)} {c.rwbtr:,.2f}</span></div>
+<p>Pay to the order of <strong>{escape(c.znme1 or c.lifnr or '')}</strong></p>
+<div class="row small"><span>House bank {escape(c.hbkid)}/{escape(c.hktid)} · payment document {escape(c.vblnr or '')}</span>
+<span>{'VOID' if c.voidr else ''}</span></div></div>""" for c in checks)
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Checks {laufd.isoformat()} {escape(laufi)}</title>
+<style>body{{font:14px/1.5 Georgia,serif;max-width:760px;margin:30px auto;padding:0 16px}}
+.check{{border:2px solid #333;border-radius:6px;padding:18px 22px;margin:0 0 22px;page-break-inside:avoid}}
+.row{{display:flex;justify-content:space-between;gap:12px}}.amt{{font-size:18px;font-weight:bold}}
+.small{{font-size:12px;color:#555}}@media print{{button{{display:none}}}}</style></head><body>
+<button onclick="window.print()">Print</button>{blocks}</body></html>"""
+
+
+def set_item_block(
+    session: Session, mandt: str, laufd: date, laufi: str, bukrs: str, belnr: str, gjahr: int, buzei: int,
+    *, block: bool,
+) -> PaymentRunControl:
+    """Block an item in a proposal (it moves to the exception group) or release it again."""
+    run = get_run(session, mandt, laufd, laufi)
+    if run.xecht:
+        raise PostingError("The payment run was already executed; the proposal can no longer be changed")
+    found = next(((p, i) for p in run.payees for i in p.items
+                  if (i.bukrs, i.belnr, i.gjahr, i.buzei) == (bukrs, belnr.zfill(10), gjahr, buzei)), None)
+    if found is None:
+        raise PostingError(f"Item {belnr}/{gjahr}/{buzei} is not in the proposal")
+    source, item = found
+    cc = company_code(session, mandt, run.zbukr)
+    koart, partner = ("D", source.kunnr) if source.kunnr else ("K", source.lifnr)
+    if block:
+        if source.zlsch == "":
+            raise PostingError("The item is already excluded from payment")
+        target = next((p for p in run.payees if (p.lifnr, p.kunnr) == (source.lifnr, source.kunnr) and p.zlsch == ""),
+                      None)
+        if target is None:
+            target = _payee(run, cc, koart, partner, "", None)
+            target.name1 = source.name1
+            run.payees.append(target)
+    else:
+        if source.zlsch != "" or item.zlspr != "*":
+            raise PostingError("Only items blocked in the proposal can be released")
+        target = next((p for p in run.payees if (p.lifnr, p.kunnr) == (source.lifnr, source.kunnr) and p.zlsch), None)
+        if target is None:  # the item was the group's last one: open the group again
+            zlsch = _partner_method(session, run, cc, koart, partner)
+            if zlsch is None:
+                raise PostingError("No payment method of the run fits this partner")
+            target = _payee(run, cc, koart, partner, zlsch, None)
+            target.name1 = source.name1
+            run.payees.append(target)
+    values = {c.key: getattr(item, c.key) for c in PaymentRunItem.__table__.columns}
+    source.items.remove(item)
+    session.flush()
+    values.update(zlsch=target.zlsch, zlspr="*" if block else None,
+                  wskto=Decimal("0") if block else values["wskto"])
+    if not block:  # cash discount as on the proposal's payment date
+        it = session.get(AccountingDocumentItem, (mandt, values["bukrs"], values["belnr"], values["gjahr"], values["buzei"]))
+        inv_side = _PARTNER[koart]["inv_side"]
+        values["wskto"] = payment_terms.cash_discount(it, run.zaldt)[1] if it.shkzg == inv_side else Decimal("0")
+    target.items.append(PaymentRunItem(**values))
+    for payee in (source, target):
+        _recompute(session, run, payee, koart, cc)
+    session.commit()
+    session.refresh(run)
+    return run
+
+
+def _partner_method(session, run, cc, koart, partner) -> str | None:
+    """Payment method the proposal would choose for a partner (see _propose_partner)."""
+    mandt = run.mandt
+    master = (session.get(VendorCompanyCode, (mandt, partner, run.zbukr)) if koart == "K"
+              else session.get(CustomerCompanyCode, (mandt, partner, run.zbukr)))
+    allowed = []
+    for m in (master.zwels if master and master.zwels else ""):
+        method = session.get(PaymentMethod, (mandt, cc.land1, m))
+        if (m in run.zwels and method is not None and method.xeinz == _PARTNER[koart]["incoming"]
+                and session.get(CompanyCodePaymentMethod, (mandt, run.zbukr, m)) is not None):
+            allowed.append((m, method))
+    if not _has_iban(session, mandt, koart, partner):
+        allowed = [a for a in allowed if not (a[1].xbkkt and not a[1].xeinz)] or allowed
+    return allowed[0][0] if allowed else None
+
+
+def _recompute(session, run, payee, koart, cc) -> None:
+    if not payee.items:
+        run.payees.remove(payee)
+        return
+    payee.rskon = sum((i.wskto for i in payee.items), Decimal("0"))
+    payee.rwbtr = sum((i.wrbtr for i in payee.items), Decimal("0")) - payee.rskon
+    if payee.zlsch == "":
+        reasons = {"blocked in the proposal" if i.zlspr == "*" else f"payment block {i.zlspr}" for i in payee.items if i.zlspr}
+        payee.exception = ("Not paid: " + "; ".join(sorted(reasons or {"excluded"})))[:120]
+        return
+    used: dict = {}
+    for other in run.payees:
+        if other is not payee and not other.exception and other.hbkid and other.lifnr:
+            key = (other.hbkid, other.hktid, other.waers)
+            used[key] = used.get(key, Decimal("0")) + other.rwbtr
+    t042e = session.get(CompanyCodePaymentMethod, (run.mandt, run.zbukr, payee.zlsch))
+    t042z = session.get(PaymentMethod, (run.mandt, cc.land1, payee.zlsch))
+    payee.exception = _check_group(session, payee, koart, t042e, t042z, used)
 
 
 def delete_proposal(session: Session, mandt: str, laufd: date, laufi: str) -> None:
@@ -301,6 +508,12 @@ def execute(session: Session, mandt: str, laufd: date, laufi: str) -> PaymentRun
             session.commit()
             continue
         payee.vblnr, payee.gjahr, payee.rskon = res["belnr"], res["gjahr"], res["discount"]
+        if method is not None and method.xschk:
+            _issue_check(session, run, payee)
+        if payee.mndid:
+            mandate = session.get(SepaMandate, (mandt, payee.mndid))
+            if mandate is not None and mandate.firstuse_date is None:
+                mandate.firstuse_date, mandate.firstuse_docid = run.zaldt, payee.vblnr
         session.commit()
 
     run.xecht, run.echer = True, datetime.utcnow()
@@ -325,7 +538,8 @@ def _remittance(p: PaymentRunPayee) -> str:
 
 def _executed(session, mandt, laufd, laufi, koart):
     run = get_run(session, mandt, laufd, laufi)
-    paid = [p for p in run.payees if p.vblnr and bool(p.kunnr) == (koart == "D")]
+    # outgoing payments with an IBAN are transfers; those without were paid by check
+    paid = [p for p in run.payees if p.vblnr and bool(p.kunnr) == (koart == "D") and (koart == "D" or p.ziban)]
     if not paid:
         kind = "direct debits" if koart == "D" else "outgoing payments"
         raise PostingError(f"The payment run has no executed {kind}")
@@ -392,7 +606,7 @@ def sepa_direct_debit(session: Session, mandt: str, laufd: date, laufi: str) -> 
 
     by_key: dict[tuple[str, str, str], list[PaymentRunPayee]] = defaultdict(list)
     for p in paid:
-        by_key[(p.hbkid, p.hktid, mandates[p.mndid].pay_type)].append(p)
+        by_key[(p.hbkid, p.hktid, _sequence(mandates[p.mndid], p))].append(p)
     for (hbkid, hktid, seq), payees in by_key.items():
         house_bank = session.get(HouseBank, (mandt, run.zbukr, hbkid))
         inf = _sub(init, "PmtInf")
@@ -446,7 +660,8 @@ def run_summary(run: PaymentRunControl, *, with_items: bool = True) -> dict:
         "payments": len(payable), "exceptions": len(run.payees) - len(payable),
         "total": sum((p.rwbtr for p in payable), Decimal("0")),
         "discount": sum((p.rskon for p in payable), Decimal("0")),
-        "has_transfers": any(p.lifnr for p in executed),
+        "has_transfers": any(p.lifnr and p.ziban for p in executed),
+        "has_checks": any(p.lifnr and not p.ziban for p in executed),
         "has_direct_debits": any(p.kunnr for p in executed),
     }
     if with_items:

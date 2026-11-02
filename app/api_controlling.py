@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,8 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_session
-from app.models.controlling import CODocumentHeader, COLineItem
-from app.services import allocation, controlling, copa, settlement
+from app.models.controlling import ActivityPrice, ActivityType, CODocumentHeader, COLineItem
+from app.services import activity, allocation, controlling, copa, planning, settlement
 from app.services.fiscal import PostingError
 
 router = APIRouter(prefix="/co", tags=["Controlling"])
@@ -104,7 +105,99 @@ def settle(aufnr: str, body: SettleIn, mandt: str = Query(default=None), s: Sess
 @router.get("/pa/contribution", summary="CO-PA contribution report by characteristic (KE30)")
 def contribution(
     kokrs: str, gjahr: int, by: Literal["kndnr", "land1", "brsch", "kukla"] = "kndnr",
+    ledger: Literal["account", "costing"] = "account",
     perio_from: int = 1, perio_to: int = 16, mandt: str = Query(default=None), s: Session = Depends(get_session),
 ) -> dict:
-    return _run_or_422(lambda: copa.contribution(s, _m(mandt), kokrs, gjahr, by=by,
+    return _run_or_422(lambda: copa.contribution(s, _m(mandt), kokrs, gjahr, by=by, ledger=ledger,
                                                  perio_from=perio_from, perio_to=perio_to))
+
+
+@router.get("/plan-actual", summary="Plan / actual / variance by cost center or order (S_ALR_87013611)")
+def plan_actual(
+    kokrs: str, gjahr: int, kind: Literal["KS", "OR"] = "KS", perio_from: int = 1, perio_to: int = 16,
+    mandt: str = Query(default=None), s: Session = Depends(get_session),
+) -> list[dict]:
+    return _run_or_422(lambda: planning.plan_actual(s, _m(mandt), kokrs, gjahr, kind=kind,
+                                                    perio_from=perio_from, perio_to=perio_to))
+
+
+class PlanIn(BaseModel):
+    kokrs: str
+    kind: Literal["KS", "OR"] = "KS"
+    object: str = Field(..., description="Cost center or order")
+    kstar: str
+    gjahr: int
+    annual: Decimal | None = Field(None, description="Annual amount, spread evenly over periods 1-12")
+    periods: list[Decimal] | None = Field(None, description="16 period values")
+
+
+@router.post("/plan", summary="Enter plan costs (KP06)")
+def enter_plan(body: PlanIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    values = body.periods if body.periods is not None else planning.spread(body.annual or Decimal("0"))
+    objnr = (controlling.cost_center_objnr(body.kokrs, body.object.zfill(10)) if body.kind == "KS"
+             else controlling.order_objnr(body.object.zfill(12)))
+    _run_or_422(lambda: planning.set_plan(s, _m(mandt), body.kokrs, objnr, body.kstar, body.gjahr, values))
+    return {"objnr": objnr, "kstar": body.kstar, "total": sum(values, Decimal("0"))}
+
+
+@router.get("/activity-types", summary="Activity types with prices of a year (KP26)")
+def activity_types(kokrs: str, gjahr: int, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> list[dict]:
+    m = _m(mandt)
+    out = []
+    for a in s.scalars(select(ActivityType).where(ActivityType.mandt == m, ActivityType.kokrs == kokrs)):
+        prices = [{"kostl": p.objnr[2 + len(kokrs):-len(a.lstar)], "price": p.tkg001}
+                  for p in s.scalars(select(ActivityPrice).where(
+                      ActivityPrice.mandt == m, ActivityPrice.kokrs == kokrs, ActivityPrice.gjahr == gjahr,
+                      ActivityPrice.objnr.like(f"LT{kokrs}%{a.lstar}")))]
+        out.append({"lstar": a.lstar, "ktext": a.ktext, "leinh": a.leinh, "vksta": a.vksta, "prices": prices})
+    return out
+
+
+class PriceIn(BaseModel):
+    kokrs: str
+    kostl: str
+    lstar: str
+    gjahr: int
+    price: Decimal = Field(..., ge=0)
+
+
+@router.post("/activity-prices", summary="Plan activity price (KP26)")
+def activity_price(body: PriceIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    _run_or_422(lambda: planning.set_price(s, _m(mandt), body.kokrs, body.kostl.zfill(10), body.lstar,
+                                           body.gjahr, body.price))
+    return body.model_dump()
+
+
+class AllocationIn(BaseModel):
+    kokrs: str
+    sender_kostl: str
+    lstar: str
+    quantity: Decimal
+    gjahr: int
+    perio: int = Field(..., ge=1, le=16)
+    receiver_kostl: str | None = None
+    receiver_aufnr: str | None = None
+
+
+@router.post("/activity-allocations", summary="Direct activity allocation (KB21N)")
+def allocate_activity(body: AllocationIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    return _run_or_422(lambda: activity.allocate(
+        s, _m(mandt), body.kokrs, sender_kostl=body.sender_kostl.zfill(10), lstar=body.lstar,
+        quantity=body.quantity, gjahr=body.gjahr, perio=body.perio,
+        receiver_kostl=body.receiver_kostl.zfill(10) if body.receiver_kostl else None,
+        receiver_aufnr=body.receiver_aufnr or None))
+
+
+class CODocRef(BaseModel):
+    kokrs: str
+
+
+@router.post("/documents/{belnr}/reverse", summary="Reverse a CO document (KB24N / KB14N)")
+def reverse_co_document(belnr: str, body: CODocRef, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    rev = _run_or_422(lambda: controlling.reverse_document(s, _m(mandt), body.kokrs, belnr))
+    return {"reversed": belnr.zfill(10), "reversal": rev.belnr}
+
+
+@router.post("/orders/{aufnr}/settle/reverse", summary="Reverse an order settlement (KO88 reversal)")
+def reverse_settlement(aufnr: str, body: SettleIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    return _run_or_422(lambda: settlement.reverse_settlement(s, _m(mandt), body.kokrs, aufnr, body.gjahr, body.perio))

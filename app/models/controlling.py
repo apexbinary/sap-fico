@@ -13,6 +13,10 @@ Tables modelled here:
     COBRA  Settlement rule header of a CO object (internal order)
     COBRB  Settlement rule distribution rules (receiver, percentage, validity)
     TFKB   Functional areas (cost-of-sales accounting)
+    COSP   CO object totals for primary/secondary cost elements (plan, value type 01)
+    CSLA   Activity types
+    COST   Activity prices per cost center / activity type and period
+    CE1IDEA  Costing-based CO-PA line items of operating concern IDEA (value fields)
     TKEB   Operating concern (CO-PA)
     CE4IDEA  Profitability segments of operating concern IDEA (characteristics)
     COEP   CO object line items (actual postings)
@@ -344,3 +348,105 @@ class FunctionalArea(Base):
     mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
     fkber: Mapped[str] = mapped_column(String(16), primary_key=True)  # Functional area
     fkbtx: Mapped[str] = mapped_column(String(25))  # Name
+
+
+class COTotals(Base):
+    """COSP — CO object totals by cost element (here: plan values, value type 01)."""
+
+    __tablename__ = "cosp"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    objnr: Mapped[str] = mapped_column(String(22), primary_key=True)  # Object number
+    gjahr: Mapped[int] = mapped_column(primary_key=True)  # Fiscal year
+    wrttp: Mapped[str] = mapped_column(String(2), primary_key=True)  # Value type (01 plan)
+    versn: Mapped[str] = mapped_column(String(3), primary_key=True)  # Version
+    kstar: Mapped[str] = mapped_column(String(10), primary_key=True)  # Cost element
+    kokrs: Mapped[str] = mapped_column(String(4))  # Controlling area
+    twaer: Mapped[str] = mapped_column(String(5))  # Currency
+    wkg001: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 01
+    wkg002: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 02
+    wkg003: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 03
+    wkg004: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 04
+    wkg005: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 05
+    wkg006: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 06
+    wkg007: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 07
+    wkg008: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 08
+    wkg009: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 09
+    wkg010: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 10
+    wkg011: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 11
+    wkg012: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 12
+    wkg013: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 13
+    wkg014: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 14
+    wkg015: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 15
+    wkg016: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Value in controlling area currency, period 16
+
+
+class ActivityType(Base):
+    """CSLA — Activity type (+ CSLT text in ktext)."""
+
+    __tablename__ = "csla"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kokrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Controlling area
+    lstar: Mapped[str] = mapped_column(String(6), primary_key=True)  # Activity type
+    datbi: Mapped[date] = mapped_column(primary_key=True)  # Valid to
+    datab: Mapped[date] = mapped_column()  # Valid from
+    ktext: Mapped[str] = mapped_column(String(20))  # Name
+    leinh: Mapped[str] = mapped_column(String(3))  # Activity unit
+    vksta: Mapped[str] = mapped_column(String(10))  # Allocation cost element (category 43)
+    latyp: Mapped[str] = mapped_column(String(1), default="1")  # Activity type category (1 manual entry)
+
+
+class ActivityPrice(Base):
+    """COST — Price of an activity type at a cost center, per period (plan price)."""
+
+    __tablename__ = "cost"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    objnr: Mapped[str] = mapped_column(String(22), primary_key=True)  # Object (LT + area + cost center + activity)
+    gjahr: Mapped[int] = mapped_column(primary_key=True)  # Fiscal year
+    wrttp: Mapped[str] = mapped_column(String(2), primary_key=True, default="01")  # Value type (01 plan)
+    versn: Mapped[str] = mapped_column(String(3), primary_key=True, default="000")  # Version
+    kokrs: Mapped[str] = mapped_column(String(4))  # Controlling area
+    tkg001: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 01
+    tkg002: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 02
+    tkg003: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 03
+    tkg004: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 04
+    tkg005: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 05
+    tkg006: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 06
+    tkg007: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 07
+    tkg008: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 08
+    tkg009: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 09
+    tkg010: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 10
+    tkg011: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 11
+    tkg012: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 12
+    tkg013: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 13
+    tkg014: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 14
+    tkg015: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 15
+    tkg016: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Price per unit, period 16
+
+
+class CostingBasedPALineItem(Base):
+    """CE1IDEA — Costing-based CO-PA line item with value fields.
+
+    SAP generates CE1<operating concern> from the concern's value fields; the
+    demo concern IDEA has VV010 revenue, VV020 sales deductions and VV030
+    overhead. Value fields are filled from the cost element category of the
+    posting (11 / 12 / 42-43).
+    """
+
+    __tablename__ = "ce1idea"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    belnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # CO-PA document number (= CO document)
+    posnr: Mapped[int] = mapped_column(primary_key=True)  # Item
+    kokrs: Mapped[str] = mapped_column(String(4))  # Controlling area
+    paobjnr: Mapped[int] = mapped_column()  # Profitability segment
+    gjahr: Mapped[int] = mapped_column()  # Fiscal year
+    perde: Mapped[int] = mapped_column()  # Period
+    budat: Mapped[date] = mapped_column()  # Posting date
+    vrgar: Mapped[str] = mapped_column(String(1))  # Record type (F revenue from FI, D assessment)
+    kstar: Mapped[str] = mapped_column(String(10))  # Cost element the values come from
+    vv010: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Revenue
+    vv020: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Sales deductions
+    vv030: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Overhead (assessed costs)

@@ -839,16 +839,18 @@ views.controlling = async (c) => {
   const q = new URLSearchParams(location.hash.split("?")[1] || "");
   const gjahr = Number(q.get("gjahr") || state.gjahr), pf = Number(q.get("pf") || 1), pt = Number(q.get("pt") || 16);
   const params = `kokrs=${KOKRS}&gjahr=${gjahr}&perio_from=${pf}&perio_to=${pt}`;
-  const [ks, or, docs, cycles] = await Promise.all([
-    api(`/co/actuals?${params}&kind=KS`), api(`/co/actuals?${params}&kind=OR`), api(`/co/documents?kokrs=${KOKRS}&limit=15`),
-    api(`/co/cycles?kokrs=${KOKRS}`),
+  const [ks, or, docs, cycles, acts] = await Promise.all([
+    api(`/co/plan-actual?${params}&kind=KS`), api(`/co/plan-actual?${params}&kind=OR`), api(`/co/documents?kokrs=${KOKRS}&limit=15`),
+    api(`/co/cycles?kokrs=${KOKRS}`), api(`/co/activity-types?kokrs=${KOKRS}&gjahr=${gjahr}`),
   ]);
   const table = (title, rows, label) => `<div class="card"><div class="card-head">${title}</div>
-    <table><thead><tr><th>${label}</th><th>Description</th><th>Cost element</th><th class="num">Actual</th></tr></thead>
-    <tbody>${rows.map((o) => `<tr style="font-weight:600"><td class="mono">${esc(o.object)}</td><td>${esc(o.text || "")}</td><td></td><td class="num">${fmt(o.total)}</td></tr>
+    <table><thead><tr><th>${label}</th><th>Description</th><th>Cost element</th><th class="num">Actual</th><th class="num">Plan</th><th class="num">Variance</th></tr></thead>
+    <tbody>${rows.map((o) => `<tr style="font-weight:600"><td class="mono">${esc(o.object)}</td><td>${esc(o.text || "")}</td><td></td>
+        <td class="num">${fmt(o.actual)}</td><td class="num">${Number(o.plan) ? fmt(o.plan) : ""}</td><td class="num">${Number(o.plan) ? fmt(o.variance) : ""}</td></tr>
       ${o.elements.map((e) => `<tr class="sub-row"><td></td><td></td><td class="help"><span class="mono">${esc(e.kstar)}</span> ${esc(e.text || "")}${e.katyp ? ` · cat. ${esc(e.katyp)}` : ""}</td>
-        <td class="num help">${fmt(e.amount)}</td></tr>`).join("")}`).join("")
-      || `<tr><td colspan="4" class="empty">No objects.</td></tr>`}</tbody></table></div>`;
+        <td class="num help">${fmt(e.actual)}</td><td class="num help">${Number(e.plan) ? fmt(e.plan) : ""}</td>
+        <td class="num help" style="color:${Number(e.variance) > 0 && Number(e.plan) ? "var(--bad)" : "inherit"}">${Number(e.plan) ? `${fmt(e.variance)}${e.pct != null ? ` (${e.pct}%)` : ""}` : ""}</td></tr>`).join("")}`).join("")
+      || `<tr><td colspan="6" class="empty">No objects.</td></tr>`}</tbody></table></div>`;
   c.innerHTML = `
     <div class="page-head"><div><h1>Cost Centers &amp; Internal Orders</h1>
       <div class="sub">Controlling area ${KOKRS} · actual costs (value type 04) from CO documents</div></div></div>
@@ -859,12 +861,27 @@ views.controlling = async (c) => {
       <button class="btn" id="co-go">Show</button>
     </div>
     ${table("Cost Centers", ks, "Cost center")}
+    <div class="card"><div class="card-head">Planning (KP06) &amp; Activity Allocation (KB21N)</div><div class="card-body">
+      <div class="toolbar" style="margin:0 0 10px">
+        <div class="field"><label>Plan cost center</label><select id="pl-kostl">${ks.map((o) => `<option value="${esc(o.object)}">${esc(o.object)} ${esc(o.text || "")}</option>`).join("")}</select></div>
+        <div class="field"><label>Cost element</label><input id="pl-kstar" value="476000"></div>
+        <div class="field"><label>Annual plan</label><input id="pl-amt" type="number" step="0.01" value="12000"></div>
+        <button class="btn secondary" id="pl-save">Save plan</button>
+      </div>
+      <div class="toolbar" style="margin:0">
+        <div class="field"><label>Sender cost center</label><select id="al-snd">${ks.map((o) => `<option value="${esc(o.object)}" ${o.object.endsWith("3000") ? "selected" : ""}>${esc(o.object)} ${esc(o.text || "")}</option>`).join("")}</select></div>
+        <div class="field"><label>Activity type</label><select id="al-lstar">${acts.map((a) => `<option value="${esc(a.lstar)}">${esc(a.lstar)} ${esc(a.ktext)} (${esc(a.leinh)}${a.prices.length ? `, ${a.prices.map((p) => `${esc(p.kostl)}: ${fmt(p.price)}`).join(", ")}` : ""})</option>`).join("")}</select></div>
+        <div class="field"><label>Quantity</label><input id="al-qty" type="number" step="0.001" value="10"></div>
+        <div class="field"><label>Receiver (cost center or order)</label><input id="al-rcv" value="000000400001"></div>
+        <div class="field"><label>Period</label><input id="al-per" type="number" min="1" max="16" value="${new Date().getMonth() + 1}"></div>
+        <button class="btn" id="al-post">Allocate</button>
+      </div></div></div>
     <div class="card"><div class="card-head">Assessment &amp; Distribution Cycles (KSU5 / KSV5)</div>
       <table><thead><tr><th>Cycle</th><th>Type</th><th>Segments</th><th>Runs</th><th></th></tr></thead>
       <tbody>${cycles.map((cy) => `<tr>
         <td><strong class="mono">${esc(cy.cycle)}</strong><div class="help">${esc(cy.txt || "")}</div></td>
-        <td>${cy.ttype === "A" ? "Assessment" : "Distribution"}</td>
-        <td class="help" style="white-space:normal">${cy.segments.map((g) => `${g.seg}: ${esc(g.senders)} sends ${esc(g.elements)}${g.askst ? ` as ${esc(g.askst)}` : ""} → ${g.receivers.map((r) => `${esc(r.kostl)} (${Number(r.faktor)})`).join(", ")}`).join("<br>")}</td>
+        <td>${{ A: "Assessment", D: "Distribution", P: "CO-PA assessment" }[cy.ttype]}</td>
+        <td class="help" style="white-space:normal">${cy.segments.map((g) => `${g.seg}: ${esc(g.senders)} sends ${esc(g.elements)}${g.askst ? ` as ${esc(g.askst)}` : ""} → ${cy.ttype === "P" ? "profitability segments by net revenue" : g.receivers.map((r) => `${esc(r.kostl)} (${Number(r.faktor)})`).join(", ")}`).join("<br>")}</td>
         <td class="help">${cy.runs.map((r) => `${String(r.perio).padStart(2, "0")}/${r.gjahr} ${r.belnr}${r.reversed ? " (reversed)" : ""}`).join("<br>") || "—"}</td>
         <td style="white-space:nowrap">
           <input class="cy-per" data-c="${esc(cy.cycle)}" type="number" min="1" max="16" value="${new Date().getMonth() + 1}" style="width:60px" title="Period">
@@ -879,13 +896,15 @@ views.controlling = async (c) => {
         <div class="field"><label>Order</label><select id="st-order">${or.map((o) => `<option value="${esc(o.object)}">${esc(o.object)} — ${esc(o.text || "")}</option>`).join("")}</select></div>
         <div class="field"><label>Period</label><input id="st-per" type="number" min="1" max="16" value="${new Date().getMonth() + 1}"></div>
         <button class="btn secondary" id="st-test">Test</button><button class="btn" id="st-run">Settle</button>
+        <button class="btn ghost" id="st-rev">Reverse settlement</button>
       </div><div id="st-result"></div></div></div>
     <div class="card"><div class="card-head">Recent CO Documents</div>
       <table><thead><tr><th>CO document</th><th>Transaction</th><th>Posting date</th><th>Text</th><th>FI reference</th><th>Lines</th></tr></thead>
       <tbody>${docs.map((d) => `<tr><td class="mono">${d.belnr}</td><td>${esc(d.vrgng)}${d.kscyc ? ` · ${esc(d.kscyc)}` : ""}${d.stokz ? ` <span class="chip cr">Reversed</span>` : ""}${d.stflg ? ` <span class="chip cr">Reversal</span>` : ""}</td>
         <td>${d.budat}</td><td>${esc(d.bltxt || "")}</td>
         <td class="mono">${d.refbn ? `<a href="#/documents?doc=${d.refbn}:${d.refgj}">${d.refbn}</a>` : ""}</td>
-        <td class="help">${d.lines.map((l) => `${esc(l.objnr)} ${esc(l.kstar)} ${fmt(l.amount)}`).join("<br>")}</td></tr>`).join("")
+        <td class="help">${d.lines.map((l) => `${esc(l.objnr)} ${esc(l.kstar)} ${fmt(l.amount)}`).join("<br>")}
+          ${d.vrgng !== "COIN" && !d.stokz && !d.stflg && !d.kscyc ? `<br><button class="btn small ghost co-rev" data-b="${d.belnr}">Reverse</button>` : ""}</td></tr>`).join("")
         || `<tr><td colspan="6" class="empty">No CO documents yet.</td></tr>`}</tbody></table></div>`;
   $("#co-go").onclick = () => { location.hash = `#/controlling?gjahr=${$("#co-gjahr").value}&pf=${$("#co-pf").value}&pt=${$("#co-pt").value}`; };
   const settle = async (test) => {
@@ -905,6 +924,32 @@ views.controlling = async (c) => {
     } catch (e) { toast(e.message, "bad"); }
   };
   $("#st-test").onclick = () => settle(true);
+  $("#st-rev").onclick = async () => {
+    const aufnr = $("#st-order").value, perio = Number($("#st-per").value);
+    if (!confirm(`Reverse the settlement of order ${aufnr} in period ${perio}/${gjahr}?`)) return;
+    try { const r = await api(`/co/orders/${aufnr}/settle/reverse`, { method: "POST", body: JSON.stringify({ kokrs: KOKRS, gjahr, perio, test: false }) });
+      toast(`Settlement ${r.reversed} reversed by ${r.reversal}${r.fi_reversal ? ` (FI ${r.fi_reversal})` : ""}`, "good"); route(); }
+    catch (e) { toast(e.message, "bad"); }
+  };
+  $("#pl-save").onclick = async () => {
+    try { await api("/co/plan", { method: "POST", body: JSON.stringify({ kokrs: KOKRS, kind: "KS", object: $("#pl-kostl").value,
+      kstar: $("#pl-kstar").value, gjahr, annual: $("#pl-amt").value }) }); toast("Plan saved", "good"); route(); }
+    catch (e) { toast(e.message, "bad"); }
+  };
+  $("#al-post").onclick = async () => {
+    const rcv = $("#al-rcv").value.trim();
+    const body = { kokrs: KOKRS, sender_kostl: $("#al-snd").value, lstar: $("#al-lstar").value, quantity: $("#al-qty").value,
+      gjahr, perio: Number($("#al-per").value), ...(rcv.length > 10 ? { receiver_aufnr: rcv } : { receiver_kostl: rcv }) };
+    try { const r = await api("/co/activity-allocations", { method: "POST", body: JSON.stringify(body) });
+      toast(`Allocated ${r.quantity} ${r.unit} x ${fmt(r.price)} = ${fmt(r.value)} (CO ${r.belnr})`, "good"); route(); }
+    catch (e) { toast(e.message, "bad"); }
+  };
+  document.querySelectorAll(".co-rev").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Reverse CO document ${b.dataset.b}?`)) return;
+    try { const r = await api(`/co/documents/${b.dataset.b}/reverse`, { method: "POST", body: JSON.stringify({ kokrs: KOKRS }) });
+      toast(`Reversed by ${r.reversal}`, "good"); route(); }
+    catch (e) { toast(e.message, "bad"); }
+  }));
   $("#st-run").onclick = () => settle(false);
   document.querySelectorAll(".cy-act").forEach((b) => (b.onclick = async () => {
     const cycle = b.dataset.c, act = b.dataset.a;
@@ -926,8 +971,8 @@ views.controlling = async (c) => {
 // ---------- Profitability analysis (CO-PA) ----------
 views.copa = async (c) => {
   const q = new URLSearchParams(location.hash.split("?")[1] || "");
-  const by = q.get("by") || "kndnr", gjahr = Number(q.get("gjahr") || state.gjahr);
-  const r = await api(`/co/pa/contribution?kokrs=${KOKRS}&gjahr=${gjahr}&by=${by}`);
+  const by = q.get("by") || "kndnr", gjahr = Number(q.get("gjahr") || state.gjahr), ledger = q.get("ledger") || "account";
+  const r = await api(`/co/pa/contribution?kokrs=${KOKRS}&gjahr=${gjahr}&by=${by}&ledger=${ledger}`);
   const opts = { kndnr: "Customer", land1: "Country", brsch: "Industry", kukla: "Customer class" };
   c.innerHTML = `
     <div class="page-head"><div><h1>Profitability Analysis</h1>
@@ -935,19 +980,22 @@ views.copa = async (c) => {
     <div class="toolbar">
       <div class="field"><label>Characteristic</label><select id="pa-by">${Object.entries(opts).map(([k, v]) => `<option value="${k}" ${k === by ? "selected" : ""}>${v}</option>`).join("")}</select></div>
       <div class="field"><label>Fiscal year</label><input id="pa-gjahr" type="number" value="${gjahr}"></div>
+      <div class="field"><label>Ledger</label><select id="pa-ledger"><option value="account" ${ledger === "account" ? "selected" : ""}>Account-based</option><option value="costing" ${ledger === "costing" ? "selected" : ""}>Costing-based (value fields)</option></select></div>
       <button class="btn" id="pa-go">Show</button>
     </div>
     <div class="tiles">
       <div class="tile"><div class="label">Revenue</div><div class="value">${fmt(r.revenue)}</div></div>
       <div class="tile"><div class="label">Sales deductions</div><div class="value">${fmt(r.deductions)}</div></div>
-      <div class="tile"><div class="label">Net revenue</div><div class="value good">${fmt(r.net)}</div></div>
+      <div class="tile"><div class="label">Net revenue</div><div class="value">${fmt(r.net)}</div></div>
+      <div class="tile"><div class="label">Overhead (assessed)</div><div class="value">${fmt(r.overhead)}</div></div>
+      <div class="tile"><div class="label">Contribution</div><div class="value good">${fmt(r.contribution)}</div></div>
     </div>
-    <div class="card"><table><thead><tr><th>${esc(r.label)}</th><th class="num">Revenue</th><th class="num">Sales deductions</th><th class="num">Net revenue</th><th class="num">Share</th></tr></thead>
+    <div class="card"><table><thead><tr><th>${esc(r.label)}</th><th class="num">Revenue</th><th class="num">Sales deductions</th><th class="num">Net revenue</th><th class="num">Overhead</th><th class="num">Contribution</th></tr></thead>
       <tbody>${r.lines.map((l) => `<tr><td><span class="mono">${esc(l.value ?? "—")}</span> ${esc(l.name || "")}</td>
         <td class="num">${fmt(l.revenue)}</td><td class="num">${Number(l.deductions) ? fmt(l.deductions) : ""}</td><td class="num">${fmt(l.net)}</td>
-        <td class="num">${Number(r.net) ? (Number(l.net) / Number(r.net) * 100).toFixed(1) + "%" : ""}</td></tr>`).join("")
-        || `<tr><td colspan="5" class="empty">No revenue in profitability segments yet.</td></tr>`}</tbody></table></div>`;
-  $("#pa-go").onclick = () => { location.hash = `#/copa?by=${$("#pa-by").value}&gjahr=${$("#pa-gjahr").value}`; };
+        <td class="num">${Number(l.overhead) ? fmt(l.overhead) : ""}</td><td class="num">${fmt(l.contribution)}</td></tr>`).join("")
+        || `<tr><td colspan="6" class="empty">No revenue in profitability segments yet.</td></tr>`}</tbody></table></div>`;
+  $("#pa-go").onclick = () => { location.hash = `#/copa?by=${$("#pa-by").value}&gjahr=${$("#pa-gjahr").value}&ledger=${$("#pa-ledger").value}`; };
 };
 
 // ---------- Automatic Payment Program (F110) ----------

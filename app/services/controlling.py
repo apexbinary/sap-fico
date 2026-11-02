@@ -70,7 +70,7 @@ def add_line(
     session: Session, doc: CODocumentHeader, *, kstar: str, objnr: str, amount: Decimal,
     bukrs: str | None = None, kostl: str | None = None, aufnr: str | None = None,
     prctr: str | None = None, owaer: str | None = None, twaer: str | None = None,
-    refbz: int | None = None,
+    refbz: int | None = None, megbtr: Decimal | None = None, meinb: str | None = None,
 ) -> COLineItem:
     """Add a CO line; ``amount`` is signed (debit positive) in controlling area currency."""
     if not hasattr(doc, "_next_buzei"):
@@ -81,10 +81,39 @@ def add_line(
         mandt=doc.mandt, kokrs=doc.kokrs, belnr=doc.belnr, buzei=doc._next_buzei, perio=doc.perab,
         gjahr=doc.gjahr, wrttp="04", versn=doc.versn, kstar=kstar, objnr=objnr, bukrs=bukrs,
         kostl=kostl, aufnr=aufnr, prctr=prctr, wkgbtr=amount, owaer=owaer, twaer=twaer,
-        vrgng=doc.vrgng, refbn=doc.refbn, refbz=refbz, refgj=doc.refgj,
+        vrgng=doc.vrgng, refbn=doc.refbn, refbz=refbz, refgj=doc.refgj, megbtr=megbtr, meinb=meinb,
     )
     session.add(line)
+    if objnr.startswith("EO"):  # profitability segment: also feed costing-based CO-PA
+        from app.services import copa
+
+        copa.record_costing(session, doc, line)
     return line
+
+
+def reverse_document(session: Session, mandt: str, kokrs: str, belnr: str, *, usnam: str = "SYSTEM",
+                     commit: bool = True) -> CODocumentHeader:
+    """Reverse a CO-internal document (allocation, settlement, ...): opposite values and quantities."""
+    orig = session.get(CODocumentHeader, (mandt, kokrs, belnr.zfill(10)))
+    if orig is None:
+        raise PostingError(f"CO document {belnr} does not exist in controlling area {kokrs}")
+    if orig.stokz or orig.stflg:
+        raise PostingError(f"CO document {orig.belnr} is already reversed or is a reversal")
+    if orig.vrgng == "COIN":
+        raise PostingError(f"CO document {orig.belnr} comes from FI document {orig.refbn}; reverse that document")
+    lines = session.scalars(select(COLineItem).where(
+        COLineItem.mandt == mandt, COLineItem.kokrs == kokrs, COLineItem.belnr == orig.belnr)
+        .order_by(COLineItem.buzei)).all()
+    rev = open_document(session, mandt, kokrs, gjahr=orig.gjahr, perab=orig.perab, vrgng=orig.vrgng, budat=orig.budat,
+                        bltxt=f"Reversal of {orig.belnr}", usnam=usnam, kscyc=orig.kscyc)
+    rev.stflg, rev.awtyp, rev.refbn, rev.refgj = True, "COBK", orig.belnr, orig.gjahr
+    for line in lines:
+        add_line(session, rev, kstar=line.kstar, objnr=line.objnr, amount=-line.wkgbtr, bukrs=line.bukrs,
+                 kostl=line.kostl, aufnr=line.aufnr, megbtr=-line.megbtr if line.megbtr else None, meinb=line.meinb)
+    orig.stokz = True
+    if commit:
+        session.commit()
+    return rev
 
 
 def object_balance(

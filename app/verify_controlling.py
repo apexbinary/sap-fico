@@ -1,5 +1,6 @@
 """End-to-end check for Controlling: CO documents from FI, actual cost reports,
-assessment and distribution cycles, internal order settlement, CO-PA.
+assessment and distribution cycles, internal order settlement, CO-PA, planning, activity allocation,
+settlement reversal, CO-PA assessment and costing-based CO-PA.
 
 Run after app.seed (rerunnable):  python -m app.verify_controlling
 """
@@ -14,7 +15,7 @@ from sqlalchemy import select
 from app.database import SessionLocal
 from app.models.controlling import CODocumentHeader, COLineItem
 from app.models.partners import Customer, CustomerCompanyCode
-from app.services import allocation, controlling, copa, reporting, settlement
+from app.services import activity, allocation, controlling, copa, planning, reporting, settlement
 from app.services.fiscal import PostingError
 from app.services.posting import DocumentRequest, LineRequest, post_document
 from app.services.reversal import reverse_document
@@ -169,7 +170,59 @@ def main() -> None:
               f"country FR {by_country['FR']['net']}")
         assert by_customer[kunnr]["revenue"] == D("900.00")
         assert by_country["FR"]["net"] == fr_net + D("900.00")
-        print("\nOK - CO documents, cost reports, allocations, order settlement and CO-PA are consistent.")
+
+        # 6) planning: the seeded admin plan (1000/period on 476000) against actuals
+        pa = next(o for o in planning.plan_actual(s, MANDT, KOKRS, 2026, kind="KS", perio_from=11, perio_to=11)
+                  if o["object"] == ADMIN)
+        office = next(e for e in pa["elements"] if e["kstar"] == "476000")
+        print(f"6 Plan/actual admin 11/2026 on 476000: actual {office['actual']}, plan {office['plan']}, variance {office['variance']}")
+        assert office["plan"] == D("1000.00") and office["variance"] == office["actual"] - office["plan"]
+        planning.set_plan(s, MANDT, KOKRS, prod, "400000", 2026, planning.spread(D("6000.01")))
+        prod_plan = next(o for o in planning.plan_actual(s, MANDT, KOKRS, 2026, kind="KS") if o["object"] == PROD)
+        assert next(e for e in prod_plan["elements"] if e["kstar"] == "400000")["plan"] == D("6000.01")
+
+        # 7) activity allocation: 10 labour hours at 50 EUR from production to the trade fair order
+        order_before, prod_before = _balance(s, order), _balance(s, prod)
+        alloc = activity.allocate(s, MANDT, KOKRS, sender_kostl=PROD, lstar="1000", quantity=D("10"), gjahr=2026,
+                                  perio=11, receiver_aufnr=ORDER)
+        lines = s.scalars(select(COLineItem).where(COLineItem.mandt == MANDT, COLineItem.kokrs == KOKRS,
+                                                   COLineItem.belnr == alloc["belnr"])).all()
+        print(f"7 Activity allocation {alloc['belnr']}: {alloc['quantity']} {alloc['unit']} x {alloc['price']} = {alloc['value']}")
+        assert alloc["value"] == D("500.00") and _balance(s, order) == order_before + D("500.00")
+        assert _balance(s, prod) == prod_before - D("500.00") and {l.megbtr for l in lines} == {D("10"), D("-10")}
+
+        # 8) settle the allocated hours, reverse the settlement, then reverse the allocation
+        marketing = reporting.account_balance(s, MANDT, BUKRS, 2026, "477000")["balance"]
+        settled = settlement.settle_order(s, MANDT, KOKRS, ORDER, 2026, 11)
+        assert _balance(s, order, perio=(1, 11)) == 0 and settled["fi_document"]
+        undone = settlement.reverse_settlement(s, MANDT, KOKRS, ORDER, 2026, 11)
+        print(f"8 Settlement {undone['reversed']} reversed by {undone['reversal']} (FI {undone['fi_reversal']})")
+        assert _balance(s, order, perio=(1, 11)) == D("500.00")
+        assert reporting.account_balance(s, MANDT, BUKRS, 2026, "477000")["balance"] == marketing
+        controlling.reverse_document(s, MANDT, KOKRS, alloc["belnr"])
+        assert _balance(s, order) == order_before and _balance(s, prod) == prod_before
+
+        # 9) CO-PA assessment (KEU5): sales costs of period 11 go to the segments by net revenue
+        try:
+            allocation.reverse_run(s, MANDT, KOKRS, "SALES-PA", 2026, 11)
+        except PostingError:
+            pass
+        overhead_before = copa.contribution(s, MANDT, KOKRS, 2026, by="land1")["overhead"]
+        sales_sent = sum(v for k, v in controlling.object_balance(s, MANDT, KOKRS, sales, 2026, 11, 11).items()
+                         if "400000" <= k <= "999999")
+        keu5 = allocation.run_cycle(s, MANDT, KOKRS, "SALES-PA", 2026, 11)
+        overhead_after = copa.contribution(s, MANDT, KOKRS, 2026, by="land1")["overhead"]
+        print(f"9 KEU5 SALES-PA sent {keu5['sent']} to {len([l for l in keu5['lines'] if l['role'] == 'receiver'])} segment(s)")
+        assert keu5["sent"] == sales_sent and overhead_after == overhead_before + sales_sent
+        assert not sum(v for k, v in controlling.object_balance(s, MANDT, KOKRS, sales, 2026, 11, 11).items()
+                       if "400000" <= k <= "999999")
+
+        # 10) costing-based CO-PA (CE1IDEA value fields) agrees with account-based CO-PA
+        acc = copa.contribution(s, MANDT, KOKRS, 2026, by="land1")
+        cst = copa.contribution(s, MANDT, KOKRS, 2026, by="land1", ledger="costing")
+        print(f"10 Costing-based: revenue {cst['revenue']}, deductions {cst['deductions']}, overhead {cst['overhead']}")
+        assert (cst["revenue"], cst["deductions"], cst["overhead"]) == (acc["revenue"], acc["deductions"], acc["overhead"])
+        print("\nOK - CO documents, reports, allocations, settlement (and reversal), planning, activities and CO-PA are consistent.")
     finally:
         s.close()
 

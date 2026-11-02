@@ -105,6 +105,29 @@ def settle_order(
     return result
 
 
+def reverse_settlement(session: Session, mandt: str, kokrs: str, aufnr: str, gjahr: int, perio: int,
+                       *, usnam: str = "SYSTEM") -> dict:
+    """Reverse the last settlement of an order for a period (CO document and its FI document)."""
+    from app.models.controlling import CODocumentHeader
+    from app.services.reversal import reverse_document
+
+    order_no = aufnr.zfill(12)
+    doc = session.scalars(select(CODocumentHeader).where(
+        CODocumentHeader.mandt == mandt, CODocumentHeader.kokrs == kokrs, CODocumentHeader.vrgng == "KOAO",
+        CODocumentHeader.gjahr == gjahr, CODocumentHeader.perab == perio,
+        CODocumentHeader.bltxt == f"Settlement order {order_no}",
+        CODocumentHeader.stokz.is_(False), CODocumentHeader.stflg.is_(False),
+    ).order_by(CODocumentHeader.belnr.desc())).first()
+    if doc is None:
+        raise PostingError(f"Order {order_no} has no settlement in {perio}/{gjahr} to reverse")
+    fi = None
+    if doc.refbn:
+        fi = reverse_document(session, mandt, doc.refbk, doc.refbn, doc.refgj, usnam=usnam, commit=False)
+    rev = controlling.reverse_document(session, mandt, kokrs, doc.belnr, usnam=usnam, commit=False)
+    session.commit()
+    return {"aufnr": order_no, "reversed": doc.belnr, "reversal": rev.belnr, "fi_reversal": fi.belnr if fi else None}
+
+
 def rules_of(session: Session, mandt: str, aufnr: str) -> list[dict]:
     objnr = controlling.order_objnr(aufnr.zfill(12))
     rows = session.scalars(select(SettlementDistribution).where(

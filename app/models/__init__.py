@@ -23,8 +23,12 @@ from app.models.bank import (
 from app.models.controlling import (
     AllocationCycle,
     AllocationReceiver,
+    ActivityPrice,
+    ActivityType,
     AllocationSegment,
     CODocumentHeader,
+    COTotals,
+    CostingBasedPALineItem,
     COLineItem,
     CostCenter,
     CostElement,
@@ -156,6 +160,7 @@ __all__ = [
     "ProfitCenter", "COLineItem", "CODocumentHeader",
     "AllocationCycle", "AllocationSegment", "AllocationReceiver",
     "SettlementRule", "SettlementDistribution", "OperatingConcern", "ProfitabilitySegment", "FunctionalArea",
+    "COTotals", "ActivityType", "ActivityPrice", "CostingBasedPALineItem",
     # assets
     "AssetClass", "DepreciationArea", "AssetAccountDetermination",
     "AssetTransactionType", "Asset", "AssetDepreciationTerms", "AssetAllocation",

@@ -7,7 +7,10 @@ range:
 
   * assessment credits the sender and debits the receivers with the secondary
     assessment cost element of the segment (category 42), one total per sender;
-  * distribution keeps the original primary cost elements, element by element.
+  * distribution keeps the original primary cost elements, element by element;
+  * CO-PA assessment (KEU5, cycle type P) assesses like an assessment, but the
+    receivers are the profitability segments with net revenue in the period,
+    weighted by that revenue.
 
 Receivers get shares in proportion to their factors; the last receiver takes
 the rounding remainder. A run posts one CO document (business transaction
@@ -37,7 +40,7 @@ from app.services.fiscal import PostingError
 
 ZERO = Decimal("0")
 _CENT = Decimal("0.01")
-_VRGNG = {"A": "RKIU", "D": "RKIV"}
+_VRGNG = {"A": "RKIU", "D": "RKIV", "P": "RKEU"}
 
 
 def _period_end(gjahr: int, perio: int) -> date:
@@ -90,14 +93,24 @@ def run_cycle(
         raise PostingError(f"Cycle {cycle} has no segments")
 
     plan = []
+    shares = None
+    if cyc.ttype == "P":
+        from app.services import copa
+
+        shares = copa.revenue_shares(session, mandt, kokrs, gjahr, perio)
+        if not shares:
+            raise PostingError(f"No net revenue in profitability segments in {perio}/{gjahr} to assess {cycle} to")
     for seg in segments:
-        receivers = session.scalars(select(AllocationReceiver).where(
+        if cyc.ttype == "P":
+            receivers = [AllocationReceiver(kostl=str(paobjnr), faktor=net) for paobjnr, net in sorted(shares.items())]
+        else:
+            receivers = session.scalars(select(AllocationReceiver).where(
             AllocationReceiver.mandt == mandt, AllocationReceiver.kokrs == kokrs, AllocationReceiver.cycle == cycle,
             AllocationReceiver.sdate == cyc.sdate, AllocationReceiver.seg == seg.seg,
-        ).order_by(AllocationReceiver.kostl)).all()
+            ).order_by(AllocationReceiver.kostl)).all()
         if not receivers or sum((r.faktor for r in receivers), ZERO) <= 0:
             raise PostingError(f"Segment {seg.seg} of cycle {cycle} has no receivers with a positive factor")
-        if cyc.ttype == "A" and not seg.askst:
+        if cyc.ttype in ("A", "P") and not seg.askst:
             raise PostingError(f"Segment {seg.seg} of assessment cycle {cycle} has no assessment cost element")
         senders = session.scalars(select(CostCenter).where(
             CostCenter.mandt == mandt, CostCenter.kokrs == kokrs,
@@ -108,7 +121,7 @@ def run_cycle(
             balances = controlling.object_balance(
                 session, mandt, kokrs, controlling.cost_center_objnr(kokrs, sender.kostl), gjahr, perio, perio)
             sent = {k: v for k, v in balances.items() if seg.kstar_von <= k <= seg.kstar_bis and v}
-            amounts = {seg.askst: sum(sent.values(), ZERO)} if cyc.ttype == "A" else sent
+            amounts = {seg.askst: sum(sent.values(), ZERO)} if cyc.ttype in ("A", "P") else sent
             for kstar, amount in sorted(amounts.items()):
                 if not amount:
                     continue
@@ -121,13 +134,19 @@ def run_cycle(
               "document": None}
     if test or not plan:
         return result
-    kind = "Assessment" if cyc.ttype == "A" else "Distribution"
+    kind = {"A": "Assessment", "D": "Distribution", "P": "CO-PA assessment"}[cyc.ttype]
     doc = controlling.open_document(
         session, mandt, kokrs, gjahr=gjahr, perab=perio, vrgng=_VRGNG[cyc.ttype], budat=budat,
         bltxt=f"{kind} {cycle} {perio:02d}/{gjahr}", usnam=usnam, kscyc=cycle)
     for line in plan:
-        controlling.add_line(session, doc, kstar=line["kstar"], amount=line["amount"], kostl=line["kostl"],
-                             objnr=controlling.cost_center_objnr(kokrs, line["kostl"]))
+        if cyc.ttype == "P" and line["role"] == "receiver":
+            from app.services import copa
+
+            controlling.add_line(session, doc, kstar=line["kstar"], amount=line["amount"],
+                                 objnr=copa.segment_objnr(int(line["kostl"])))
+        else:
+            controlling.add_line(session, doc, kstar=line["kstar"], amount=line["amount"], kostl=line["kostl"],
+                                 objnr=controlling.cost_center_objnr(kokrs, line["kostl"]))
     session.commit()
     result["document"] = doc.belnr
     return result

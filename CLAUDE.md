@@ -150,8 +150,8 @@ app/
   verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV,
                      document lifecycle)
 web/                 index.html, styles.css, app.js (SPA)
-migrations/          Alembic env + revisions (0001 baseline, 0002 COBK, 0003 cycles,
-                     0004 settlement rules, 0005 CO-PA)
+migrations/          Alembic env + revisions 0001 (baseline) ... 0010; see
+                     migrations/versions for what each adds
 scripts/             setup_postgres.sql, check_lengths.py
 ```
 
@@ -299,9 +299,13 @@ reports per cost center / internal order; assessment and distribution cycles
 (ADMIN-ASM, SALES-DST) with test run, one run per period and reversal;
 internal order settlement to cost centers (CO) and G/L accounts (FI); account-
 based CO-PA (operating concern IDEA) with a contribution report; UI screens.
-Known gaps: plan data, activity types and internal activity allocation,
-settlement reversal, CO-PA assessment, costing-based CO-PA; cycle tables are
-an explicit version of SAP's generic T811* storage.
+Also done: plan data (COSP, value type 01) with plan/actual/variance,
+activity types (CSLA) with prices (COST) and direct activity allocation
+(KB21N, RKL, quantities), CO document reversal, settlement reversal (CO + FI),
+CO-PA assessment (KEU5, cycle type P weighted by net revenue), costing-based
+CO-PA (CE1IDEA value fields VV010/VV020/VV030, filled for every segment line).
+Design note: the cycle tables are an explicit version of SAP's generic T811*
+storage (same structure, one column per field).
 
 **PostgreSQL + Alembic — done:** baseline revision 0001, upgrade on startup,
 legacy databases stamped, PostgreSQL compose override; the full verify suite

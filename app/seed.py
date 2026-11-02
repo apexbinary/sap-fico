@@ -5,7 +5,8 @@ Creates:
   * Fiscal year variant K4 (calendar year) + open posting periods (T001B)
   * Controlling area 1000 with cost centers 1000/2000/3000, internal order 400001,
     primary cost elements and the CO document number range (RK_BELEG)
-  * Allocation cycles ADMIN-ASM (assessment) and SALES-DST (distribution)
+  * Allocation cycles ADMIN-ASM (assessment), SALES-DST (distribution), SALES-PA (KEU5)
+  * Activity type 1000 (labour hours, 50 EUR at production), admin office plan 12000 EUR/year
   * Settlement rule of order 400001 (60% cost center 2000, 40% G/L 477000)
   * Operating concern IDEA (account-based CO-PA) assigned to controlling area 1000
   * Document types, posting keys, document number ranges
@@ -43,11 +44,14 @@ from app.models.assets import (
 )
 from app.models.bank import Bank, HouseBank, HouseBankAccount
 from app.models.controlling import (
+    ActivityPrice,
+    ActivityType,
     AllocationCycle,
     AllocationReceiver,
     AllocationSegment,
     CostCenter,
     CostElement,
+    COTotals,
     CostElementCO,
     FunctionalArea,
     InternalOrder,
@@ -274,10 +278,26 @@ def seed() -> None:
         ]:
             put(CostCenter(mandt=MANDT, kokrs=KOKRS, kostl=kostl, datbi=HIGH, datab=LOW, ktext=ktext, ltext=ltext,
                            bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar=kosar, fkber=fkber))
-        # Secondary cost element for assessments (category 42, no G/L account)
-        put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar="943000", erdat="20260101"))
-        put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar="943000", datbi=HIGH, datab=LOW, katyp="42",
-                          ktext="Assessment admin", ltext="Assessment of administration costs"))
+        # Secondary cost elements: assessments (category 42) and activity allocation (category 43)
+        for kstar, katyp, ktext, ltext in [
+            ("943000", "42", "Assessment admin", "Assessment of administration costs"),
+            ("944000", "42", "Assessment CO-PA", "Assessment of sales costs to CO-PA"),
+            ("943100", "43", "Labour allocation", "Activity allocation: labour hours"),
+        ]:
+            put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar=kstar, erdat="20260101"))
+            put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar=kstar, datbi=HIGH, datab=LOW, katyp=katyp,
+                              ktext=ktext, ltext=ltext))
+        # Activity type 1000 (labour hours) provided by production at 50 EUR per hour in 2026
+        put(ActivityType(mandt=MANDT, kokrs=KOKRS, lstar="1000", datbi=HIGH, datab=LOW, ktext="Labour hours",
+                         leinh="H", vksta="943100", latyp="1"))
+        # Plan data and activity prices are user data: create only, never re-merge
+        if s.get(ActivityPrice, (MANDT, f"LT{KOKRS}00000030001000", 2026, "01", "000")) is None:
+            put(ActivityPrice(mandt=MANDT, objnr=f"LT{KOKRS}00000030001000", gjahr=2026, wrttp="01", versn="000",
+                              kokrs=KOKRS, **{f"tkg{p:03d}": Decimal("50.00") for p in range(1, 17)}))
+        if s.get(COTotals, (MANDT, f"KS{KOKRS}0000001000", 2026, "01", "000", "476000")) is None:
+            put(COTotals(mandt=MANDT, objnr=f"KS{KOKRS}0000001000", gjahr=2026, wrttp="01", versn="000",
+                         kstar="476000", kokrs=KOKRS, twaer="EUR",
+                         **{f"wkg{p:03d}": Decimal("1000.00") if p <= 12 else Decimal("0") for p in range(1, 17)}))
         # Cycles: admin costs are assessed to sales/production (60:40); sales distributes office costs to production
         for cycle, ttype, txt, segs in [
             ("ADMIN-ASM", "A", "Assess administration to sales and production",
@@ -286,6 +306,9 @@ def seed() -> None:
             ("SALES-DST", "D", "Distribute sales office costs to production",
              [(1, "Office supplies", "0000002000", "0000002000", "476000", "476000", None,
                [("0000003000", "1")])]),
+            # KEU5: receivers are the profitability segments, weighted by their net revenue
+            ("SALES-PA", "P", "Assess sales costs to profitability segments",
+             [(1, "Sales costs", "0000002000", "0000002000", "400000", "999999", "944000", [])]),
         ]:
             put(AllocationCycle(mandt=MANDT, kokrs=KOKRS, cycle=cycle, sdate=date(2026, 1, 1), edate=HIGH,
                                 txt=txt, ttype=ttype))
@@ -471,9 +494,7 @@ def seed() -> None:
         put(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E", brsch="RETL", kukla="01"))
         put(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E", vzskz="01"))
         put(CustomerBankDetails(mandt=MANDT, kunnr="0000010000", banks="DE", bankl="30000000", bankn="0555666777", koinh="Alpha Retail GmbH", iban="DE81300000000555666777"))
-        # KNB5/LFB5 hold runtime state (last dunning level/date): create only, never re-merge.
-        if s.get(VendorDunningData, (MANDT, "0000020000", BUKRS, "")) is None:
-            put(VendorDunningData(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, maber="", mahna="0001"))
+        # KNB5 holds runtime state (last dunning level/date): create only, never re-merge.
         if s.get(CustomerDunningData, (MANDT, "0000010000", BUKRS, "")) is None:
             put(CustomerDunningData(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, maber="", mahna="0001"))
         put(SepaMandate(mandt=MANDT, mndid="MND-0000010000-001", snd_type="BUS3007", snd_id="0000010000",
@@ -482,6 +503,9 @@ def seed() -> None:
                             sign_date=date(2026, 1, 1), sign_city="Berlin", pay_type="RCUR", status="1"))
         put(Vendor(mandt=MANDT, lifnr="0000020000", ktokk="LIEF", name1="Beta Supplies AG", land1="DE", ort01="Munich", spras="E"))
         put(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="ZB01", zuawa="001", zwels="T"))
+        # LFB5 holds runtime state (last dunning level/date): create only, never re-merge.
+        if s.get(VendorDunningData, (MANDT, "0000020000", BUKRS, "")) is None:
+            put(VendorDunningData(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, maber="", mahna="0001"))
         put(VendorBankDetails(mandt=MANDT, lifnr="0000020000", banks="DE", bankl="20000000", bankn="0987654321", koinh="Beta Supplies AG", iban="DE84200000000987654321"))
         # Second vendor without bank details: shows up as an F110 exception.
         put(Vendor(mandt=MANDT, lifnr="0000020001", ktokk="LIEF", name1="Gamma Logistics GmbH", land1="DE", ort01="Hamburg", spras="E"))

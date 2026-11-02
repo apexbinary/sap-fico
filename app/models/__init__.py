@@ -21,6 +21,9 @@ from app.models.bank import (
     HouseBankAccount,
 )
 from app.models.controlling import (
+    AllocationCycle,
+    AllocationReceiver,
+    AllocationSegment,
     CODocumentHeader,
     COLineItem,
     CostCenter,
@@ -130,6 +133,7 @@ __all__ = [
     # controlling
     "CostCenter", "CostElement", "CostElementCO", "InternalOrder",
     "ProfitCenter", "COLineItem", "CODocumentHeader",
+    "AllocationCycle", "AllocationSegment", "AllocationReceiver",
     # assets
     "AssetClass", "DepreciationArea", "AssetAccountDetermination",
     "AssetTransactionType", "Asset", "AssetDepreciationTerms", "AssetAllocation",

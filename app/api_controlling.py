@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_session
 from app.models.controlling import CODocumentHeader, COLineItem
-from app.services import controlling
+from app.services import allocation, controlling
 from app.services.fiscal import PostingError
 
 router = APIRouter(prefix="/co", tags=["Controlling"])
@@ -57,3 +58,26 @@ def documents(
             "lines": [{"buzei": l.buzei, "objnr": l.objnr, "kstar": l.kstar, "amount": l.wkgbtr} for l in lines],
         })
     return out
+
+
+class CycleRunIn(BaseModel):
+    kokrs: str
+    gjahr: int
+    perio: int = Field(..., ge=1, le=16)
+    test: bool = Field(True, description="Test run: show the allocation without posting")
+
+
+@router.get("/cycles", summary="Assessment / distribution cycles with segments and runs")
+def cycles(kokrs: str, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> list[dict]:
+    return allocation.list_cycles(s, _m(mandt), kokrs)
+
+
+@router.post("/cycles/{cycle}/run", summary="Run an assessment (KSU5) / distribution (KSV5) cycle")
+def run_cycle(cycle: str, body: CycleRunIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    return _run_or_422(lambda: allocation.run_cycle(s, _m(mandt), body.kokrs, cycle, body.gjahr, body.perio,
+                                                    test=body.test))
+
+
+@router.post("/cycles/{cycle}/reverse", summary="Reverse a cycle run")
+def reverse_cycle(cycle: str, body: CycleRunIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    return _run_or_422(lambda: allocation.reverse_run(s, _m(mandt), body.kokrs, cycle, body.gjahr, body.perio))

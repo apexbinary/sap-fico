@@ -7,6 +7,9 @@ Tables modelled here:
     AUFK   Order master data (internal orders)
     CEPC   Profit center master (+ CEPCT text)
     COBK   CO document header (number range RK_BELEG per controlling area)
+    T811C  Allocation cycles (assessment / distribution)
+    T811S  Allocation cycle segments (senders, cost elements)
+    T811K  Allocation segment receivers (tracing factors)
     COEP   CO object line items (actual postings)
 
 When an FI line item carries a CO account assignment (cost center, order or WBS)
@@ -203,3 +206,62 @@ class CODocumentHeader(Base):
     # Allocation cycle that posted this document (assessment / distribution).
     # Not an SAP COBK column: SAP keeps the cycle reference in the allocation tables.
     kscyc: Mapped[str | None] = mapped_column(String(10))
+
+
+class AllocationCycle(Base):
+    """T811C — Assessment / distribution cycle.
+
+    SAP keeps cycles generically in T811C/T811S/T811F/T811K (field values as
+    rows); these tables are an explicit version of the same structure, and
+    their non-key column names still need checking against the SAP DDIC.
+    """
+
+    __tablename__ = "t811c"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kokrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Controlling area
+    cycle: Mapped[str] = mapped_column(String(10), primary_key=True)  # Cycle
+    sdate: Mapped[date] = mapped_column(primary_key=True)  # Valid from
+    edate: Mapped[date] = mapped_column()  # Valid to
+    txt: Mapped[str | None] = mapped_column(String(50))  # Cycle text
+    ttype: Mapped[str] = mapped_column(String(1))  # A = assessment (KSU5), D = distribution (KSV5)
+
+
+class AllocationSegment(Base):
+    """T811S — Segment of an allocation cycle: senders and the cost elements they send."""
+
+    __tablename__ = "t811s"
+    __table_args__ = (
+        ForeignKeyConstraint(["mandt", "kokrs", "cycle", "sdate"],
+                             ["t811c.mandt", "t811c.kokrs", "t811c.cycle", "t811c.sdate"]),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kokrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Controlling area
+    cycle: Mapped[str] = mapped_column(String(10), primary_key=True)  # Cycle
+    sdate: Mapped[date] = mapped_column(primary_key=True)  # Valid from (of the cycle)
+    seg: Mapped[int] = mapped_column(primary_key=True)  # Segment number
+    txt: Mapped[str | None] = mapped_column(String(50))  # Segment text
+    kostl_von: Mapped[str] = mapped_column(String(10))  # Sender cost center from
+    kostl_bis: Mapped[str] = mapped_column(String(10))  # Sender cost center to
+    kstar_von: Mapped[str] = mapped_column(String(10))  # Sender cost element from
+    kstar_bis: Mapped[str] = mapped_column(String(10))  # Sender cost element to
+    askst: Mapped[str | None] = mapped_column(String(10))  # Assessment cost element (category 42)
+
+
+class AllocationReceiver(Base):
+    """T811K — Receiver of a segment with its tracing factor (fixed portion)."""
+
+    __tablename__ = "t811k"
+    __table_args__ = (
+        ForeignKeyConstraint(["mandt", "kokrs", "cycle", "sdate", "seg"],
+                             ["t811s.mandt", "t811s.kokrs", "t811s.cycle", "t811s.sdate", "t811s.seg"]),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kokrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Controlling area
+    cycle: Mapped[str] = mapped_column(String(10), primary_key=True)  # Cycle
+    sdate: Mapped[date] = mapped_column(primary_key=True)  # Valid from (of the cycle)
+    seg: Mapped[int] = mapped_column(primary_key=True)  # Segment number
+    kostl: Mapped[str] = mapped_column(String(10), primary_key=True)  # Receiver cost center
+    faktor: Mapped[Decimal] = mapped_column(Numeric(13, 4))  # Tracing factor (portion)

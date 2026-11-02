@@ -694,8 +694,9 @@ views.controlling = async (c) => {
   const q = new URLSearchParams(location.hash.split("?")[1] || "");
   const gjahr = Number(q.get("gjahr") || state.gjahr), pf = Number(q.get("pf") || 1), pt = Number(q.get("pt") || 16);
   const params = `kokrs=${KOKRS}&gjahr=${gjahr}&perio_from=${pf}&perio_to=${pt}`;
-  const [ks, or, docs] = await Promise.all([
+  const [ks, or, docs, cycles] = await Promise.all([
     api(`/co/actuals?${params}&kind=KS`), api(`/co/actuals?${params}&kind=OR`), api(`/co/documents?kokrs=${KOKRS}&limit=15`),
+    api(`/co/cycles?kokrs=${KOKRS}`),
   ]);
   const table = (title, rows, label) => `<div class="card"><div class="card-head">${title}</div>
     <table><thead><tr><th>${label}</th><th>Description</th><th>Cost element</th><th class="num">Actual</th></tr></thead>
@@ -713,6 +714,20 @@ views.controlling = async (c) => {
       <button class="btn" id="co-go">Show</button>
     </div>
     ${table("Cost Centers", ks, "Cost center")}
+    <div class="card"><div class="card-head">Assessment &amp; Distribution Cycles (KSU5 / KSV5)</div>
+      <table><thead><tr><th>Cycle</th><th>Type</th><th>Segments</th><th>Runs</th><th></th></tr></thead>
+      <tbody>${cycles.map((cy) => `<tr>
+        <td><strong class="mono">${esc(cy.cycle)}</strong><div class="help">${esc(cy.txt || "")}</div></td>
+        <td>${cy.ttype === "A" ? "Assessment" : "Distribution"}</td>
+        <td class="help" style="white-space:normal">${cy.segments.map((g) => `${g.seg}: ${esc(g.senders)} sends ${esc(g.elements)}${g.askst ? ` as ${esc(g.askst)}` : ""} → ${g.receivers.map((r) => `${esc(r.kostl)} (${Number(r.faktor)})`).join(", ")}`).join("<br>")}</td>
+        <td class="help">${cy.runs.map((r) => `${String(r.perio).padStart(2, "0")}/${r.gjahr} ${r.belnr}${r.reversed ? " (reversed)" : ""}`).join("<br>") || "—"}</td>
+        <td style="white-space:nowrap">
+          <input class="cy-per" data-c="${esc(cy.cycle)}" type="number" min="1" max="16" value="${new Date().getMonth() + 1}" style="width:60px" title="Period">
+          <button class="btn small secondary cy-act" data-c="${esc(cy.cycle)}" data-a="test">Test</button>
+          <button class="btn small cy-act" data-c="${esc(cy.cycle)}" data-a="run">Run</button>
+          <button class="btn small ghost cy-act" data-c="${esc(cy.cycle)}" data-a="reverse">Reverse</button></td></tr>`).join("")
+        || `<tr><td colspan="5" class="empty">No cycles.</td></tr>`}</tbody></table>
+      <div id="cy-result"></div></div>
     ${table("Internal Orders", or, "Order")}
     <div class="card"><div class="card-head">Recent CO Documents</div>
       <table><thead><tr><th>CO document</th><th>Transaction</th><th>Posting date</th><th>Text</th><th>FI reference</th><th>Lines</th></tr></thead>
@@ -722,6 +737,21 @@ views.controlling = async (c) => {
         <td class="help">${d.lines.map((l) => `${esc(l.objnr)} ${esc(l.kstar)} ${fmt(l.amount)}`).join("<br>")}</td></tr>`).join("")
         || `<tr><td colspan="6" class="empty">No CO documents yet.</td></tr>`}</tbody></table></div>`;
   $("#co-go").onclick = () => { location.hash = `#/controlling?gjahr=${$("#co-gjahr").value}&pf=${$("#co-pf").value}&pt=${$("#co-pt").value}`; };
+  document.querySelectorAll(".cy-act").forEach((b) => (b.onclick = async () => {
+    const cycle = b.dataset.c, act = b.dataset.a;
+    const perio = Number(document.querySelector(`.cy-per[data-c="${cycle}"]`).value);
+    const body = JSON.stringify({ kokrs: KOKRS, gjahr, perio, test: act === "test" });
+    if (act !== "test" && !confirm(`${act === "run" ? "Run" : "Reverse"} cycle ${cycle} for period ${perio}/${gjahr}?`)) return;
+    try {
+      const r = await api(`/co/cycles/${encodeURIComponent(cycle)}/${act === "reverse" ? "reverse" : "run"}`, { method: "POST", body });
+      if (act === "reverse") { toast(`Run ${r.reversed} reversed by ${r.reversal}`, "good"); return route(); }
+      if (act === "run") { toast(r.document ? `CO document ${r.document} posted` : "Nothing to allocate", "good"); return route(); }
+      $("#cy-result").innerHTML = `<div class="card-body"><strong>Test run ${esc(cycle)} ${perio}/${gjahr}</strong> — sends ${fmt(r.sent)}
+        <table><thead><tr><th>Segment</th><th>Cost center</th><th>Role</th><th>Cost element</th><th class="num">Amount</th></tr></thead>
+        <tbody>${r.lines.map((l) => `<tr><td>${l.seg}</td><td class="mono">${esc(l.kostl)}</td><td>${l.role}</td><td class="mono">${esc(l.kstar)}</td><td class="num">${fmt(l.amount)}</td></tr>`).join("")
+          || `<tr><td colspan="5" class="empty">No sender costs in this period.</td></tr>`}</tbody></table></div>`;
+    } catch (e) { toast(e.message, "bad"); }
+  }));
 };
 
 // ---------- Automatic Payment Program (F110) ----------

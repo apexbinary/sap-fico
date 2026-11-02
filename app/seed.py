@@ -5,6 +5,7 @@ Creates:
   * Fiscal year variant K4 (calendar year) + open posting periods (T001B)
   * Controlling area 1000 with cost centers 1000/2000/3000, internal order 400001,
     primary cost elements and the CO document number range (RK_BELEG)
+  * Allocation cycles ADMIN-ASM (assessment) and SALES-DST (distribution)
   * Document types, posting keys, document number ranges
   * A small chart of accounts (bank, receivables, payables, tax, revenue, expense)
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
@@ -34,7 +35,15 @@ from app.models.assets import (
     DepreciationArea,
 )
 from app.models.bank import Bank, HouseBank, HouseBankAccount
-from app.models.controlling import CostCenter, CostElement, CostElementCO, InternalOrder
+from app.models.controlling import (
+    AllocationCycle,
+    AllocationReceiver,
+    AllocationSegment,
+    CostCenter,
+    CostElement,
+    CostElementCO,
+    InternalOrder,
+)
 from app.models.documents import DocumentType, NumberRange, PostingKey
 from app.models.dunning import DunningCharge, DunningLevel, DunningProcedure
 from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
@@ -211,6 +220,28 @@ def seed() -> None:
         ]:
             put(CostCenter(mandt=MANDT, kokrs=KOKRS, kostl=kostl, datbi=HIGH, datab=LOW, ktext=ktext, ltext=ltext,
                            bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar=kosar))
+        # Secondary cost element for assessments (category 42, no G/L account)
+        put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar="943000", erdat="20260101"))
+        put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar="943000", datbi=HIGH, datab=LOW, katyp="42",
+                          ktext="Assessment admin", ltext="Assessment of administration costs"))
+        # Cycles: admin costs are assessed to sales/production (60:40); sales distributes office costs to production
+        for cycle, ttype, txt, segs in [
+            ("ADMIN-ASM", "A", "Assess administration to sales and production",
+             [(1, "Admin costs", "0000001000", "0000001000", "400000", "499999", "943000",
+               [("0000002000", "60"), ("0000003000", "40")])]),
+            ("SALES-DST", "D", "Distribute sales office costs to production",
+             [(1, "Office supplies", "0000002000", "0000002000", "476000", "476000", None,
+               [("0000003000", "1")])]),
+        ]:
+            put(AllocationCycle(mandt=MANDT, kokrs=KOKRS, cycle=cycle, sdate=date(2026, 1, 1), edate=HIGH,
+                                txt=txt, ttype=ttype))
+            for seg, stxt, kvon, kbis, evon, ebis, askst, receivers in segs:
+                put(AllocationSegment(mandt=MANDT, kokrs=KOKRS, cycle=cycle, sdate=date(2026, 1, 1), seg=seg,
+                                      txt=stxt, kostl_von=kvon, kostl_bis=kbis, kstar_von=evon, kstar_bis=ebis,
+                                      askst=askst))
+                for kostl, factor in receivers:
+                    put(AllocationReceiver(mandt=MANDT, kokrs=KOKRS, cycle=cycle, sdate=date(2026, 1, 1), seg=seg,
+                                           kostl=kostl, faktor=Decimal(factor)))
         put(InternalOrder(mandt=MANDT, aufnr="000000400001", auart="0100", autyp="01", ktext="Trade fair 2026",
                           bukrs=BUKRS, kokrs=KOKRS, kostv="0000002000", waers="EUR", phas0=True, phas1=True))
 

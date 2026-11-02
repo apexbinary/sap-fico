@@ -112,16 +112,18 @@ def open_items(
     account: str,
     only_open: bool = True,
 ) -> list[dict]:
-    """Open (or all) sub-ledger items for a customer (D) or vendor (K).
+    """Open (or all) items of a customer (D), vendor (K) or open-item G/L account (S).
 
-    Open items are BSEG rows of the account type with no clearing document.
+    Open items are open-item-managed BSEG rows of the account with no clearing document.
     """
-    field = AccountingDocumentItem.kunnr if koart == "D" else AccountingDocumentItem.lifnr
+    field = {"D": AccountingDocumentItem.kunnr, "K": AccountingDocumentItem.lifnr,
+             "S": AccountingDocumentItem.hkont}[koart]
     stmt = select(AccountingDocumentItem).where(
         AccountingDocumentItem.mandt == mandt,
         AccountingDocumentItem.bukrs == bukrs,
         AccountingDocumentItem.koart == koart,
         field == account,
+        AccountingDocumentItem.xopvw.is_(True),
     )
     if only_open:
         stmt = stmt.where(AccountingDocumentItem.augbl.is_(None))

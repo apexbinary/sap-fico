@@ -46,9 +46,14 @@ class PaymentIn(BaseModel):
     sgtxt: str | None = None
 
 
+def _acct(koart: str, account: str) -> str:
+    """Partner numbers are zero-padded; G/L account numbers are used as entered."""
+    return account if koart == "S" else account.zfill(10)
+
+
 class ClearingIn(BaseModel):
     bukrs: str
-    koart: Literal["D", "K"]
+    koart: Literal["D", "K", "S"] = Field(..., description="D customer (F-32), K vendor (F-44), S G/L account (F-03)")
     account: str
     budat: date
     items: list[OpenItemRef]
@@ -58,13 +63,21 @@ class ClearingIn(BaseModel):
 
 @router.get("/payments/open-items", summary="Open items with due date and cash discount (payment proposal)")
 def open_items(
-    bukrs: str, koart: Literal["D", "K"], account: str, budat: date | None = None,
+    bukrs: str, koart: Literal["D", "K", "S"], account: str, budat: date | None = None,
     mandt: str = Query(default=None), s: Session = Depends(get_session),
 ) -> list[dict]:
     try:
-        return clearing.proposal(s, _m(mandt), bukrs, koart, account.zfill(10), budat or date.today())
+        return clearing.proposal(s, _m(mandt), bukrs, koart, _acct(koart, account), budat or date.today())
     except PostingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/payments/tolerance", summary="Permitted payment differences for a partner (T043G)")
+def tolerance(
+    bukrs: str, koart: Literal["D", "K"], account: str,
+    mandt: str = Query(default=None), s: Session = Depends(get_session),
+) -> dict:
+    return clearing.tolerance_limits(s, _m(mandt), bukrs, koart, account.zfill(10))
 
 
 @router.post("/payments", summary="Incoming / outgoing payment with clearing (F-28 / F-53)")
@@ -84,11 +97,11 @@ def post_payment(body: PaymentIn, mandt: str = Query(default=None), s: Session =
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.post("/clearing", summary="Clear open items against each other (F-32 / F-44)")
+@router.post("/clearing", summary="Clear open items against each other (F-32 / F-44 / F-03)")
 def post_clearing(body: ClearingIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
     try:
         return clearing.post_payment(s, clearing.PaymentRequest(
-            mandt=_m(mandt), bukrs=body.bukrs, koart=body.koart, account=body.account.zfill(10),
+            mandt=_m(mandt), bukrs=body.bukrs, koart=body.koart, account=_acct(body.koart, body.account),
             budat=body.budat, items=[(i.belnr, i.gjahr, i.buzei) for i in body.items],
             mode=body.mode, apply_discount=False, bktxt=body.bktxt,
         ))

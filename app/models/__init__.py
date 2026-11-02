@@ -70,6 +70,7 @@ from app.models.payments import (
     AutomaticAccountDetermination,
     BankDetermination,
     CompanyCodePaymentMethod,
+    CustomerVendorTolerance,
     PaymentMethod,
     PaymentTerms,
 )
@@ -101,7 +102,7 @@ __all__ = [
     "Customer", "CustomerCompanyCode", "Vendor", "VendorCompanyCode", "VendorBankDetails",
     # payments
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
-    "CompanyCodePaymentMethod", "BankDetermination",
+    "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",
     # payment run (F110)
     "PaymentRunControl", "PaymentRunPayee", "PaymentRunItem",
     # controlling

@@ -1,4 +1,4 @@
-"""Payments and open-item clearing (F-28 / F-53 / F-32 / F-44).
+"""Payments and open-item clearing (F-28 / F-53 / F-32 / F-44 / F-03).
 
 A payment or clearing transaction posts ONE document through the posting engine
 and, in the same database transaction, stamps the clearing document
@@ -6,39 +6,47 @@ and, in the same database transaction, stamps the clearing document
 lines it generated. Modes:
 
   clear       the selected items are settled in full; payment + cash discount
-              must equal their open balance exactly
+              must equal their open balance, except for a difference within
+              the customer/vendor tolerance (T043G), which is posted to the
+              payment-difference account (T030 key ZDI)
   residual    the selected items are settled in full and the difference is
               carried forward as a new open item referencing the invoice (REBZG)
   partial     one item stays open; the payment is posted as an open item that
               references it (REBZG) — nothing is cleared
   on_account  the payment is posted as an unassigned open item
 
-With amount 0 and no bank account the transaction is a pure clearing
-(F-32 customers / F-44 vendors), e.g. an invoice against a credit memo.
+With amount 0 and no bank account the transaction is a pure clearing: F-32
+(customers), F-44 (vendors) or F-03 (G/L accounts with open item management,
+SKB1-XOPVW). A clearing whose items net to zero posts a document header
+without line items, as SAP does.
 
 Cash discount is taken gross from the item's terms of payment when the payment
-date falls in a discount period, and posted to the T030 account of transaction
-key SKT (granted to customers) or SKE (received from vendors).
-Not yet supported: tax adjustment on cash discount, payment-difference
-tolerances (T043G), and clearing in foreign currency (needs FX valuation).
+date falls in a discount period. Its tax portion (in proportion to the
+invoice's tax lines) corrects the tax account; the net portion goes to the
+T030 account of key SKT (granted to customers) or SKE (received from vendors).
+Not yet supported: clearing in foreign currency (needs FX valuation).
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.documents import AccountingDocumentItem
-from app.models.payments import AutomaticAccountDetermination
+from app.models.gl_master import GLAccountCompanyCode
+from app.models.partners import CustomerCompanyCode, VendorCompanyCode
+from app.models.payments import AutomaticAccountDetermination, CustomerVendorTolerance
 from app.services import payment_terms
 from app.services.fiscal import PostingError, company_code
 from app.services.posting import DocumentRequest, LineRequest, post_document
 
 MODES = ("clear", "residual", "partial", "on_account")
+_CENT = Decimal("0.01")
 
 # Standard SAP posting keys per account type. Pairs are
 # (key for an item on the invoice side, key for an item on the opposite side).
@@ -61,18 +69,25 @@ _KEYS = {
         "discount": ("50", "SKE"),
         "blart": "KZ",
     },
+    "S": {
+        "inv_side": "S",          # G/L open items: debits counted positive
+        "clear": ("50", "40"),
+        "residual": ("40", "50"),
+        "blart": "AB",
+    },
 }
 # (account type, with payment) -> SAP transaction
-_TCODES = {("D", True): "F-28", ("K", True): "F-53", ("D", False): "F-32", ("K", False): "F-44"}
+_TCODES = {("D", True): "F-28", ("K", True): "F-53", ("D", False): "F-32", ("K", False): "F-44",
+           ("S", False): "F-03"}
 
 
 @dataclass
 class PaymentRequest:
-    """A payment and/or clearing transaction for one customer or vendor."""
+    """A payment and/or clearing transaction for one customer, vendor or G/L account."""
 
     bukrs: str  # Company code
-    koart: str  # Account type: D customer / K vendor
-    account: str  # Customer (KUNNR) or vendor (LIFNR) number
+    koart: str  # Account type: D customer / K vendor / S G/L account (clearing only)
+    account: str  # Customer (KUNNR), vendor (LIFNR) or G/L account (HKONT)
     budat: date  # Posting date (also the clearing date and discount reference date)
     amount: Decimal = Decimal("0")  # Amount paid; 0 = pure clearing
     items: list[tuple[str, int, int]] = field(default_factory=list)  # (BELNR, GJAHR, BUZEI)
@@ -103,11 +118,13 @@ def post_payment(session: Session, req: PaymentRequest, *, commit: bool = True) 
 
 def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: bool) -> dict:
     if req.koart not in _KEYS:
-        raise PostingError("Account type must be D (customer) or K (vendor)")
+        raise PostingError("Account type must be D (customer), K (vendor) or S (G/L account)")
     if req.mode not in MODES:
         raise PostingError(f"Unknown clearing mode {req.mode!r}; use one of {', '.join(MODES)}")
     if req.amount < 0:
         raise PostingError("Payment amount must not be negative")
+    if req.koart == "S" and (req.amount or req.mode not in ("clear", "residual")):
+        raise PostingError("G/L open items are cleared without a payment (F-03): amount 0, mode clear or residual")
     if req.amount > 0 and not req.hkont:
         raise PostingError("A bank G/L account is required to post a payment")
     if req.mode in ("partial", "on_account") and req.amount <= 0:
@@ -118,6 +135,8 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
     keys = _KEYS[req.koart]
     inv_side = keys["inv_side"]
     cc = company_code(session, mandt, req.bukrs)
+    if req.koart == "S":
+        _check_open_item_account(session, mandt, req.bukrs, req.account)
     items = [_open_item(session, mandt, req, cc.waers, *key) for key in req.items]
 
     if req.mode in ("clear", "residual") and not items:
@@ -128,7 +147,7 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
         raise PostingError("A payment on account must not select open items")
 
     lines: list[LineRequest] = []
-    clearing_pos: list[int] = []  # BUZEI of the generated line that offsets items[i]
+    clearing_pos: list[int | None] = []  # BUZEI of the generated line that offsets items[i]
     discounts: list[Decimal] = []
     text = req.sgtxt
 
@@ -136,7 +155,7 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
         bschl = keys["bank"][0 if money_in_normal_direction else 1]
         return LineRequest(bschl=bschl, account=req.hkont, wrbtr=req.amount, sgtxt=text or "Bank")
 
-    open_total = discount = residual = Decimal("0")
+    open_total = discount = residual = difference = tax_adjustment = Decimal("0")
 
     if req.mode == "on_account":
         lines.append(bank_line(True))
@@ -162,25 +181,47 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
         normal = open_total >= 0  # partner owes us (D) / we owe the partner (K)
         for it in items:
             d = Decimal("0")
-            if req.apply_discount and it.shkzg == inv_side:
+            if req.apply_discount and req.koart != "S" and it.shkzg == inv_side:
                 d = payment_terms.cash_discount(it, req.budat)[1]
             discounts.append(d)
         discount = sum(discounts, Decimal("0"))
         residual = open_total - discount - (req.amount if normal else -req.amount)
-        if req.mode == "clear" and residual != 0:
-            raise PostingError(
-                f"Difference of {residual} {cc.waers} remains (open {open_total}, cash discount "
-                f"{discount}, paid {req.amount}); post it as a residual item or a partial payment"
-            )
+
+        if req.mode == "clear" and residual:
+            tol = _tolerance(session, mandt, req.bukrs, req.koart, req.account)
+            if tol is None or not _within(tol, req.koart, residual, open_total):
+                raise PostingError(
+                    f"Difference of {residual} {cc.waers} remains (open {open_total}, cash discount "
+                    f"{discount}, paid {req.amount}) and exceeds the payment-difference tolerance; "
+                    f"post it as a residual item or a partial payment"
+                )
+            difference, residual = residual, Decimal("0")
 
         if req.amount:
             lines.append(bank_line(normal))
         if discount:
             bschl, ktosl = keys["discount"]
+            taxes = _discount_tax(items, discounts, inv_side)
+            tax_adjustment = sum(taxes.values(), Decimal("0"))
             lines.append(LineRequest(bschl=bschl, account=_auto_account(session, mandt, cc.ktopl, ktosl),
-                                     wrbtr=discount, sgtxt="Cash discount"))
+                                     wrbtr=discount - tax_adjustment, sgtxt="Cash discount"))
+            for (mwskz, tax_account), amt in taxes.items():
+                lines.append(LineRequest(bschl=bschl, account=tax_account, wrbtr=amt, mwskz=mwskz,
+                                         sgtxt="Tax adjustment on cash discount"))
+        if difference:
+            side = inv_side if difference > 0 else ("H" if inv_side == "S" else "S")
+            lines.append(LineRequest(
+                bschl="40" if side == "S" else "50",
+                account=_auto_account(session, mandt, cc.ktopl, "ZDI", credit=side == "H"),
+                wrbtr=abs(difference), sgtxt="Payment difference within tolerance",
+            ))
+
+        header_only = not (req.amount or discount or residual or difference)
         clear_keys = keys["pay"] if req.amount else keys["clear"]
         for it, d in zip(items, discounts):
+            if header_only:
+                clearing_pos.append(None)
+                continue
             lines.append(LineRequest(
                 bschl=clear_keys[0 if it.shkzg == inv_side else 1], account=req.account,
                 wrbtr=it.wrbtr, zuonr=it.zuonr, sgtxt=text or f"Clearing {it.belnr}",
@@ -200,13 +241,14 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
         mandt=mandt, bukrs=req.bukrs, blart=blart, bldat=req.bldat or req.budat, budat=req.budat,
         waers=cc.waers, xblnr=req.xblnr, bktxt=req.bktxt, usnam=req.usnam,
         tcode=req.tcode or _TCODES[(req.koart, bool(req.amount))],
-        lines=lines,
+        lines=lines, xclear=True,
     ), commit=False)
 
     by_buzei = {i.buzei: i for i in header.items}
     cleared = []
     for it, pos, d in zip(items, clearing_pos, discounts):
-        for row in (it, by_buzei[pos]):
+        rows = [it] if pos is None else [it, by_buzei[pos]]
+        for row in rows:
             row.augbl, row.auggj, row.augdt, row.augcp = header.belnr, header.gjahr, req.budat, date.today()
         cleared.append({"belnr": it.belnr, "gjahr": it.gjahr, "buzei": it.buzei,
                         "amount": _signed(it, inv_side), "discount": d})
@@ -218,8 +260,17 @@ def _post_payment(session: Session, mandt: str, req: PaymentRequest, commit: boo
     return {
         "belnr": header.belnr, "gjahr": header.gjahr, "blart": header.blart, "mode": req.mode,
         "amount": req.amount, "open_total": open_total, "discount": discount,
-        "residual": residual, "cleared": cleared,
+        "tax_adjustment": tax_adjustment, "difference": difference, "residual": residual,
+        "cleared": cleared,
     }
+
+
+def _check_open_item_account(session: Session, mandt: str, bukrs: str, saknr: str) -> None:
+    gl = session.get(GLAccountCompanyCode, (mandt, bukrs, saknr))
+    if gl is None:
+        raise PostingError(f"G/L account {saknr} not created in company code {bukrs}")
+    if not gl.xopvw or gl.mitkz:
+        raise PostingError(f"G/L account {saknr} is not managed on an open item basis")
 
 
 def _open_item(
@@ -229,9 +280,11 @@ def _open_item(
     ref = f"{belnr}/{gjahr}/{buzei}"
     if it is None:
         raise PostingError(f"Line item {ref} does not exist in company code {req.bukrs}")
-    partner = it.kunnr if req.koart == "D" else it.lifnr
-    if it.koart != req.koart or partner != req.account:
+    account = {"D": it.kunnr, "K": it.lifnr, "S": it.hkont}[req.koart]
+    if it.koart != req.koart or account != req.account:
         raise PostingError(f"Line item {ref} is not an item of account {req.account}")
+    if not it.xopvw:
+        raise PostingError(f"Line item {ref} is not an open item")
     if it.augbl:
         raise PostingError(f"Line item {ref} is already cleared by document {it.augbl}")
     if it.header.waers != local:
@@ -246,27 +299,81 @@ def _signed(it: AccountingDocumentItem, inv_side: str) -> Decimal:
     return it.wrbtr if it.shkzg == inv_side else -it.wrbtr
 
 
-def _auto_account(session: Session, mandt: str, ktopl: str, ktosl: str) -> str:
+def _auto_account(session: Session, mandt: str, ktopl: str, ktosl: str, *, credit: bool = False) -> str:
     row = session.get(AutomaticAccountDetermination, (mandt, ktopl, ktosl, "", "", ""))
     if row is None:
         raise PostingError(f"No G/L account for transaction key {ktosl} in chart of accounts {ktopl} (T030)")
-    return row.konts
+    return (row.konth or row.konts) if credit else row.konts
+
+
+def _discount_tax(
+    items: list[AccountingDocumentItem], discounts: list[Decimal], inv_side: str
+) -> dict[tuple[str, str], Decimal]:
+    """Tax portion of each gross discount, by (tax code, tax account).
+
+    The portion is the discount times the share of each tax line of the
+    invoice in the invoice's gross sub-ledger amount.
+    """
+    out: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+    for it, d in zip(items, discounts):
+        if not d:
+            continue
+        doc_lines = it.header.items
+        gross = sum((l.wrbtr for l in doc_lines if l.koart == it.koart and l.shkzg == inv_side), Decimal("0"))
+        for t in doc_lines:
+            if t.buzid == "T" and t.mwskz and gross:
+                amt = (d * t.wrbtr / gross).quantize(_CENT, ROUND_HALF_UP)
+                if amt:
+                    out[(t.mwskz, t.hkont)] += amt
+    return dict(out)
+
+
+def _tolerance(
+    session: Session, mandt: str, bukrs: str, koart: str, account: str
+) -> CustomerVendorTolerance | None:
+    """T043G entry for the partner's tolerance group (KNB1/LFB1-TOGRU), else the default group."""
+    if koart not in ("D", "K"):
+        return None
+    master = (session.get(CustomerCompanyCode, (mandt, account, bukrs)) if koart == "D"
+              else session.get(VendorCompanyCode, (mandt, account, bukrs)))
+    togru = master.togru if master and master.togru else ""
+    return (session.get(CustomerVendorTolerance, (mandt, bukrs, togru))
+            or session.get(CustomerVendorTolerance, (mandt, bukrs, "")))
+
+
+def _within(tol: CustomerVendorTolerance, koart: str, residual: Decimal, open_total: Decimal) -> bool:
+    """Is the remaining difference inside the amount and percentage limit of its direction?"""
+    gain = (residual > 0) == (koart == "K")  # vendor underpaid / customer overpaid
+    amount, pct = (tol.betrh, tol.prozh) if gain else (tol.betrs, tol.prozs)
+    limit = min(amount or Decimal("0"), (abs(open_total) * (pct or 0) / 100).quantize(_CENT, ROUND_HALF_UP))
+    return abs(residual) <= limit
+
+
+def tolerance_limits(session: Session, mandt: str, bukrs: str, koart: str, account: str) -> dict:
+    """Permitted payment differences for a partner (for the UI)."""
+    tol = _tolerance(session, mandt, bukrs, koart, account)
+    if tol is None:
+        return {"togru": None, "gain_amount": 0, "gain_pct": 0, "loss_amount": 0, "loss_pct": 0}
+    return {"togru": tol.togru, "gain_amount": tol.betrh, "gain_pct": tol.prozh,
+            "loss_amount": tol.betrs, "loss_pct": tol.prozs}
 
 
 def proposal(
     session: Session, mandt: str, bukrs: str, koart: str, account: str, budat: date
 ) -> list[dict]:
-    """Open items of a partner with due date and the cash discount available on ``budat``."""
+    """Open items of an account with due date and the cash discount available on ``budat``."""
     if koart not in _KEYS:
-        raise PostingError("Account type must be D (customer) or K (vendor)")
+        raise PostingError("Account type must be D (customer), K (vendor) or S (G/L account)")
     inv_side = _KEYS[koart]["inv_side"]
-    partner = AccountingDocumentItem.kunnr if koart == "D" else AccountingDocumentItem.lifnr
+    account_col = {"D": AccountingDocumentItem.kunnr, "K": AccountingDocumentItem.lifnr,
+                   "S": AccountingDocumentItem.hkont}[koart]
     items = session.scalars(
         select(AccountingDocumentItem).where(
             AccountingDocumentItem.mandt == mandt,
             AccountingDocumentItem.bukrs == bukrs,
             AccountingDocumentItem.koart == koart,
-            partner == account,
+            account_col == account,
+            AccountingDocumentItem.xopvw.is_(True),
             AccountingDocumentItem.augbl.is_(None),
         ).order_by(AccountingDocumentItem.gjahr, AccountingDocumentItem.belnr, AccountingDocumentItem.buzei)
     ).all()

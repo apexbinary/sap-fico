@@ -72,18 +72,19 @@ def account_balance(
     session: Session = Depends(get_session),
 ) -> dict:
     return reporting.account_balance(
-        session, mandt or settings.default_client, bukrs, gjahr, saknr.zfill(10), period_to
+        session, mandt or settings.default_client, bukrs, gjahr, saknr, period_to
     )
 
 
-@router.get("/reports/open-items", tags=["Reports"], summary="Open items (FBL5N/FBL1N)")
+@router.get("/reports/open-items", tags=["Reports"], summary="Open items (FBL5N/FBL1N/FBL3N)")
 def open_items(
     bukrs: str, koart: str, account: str, only_open: bool = True,
     mandt: str = Query(default=None),
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    if koart not in ("D", "K"):
-        raise HTTPException(status_code=400, detail="koart must be 'D' (customer) or 'K' (vendor)")
+    if koart not in ("D", "K", "S"):
+        raise HTTPException(status_code=400, detail="koart must be 'D' (customer), 'K' (vendor) or 'S' (G/L)")
     return reporting.open_items(
-        session, mandt or settings.default_client, bukrs, koart, account.zfill(10), only_open
+        session, mandt or settings.default_client, bukrs, koart,
+        account if koart == "S" else account.zfill(10), only_open,
     )

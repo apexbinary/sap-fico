@@ -1,7 +1,8 @@
-"""End-to-end check for payments & clearing (F-28 / F-53 / F-32 / F-44).
+"""End-to-end check for payments & clearing (F-28 / F-53 / F-32 / F-44 / F-03).
 
-Covers: payment with cash discount, partial payment, residual item, clearing a
-residual against a credit memo, vendor payment with discount received, and the
+Covers: payment with cash discount (and its tax adjustment), partial payment,
+residual item, header-only clearing of a residual against a credit memo, vendor
+payment with discount received, tolerances, F-03 G/L clearing, and the
 error paths. Run after app.seed:  python -m app.verify_payments
 """
 
@@ -57,6 +58,11 @@ def main() -> None:
                                              amount=D("1154.30"), hkont=BANK, items=[k1]))
         _show("1 Payment with cash discount", res)
         assert res["discount"] == D("35.70") and _item(s, k1).augbl == res["belnr"]
+        # 19% of the gross discount is output tax: 35.70 * 190 / 1190 = 5.70 corrects 175000
+        assert res["tax_adjustment"] == D("5.70"), res
+        pay1 = s.get(AccountingDocumentHeader, (MANDT, BUKRS, res["belnr"], res["gjahr"]))
+        assert any(i.hkont == "175000" and i.shkzg == "S" and i.wrbtr == D("5.70") for i in pay1.items)
+        assert any(i.hkont == "880000" and i.wrbtr == D("30.00") for i in pay1.items)
 
         # 2) partial payment, then the rest clears invoice + partial payment together
         inv2 = _customer_invoice(s, date(2026, 4, 2), "2380.00", "2000.00", ref="PAY-2")
@@ -95,6 +101,8 @@ def main() -> None:
             items=[(resid_line["belnr"], resid_line["gjahr"], resid_line["buzei"]), km]))
         _show("3b F-32 clearing", clr)
         assert clr["blart"] == "AB" and _item(s, km).augbl == clr["belnr"]
+        clr_doc = s.get(AccountingDocumentHeader, (MANDT, BUKRS, clr["belnr"], clr["gjahr"]))
+        assert clr_doc.items == [], "a zero-balance clearing is a header without line items"
 
         # 4) F-53 vendor payment on ZB01 (vendor master) inside the 30-day / 2% period
         vinv = post_document(s, DocumentRequest(
@@ -109,6 +117,43 @@ def main() -> None:
                                               amount=D("980.00"), hkont=BANK, items=[kv]))
         _show("4 Vendor payment with discount", vpay)
         assert vpay["discount"] == D("20.00") and _item(s, kv).augbl == vpay["belnr"]
+
+        # 6) payment differences within the tolerance (2.00 EUR / 1%) are posted to ZDI
+        inv6 = _customer_invoice(s, date(2026, 5, 5), "595.00", "500.00", ref="PAY-6")
+        under = post_payment(s, PaymentRequest(bukrs=BUKRS, koart="D", account=CUST, budat=date(2026, 5, 6),
+                                               amount=D("594.00"), hkont=BANK, items=[_partner_line(inv6, "D")]))
+        _show("6a Underpayment within tolerance", under)
+        assert under["difference"] == D("1.00")
+        inv7 = _customer_invoice(s, date(2026, 5, 5), "238.00", "200.00", ref="PAY-7")
+        over = post_payment(s, PaymentRequest(bukrs=BUKRS, koart="D", account=CUST, budat=date(2026, 5, 6),
+                                              amount=D("239.50"), hkont=BANK, items=[_partner_line(inv7, "D")]))
+        _show("6b Overpayment within tolerance", over)
+        assert over["difference"] == D("-1.50")
+        diff_docs = [s.get(AccountingDocumentHeader, (MANDT, BUKRS, r["belnr"], r["gjahr"])) for r in (under, over)]
+        assert any(i.hkont == "880100" and i.shkzg == "S" for i in diff_docs[0].items)  # loss
+        assert any(i.hkont == "880200" and i.shkzg == "H" for i in diff_docs[1].items)  # gain
+
+        # 7) F-03: clear open items of an open-item-managed G/L account (header-only document)
+        for debit, credit in [("113109", "113100"), ("476000", "113109")]:
+            post_document(s, DocumentRequest(
+                bukrs=BUKRS, blart="SA", bldat=date(2026, 5, 7), budat=date(2026, 5, 7), waers="EUR",
+                bktxt="Clearing account test", lines=[
+                    LineRequest(bschl="40", account=debit, wrbtr=D("300.00"), zuonr="F03-TEST"),
+                    LineRequest(bschl="50", account=credit, wrbtr=D("300.00"), zuonr="F03-TEST"),
+                ]))
+        gl_items = [p for p in proposal(s, MANDT, BUKRS, "S", "113109", date(2026, 5, 8)) if p["zuonr"] == "F03-TEST"]
+        assert len(gl_items) == 2 and sum(p["open"] for p in gl_items) == 0, gl_items
+        f03 = post_payment(s, PaymentRequest(bukrs=BUKRS, koart="S", account="113109", budat=date(2026, 5, 8),
+                                             items=[(p["belnr"], p["gjahr"], p["buzei"]) for p in gl_items]))
+        _show("7 F-03 G/L clearing", f03)
+        assert all(_item(s, (p["belnr"], p["gjahr"], p["buzei"])).augbl == f03["belnr"] for p in gl_items)
+        try:
+            post_payment(s, PaymentRequest(bukrs=BUKRS, koart="S", account="113100", budat=date(2026, 5, 8),
+                                           items=[(p["belnr"], p["gjahr"], p["buzei"]) for p in gl_items]))
+        except PostingError as exc:
+            print("7 rejected (not open-item managed):", exc)
+        else:
+            raise AssertionError("113100 is not managed on an open item basis")
 
         # 5) error paths
         inv5 = _customer_invoice(s, date(2026, 5, 2), "119.00", "100.00", ref="PAY-5")

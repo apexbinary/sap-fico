@@ -160,6 +160,13 @@ function addLine(defaultBschl) {
   fillAccounts(row);
 }
 
+// Options for a customer (D), vendor (K) or open-item-managed G/L account (S) dropdown.
+function accountOptions(koart) {
+  if (koart === "S") return state.glAccounts.filter((a) => a.xopvw && !a.mitkz).map((a) => `<option value="${a.saknr}">${a.saknr} — ${esc(a.name)}</option>`).join("");
+  const list = koart === "D" ? state.customers : state.vendors;
+  return list.map((a) => `<option value="${a.kunnr || a.lifnr}">${a.kunnr || a.lifnr} — ${esc(a.name1)}</option>`).join("");
+}
+
 function koartOf(bschl) { const p = state.postingKeys.find((p) => p.bschl === bschl); return p ? p.koart : "S"; }
 function shkzgOf(bschl) { const p = state.postingKeys.find((p) => p.bschl === bschl); return p ? p.shkzg : "S"; }
 
@@ -257,17 +264,13 @@ views["open-items"] = async (c) => {
   c.innerHTML = `
     <div class="page-head"><div><h1>Open Items</h1><div class="sub">Customer (A/R) and vendor (A/P) open items</div></div></div>
     <div class="toolbar">
-      <div class="field"><label>Account type</label><select id="oi-koart"><option value="D">Customer (D)</option><option value="K">Vendor (K)</option></select></div>
+      <div class="field"><label>Account type</label><select id="oi-koart"><option value="D">Customer (D)</option><option value="K">Vendor (K)</option><option value="S">G/L account (S)</option></select></div>
       <div class="field"><label>Account</label><select id="oi-acct"></select></div>
       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="oi-open" checked> Only open</label>
       <button class="btn" id="oi-go">Show</button>
     </div>
     <div id="oi-result"></div>`;
-  const fillAcct = () => {
-    const koart = $("#oi-koart").value;
-    const list = koart === "D" ? state.customers : state.vendors;
-    $("#oi-acct").innerHTML = list.map((a) => `<option value="${a.kunnr || a.lifnr}">${a.kunnr || a.lifnr} — ${esc(a.name1)}</option>`).join("");
-  };
+  const fillAcct = () => { $("#oi-acct").innerHTML = accountOptions($("#oi-koart").value); };
   $("#oi-koart").onchange = fillAcct; fillAcct();
   $("#oi-go").onclick = async () => {
     const koart = $("#oi-koart").value, acct = $("#oi-acct").value, only = $("#oi-open").checked;
@@ -289,10 +292,10 @@ views.payments = async (c) => {
   let items = [];
   c.innerHTML = `
     <div class="page-head"><div><h1>Payments &amp; Clearing</h1>
-      <div class="sub">Incoming / outgoing payment with clearing (F-28 / F-53) · clear open items against each other (F-32 / F-44)</div></div></div>
+      <div class="sub">Incoming / outgoing payment with clearing (F-28 / F-53) · clear open items against each other (F-32 / F-44 / F-03)</div></div></div>
     <div class="card"><div class="card-body">
       <div class="form-grid">
-        <div class="field"><label>Account type</label><select id="p-koart"><option value="D">Customer — incoming payment</option><option value="K">Vendor — outgoing payment</option></select></div>
+        <div class="field"><label>Account type</label><select id="p-koart"><option value="D">Customer — incoming payment</option><option value="K">Vendor — outgoing payment</option><option value="S">G/L account — clear open items (F-03)</option></select></div>
         <div class="field"><label class="req">Account</label><select id="p-acct"></select></div>
         <div class="field"><label class="req">Posting date</label><input id="p-budat" type="date" value="${todayISO()}"></div>
         <div class="field"><label>House bank</label><select id="p-bank"><option value="">— none (clearing only) —</option>${banks.map((b) => `<option value="${b.hbkid}:${b.hktid}">${b.hbkid}/${b.hktid} · G/L ${b.hkont}</option>`).join("")}</select></div>
@@ -317,16 +320,23 @@ views.payments = async (c) => {
       <button class="btn" id="p-post" disabled>Post</button>
     </div></div>`;
 
+  let tol = null;  // permitted payment differences (T043G) of the selected partner
+  const isGL = () => $("#p-koart").value === "S";
   const fillAcct = () => {
-    const list = $("#p-koart").value === "D" ? state.customers : state.vendors;
-    $("#p-acct").innerHTML = list.map((a) => `<option value="${a.kunnr || a.lifnr}">${a.kunnr || a.lifnr} — ${esc(a.name1)}</option>`).join("");
+    $("#p-acct").innerHTML = accountOptions($("#p-koart").value);
+    // G/L open items are cleared without a payment
+    ["#p-amt", "#p-bank", "#p-disc"].forEach((s) => ($(s).disabled = isGL()));
+    if (isGL()) { $("#p-amt").value = "0.00"; $("#p-bank").value = ""; }
   };
   const selected = () => [...document.querySelectorAll(".p-pick:checked")].map((cb) => items[Number(cb.dataset.i)]);
   const usesDiscount = () => $("#p-disc").checked && ["clear", "residual"].includes($("#p-mode").value);
 
   const load = async () => {
     const q = `bukrs=${state.bukrs}&koart=${$("#p-koart").value}&account=${$("#p-acct").value}&budat=${$("#p-budat").value}`;
-    items = await api(`/payments/open-items?${q}`);
+    [items, tol] = await Promise.all([
+      api(`/payments/open-items?${q}`),
+      isGL() ? null : api(`/payments/tolerance?bukrs=${state.bukrs}&koart=${$("#p-koart").value}&account=${$("#p-acct").value}`),
+    ]);
     $("#p-items").innerHTML = `<table><thead><tr><th></th><th>Document</th><th>PK</th><th>Posting date</th><th>Net due</th><th>Terms</th><th>Text</th><th class="num">Open</th><th class="num">Disc. %</th><th class="num">Discount</th><th class="num">Net</th></tr></thead>
       <tbody>${items.map((i, n) => `<tr><td><input type="checkbox" class="p-pick" data-i="${n}"></td>
         <td class="mono"><a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a></td><td>${i.bschl}</td><td>${i.budat}</td>
@@ -348,8 +358,19 @@ views.payments = async (c) => {
     $("#p-sel").textContent = fmt(open); $("#p-dsum").textContent = fmt(disc);
     $("#p-paid").textContent = fmt(paid); $("#p-diff").textContent = fmt(diff);
     let ok = false, msg;
+    const tolerated = () => {
+      if (!tol || !diff) return false;
+      const gain = (diff > 0) === ($("#p-koart").value === "K");
+      const [amt, pct] = gain ? [tol.gain_amount, tol.gain_pct] : [tol.loss_amount, tol.loss_pct];
+      return Math.abs(diff) <= Math.min(Number(amt), Math.round(Math.abs(open) * Number(pct)) / 100);
+    };
     if (paid > 0 && !$("#p-bank").value) msg = "Choose a house bank";
-    else if (mode === "clear") { ok = sel.length > 0 && diff === 0; msg = !sel.length ? "Select items" : ok ? "Balanced — ready to clear" : "Difference must be 0"; }
+    else if (isGL() && !["clear", "residual"].includes(mode)) msg = "G/L accounts: clear or residual only";
+    else if (mode === "clear") {
+      ok = sel.length > 0 && (diff === 0 || tolerated());
+      msg = !sel.length ? "Select items" : diff === 0 ? "Balanced — ready to clear"
+        : ok ? `Difference ${fmt(diff)} within tolerance — posted as payment difference` : "Difference exceeds tolerance";
+    }
     else if (mode === "residual") { ok = sel.length > 0; msg = ok ? (diff ? `Residual item ${fmt(diff)}` : "Balanced — ready to clear") : "Select items"; }
     else if (mode === "partial") { ok = sel.length === 1 && paid > 0 && paid < Math.abs(open); msg = ok ? "Partial payment" : "Select one item and pay less than its open amount"; }
     else { ok = sel.length === 0 && paid > 0; msg = ok ? "Payment on account" : "Enter an amount and select no items"; }

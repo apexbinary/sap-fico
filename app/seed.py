@@ -9,6 +9,7 @@ Creates:
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
   * Terms of payment 0001 / NT30 / ZB01 and cash discount accounts (SKT/SKE)
   * F110: payment method T (SEPA transfer), bank determination, vendor bank details
+  * Payment-difference tolerances (T043G, key ZDI) and open-item G/L account 113109
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
 Run:  python -m app.seed
@@ -58,10 +59,14 @@ from app.models.payments import (
     AutomaticAccountDetermination,
     BankDetermination,
     CompanyCodePaymentMethod,
+    CustomerVendorTolerance,
     PaymentMethod,
     PaymentTerms,
 )
 from app.models.tax import Country, TaxAccount, TaxCode, TaxRate
+
+# G/L accounts managed on an open item basis (SKB1-XOPVW), cleared with F-03.
+OPEN_ITEM_GL = {"113109"}
 
 MANDT = "100"
 BUKRS = "1000"
@@ -77,6 +82,7 @@ def _gl_accounts():
     return [
         ("100000", "Subscribed capital", True, "GL00", None, None),
         ("113100", "Bank (main account)", True, "GL00", None, None),
+        ("113109", "Bank clearing account (open items)", True, "GL00", None, None),
         ("140000", "Trade receivables - domestic", True, "RECN", "D", None),
         ("154000", "Input tax (VST)", True, "GL00", None, "<"),
         ("160000", "Trade payables - domestic", True, "RECN", "K", None),
@@ -86,6 +92,8 @@ def _gl_accounts():
         ("480000", "Depreciation expense", False, "PL00", None, None),
         ("800000", "Sales revenue - domestic", False, "PL00", None, "A1"),
         ("880000", "Cash discount granted", False, "PL00", None, None),
+        ("880100", "Payment differences - loss", False, "PL00", None, None),
+        ("880200", "Payment differences - gain", False, "PL00", None, None),
         ("276000", "Cash discount received", False, "GL00", None, None),
         ("011000", "Machinery (acquisition cost)", True, "GL00", None, None),
         ("011010", "Accumulated depreciation - machinery", True, "GL00", None, None),
@@ -140,7 +148,7 @@ def seed() -> None:
             s.merge(GLAccountText(mandt=MANDT, spras="E", ktopl=KTOPL, saknr=saknr, txt20=name[:20], txt50=name, mcod1=name[:25].upper()))
             s.merge(GLAccountCompanyCode(
                 mandt=MANDT, bukrs=BUKRS, saknr=saknr, waers="EUR", xkres=True,
-                mwskz=taxcat, mitkz=recon, xopvw=recon is not None,
+                mwskz=taxcat, mitkz=recon, xopvw=recon is not None or saknr in OPEN_ITEM_GL,
                 fstag="G001", zuawa="001", erdat="20260101", ernam="SEED",
             ))
 
@@ -218,6 +226,9 @@ def seed() -> None:
             ))
         s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKT", bwmod="", komok="", bklas="", konts="880000"))
         s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKE", bwmod="", komok="", bklas="", konts="276000"))
+        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="ZDI", bwmod="", komok="", bklas="", konts="880100", konth="880200"))
+        # Default tolerance group: differences up to 2.00 EUR and 1% are posted automatically.
+        s.merge(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
 
         # --- Demo customer & vendor ---
         s.merge(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))

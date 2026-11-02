@@ -79,6 +79,7 @@ app/
     bank.py            BNKA T012 T012K FEBKO FEBEP
     payments.py        T052 (terms of payment) T030 (automatic accounts: SKT/SKE)
                        T042Z T042E T042I (F110 payment methods, limits, bank ranking)
+                       T043G (customer/vendor payment-difference tolerances)
     payment_run.py     REGUV REGUH REGUP (F110 run control, payees, paid items)
   services/          business logic (the "application layer")
     fiscal.py          period determination (T009B), open-period check (T001B), PostingError
@@ -88,8 +89,9 @@ app/
                        asset value updates (ANEP/ANLC)
     asset_accounting.py  create_asset, post_acquisition, run_depreciation (straight-line)
     payment_terms.py   T052 -> BSEG terms fields, net due date, cash discount
-    clearing.py        post_payment(): F-28/F-53 payments + F-32/F-44 clearing;
-                       modes clear / residual / partial / on_account; proposal()
+    clearing.py        post_payment(): F-28/F-53 payments + F-32/F-44/F-03 clearing;
+                       modes clear / residual / partial / on_account; tolerances,
+                       discount tax adjustment; proposal()
     payment_run.py     F110: create_proposal / execute / sepa_credit_transfer (pain.001)
     bank.py            import_statement, post_statement (auto-match + clear via clearing.py)
     reporting.py       trial_balance, account_balance, open_items
@@ -122,7 +124,9 @@ scripts/             setup_postgres.sql
   and due dates are always read from the line, never from T052.
 - Clearing posts one document via `post_document(..., commit=False)` and stamps
   AUGBL/AUGGJ/AUGDT on the settled items and their offsetting lines in the
-  same transaction. Open items = D/K lines with empty AUGBL.
+  same transaction. Open items = BSEG lines with XOPVW set (all D/K lines, G/L
+  lines of SKB1-XOPVW accounts) and empty AUGBL. A zero-balance clearing posts
+  a BKPF header without line items (`DocumentRequest.xclear`).
 - F110 never posts by itself: `payment_run.execute` calls `clearing.post_payment`
   once per REGUH group; groups with an `exception` are skipped.
 - Seed merges must set every primary-key column explicitly (column defaults
@@ -143,6 +147,8 @@ Terms of payment 0001 (net), NT30, ZB01 (14d 3% / 30d 2% / 45d net); customer
 transfer, needs payee IBAN), min 1.00 EUR, bank ranking DB/GIRO -> G/L 113100,
 document type ZP. Vendor 0000020000 has LFBK bank details and ZWELS T; vendor
 0000020001 (Gamma Logistics) has none, so it shows up as an F110 exception.
+Tolerance group '' (T043G): gain and loss up to 2.00 EUR and 1%, posted via
+T030 ZDI to 880100 (loss) / 880200 (gain). G/L 113109 is open-item managed.
 
 ## Status
 
@@ -154,8 +160,11 @@ clearing), reporting, REST API, and web UI are done and pass the verify scripts.
 incoming/outgoing payments with clearing (F-28/F-53), clearing without payment
 (F-32/F-44), cash discount, partial payments and residual items, bank statement
 auto-matching through the same service, "Payments & Clearing" UI screen.
-Known gaps: no tax adjustment on cash discount, no payment-difference
-tolerances (T043/T043G), local currency only.
+Also done: G/L open-item clearing (F-03), payment-difference tolerances
+(T043G -> ZDI), tax adjustment on cash discount (proportional to the
+invoice's tax lines), header-only zero-balance clearing documents.
+Known gaps: local currency only; T043G column names need checking against
+the SAP DDIC; tolerances per employee (T043T) and reason codes are missing.
 
 **Automatic payment program F110 — done (vendors):** parameters, proposal
 (due / cash-discount rule, credit-memo offset, payment method and house bank
@@ -165,8 +174,8 @@ available amounts per bank (T042Y), checks, bank clearing sub-accounts.
 
 ## Roadmap / likely next tasks
 
-1. **Payments (rest)**: G/L open-item clearing (F-03), payment-difference
-   tolerances, net tax adjustment on cash discount, F110 for customers.
+1. **Payments (rest)**: F110 for customers (direct debit, pain.008), bank
+   clearing sub-account flow (F110 -> 113109 -> bank statement -> F-03).
 2. **Financial Statement Version (FSV)**: balance sheet & P&L hierarchy over the
    trial balance.
 3. **Dunning** (FBMP/F150), **foreign-currency valuation**, **recurring entries**,

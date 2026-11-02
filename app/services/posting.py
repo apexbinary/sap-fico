@@ -90,6 +90,7 @@ class DocumentRequest:
     tcode: str | None = None  # Transaction code
     kokrs: str | None = None  # Controlling area (for CO integration)
     mandt: str | None = None  # Client (defaults to settings)
+    xclear: bool = False  # Clearing document: may have no line items (zero-balance clearing)
 
 
 def _to_local(amount: Decimal, rate: Decimal) -> Decimal:
@@ -172,6 +173,7 @@ class _ResolvedLine:
     mwsts: Decimal | None = None
     ktosl: str | None = None
     terms: object | None = None  # T052 terms of payment (sub-ledger invoice lines)
+    xopvw: bool = False  # Open item management (D/K always; G/L per SKB1-XOPVW)
 
 
 def post_document(
@@ -220,8 +222,9 @@ def _post(
                 f"Document type {req.blart} does not allow account type '{pk.koart}'"
             )
 
+        xopvw = pk.koart in ("D", "K")
         if pk.koart == "S":
-            _validate_gl_account(session, mandt, req.bukrs, ln.account)
+            xopvw = _validate_gl_account(session, mandt, req.bukrs, ln.account).xopvw
             hkont, saknr, kunnr, lifnr = ln.account, ln.account, None, None
         elif pk.koart == "D":
             hkont = _reconciliation_account(session, mandt, req.bukrs, "D", ln.account)
@@ -242,6 +245,7 @@ def _post(
         rl = _ResolvedLine(
             bschl=ln.bschl, koart=pk.koart, shkzg=pk.shkzg, hkont=hkont, saknr=saknr,
             kunnr=kunnr, lifnr=lifnr, wrbtr=ln.wrbtr, dmbtr=dmbtr, src=ln, mwskz=ln.mwskz,
+            xopvw=xopvw,
         )
         # Invoices / credit memos (sales-related keys) carry terms of payment;
         # other sub-ledger lines only when terms are entered explicitly.
@@ -273,7 +277,8 @@ def _post(
             )
 
     all_lines = resolved + tax_lines
-    if len(all_lines) < 2:
+    # SAP posts a zero-balance clearing as a header without line items.
+    if len(all_lines) < 2 and not (req.xclear and not all_lines):
         raise PostingError("A document must have at least two line items")
 
     _check_balanced(all_lines, req.waers, local_currency)
@@ -320,7 +325,7 @@ def _post(
             aufnr=(src.aufnr if src else None),
             prctr=(src.prctr if src else None),
             kokrs=req.kokrs or cc.kokfi,
-            xopvw=rl.koart in ("D", "K"),
+            xopvw=rl.xopvw,
             anln1=(src.account if src and rl.koart == "A" else None),
             anln2=(src.anln2 if src and rl.koart == "A" else None),
             anbwa=(src.anbwa if src and rl.koart == "A" else None),

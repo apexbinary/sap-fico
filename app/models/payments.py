@@ -8,6 +8,7 @@ Tables modelled here:
     T042Z  Payment methods per country (automatic payment program, F110)
     T042E  Payment methods per company code (amount limits)
     T042I  Bank determination: ranking of house banks per payment method
+    T043G  Tolerances for customers/vendors (permitted payment differences)
 """
 
 from __future__ import annotations
@@ -102,3 +103,25 @@ class BankDetermination(Base):
     hbkid: Mapped[str] = mapped_column(String(5))  # House bank
     hktid: Mapped[str] = mapped_column(String(5))  # House bank account ID
     ukont: Mapped[str] = mapped_column(String(10))  # G/L account posted by the payment (bank / sub-account)
+
+
+class CustomerVendorTolerance(Base):
+    """T043G — Customer/vendor tolerances per company code and tolerance group.
+
+    A payment difference is posted automatically (T030 key ZDI) when it is
+    within both the amount and the percentage limit of its direction. Gain and
+    loss are seen from the company: a customer underpaying is a loss, a vendor
+    being underpaid is a gain. Tolerance group '' is the company-code default.
+    The amount/percent column names follow the OBA3 screen and still need
+    checking against the SAP data dictionary.
+    """
+
+    __tablename__ = "t043g"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    togru: Mapped[str] = mapped_column(String(4), primary_key=True, default="")  # Tolerance group
+    betrh: Mapped[Decimal] = mapped_column(Numeric(13, 2), default=Decimal("0"))  # Permitted difference: gain, amount
+    prozh: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"))  # Permitted difference: gain, percent
+    betrs: Mapped[Decimal] = mapped_column(Numeric(13, 2), default=Decimal("0"))  # Permitted difference: loss, amount
+    prozs: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"))  # Permitted difference: loss, percent

@@ -18,6 +18,23 @@ is built, change its status.
 
 ---
 
+## Cockpit (home screen)
+
+| Widget | Content | Status |
+|---|---|---|
+| Key figures | sales and purchases (month / year, net), receivables (overdue), payables (due in 7 days), cash and bank, inventory value, gross / net profit (year), open sales orders, tax payable this month; each tile opens its screen | ✅ |
+| Sales and purchases (12 months) | monthly net sales vs purchases (bar chart) | ✅ |
+| Customer aging / vendor aging | open items: not yet due, 1-30, 31-60, 61-90, 90+ days | ✅ |
+| Top 5 customers / top 5 items | net sales of the year | ✅ |
+| Open documents | sales orders to deliver, deliveries to invoice, purchase orders to receive, goods receipts to invoice | ✅ |
+| Alerts | overdue items, credit limit exceeded, items below minimum stock, bank rows to reconcile, payment runs not executed | ✅ |
+| Cash and bank | balance per cash / bank account | ✅ |
+| Common functions | quick links to the most used forms | ✅ |
+| Customize: show / hide and order widgets per user | OCPT (UserSign, WidgetId, Position, Visible) | ✅ ⚠ OCPT is not a verified B1 table name |
+| Several cockpits per user, drag and drop, widget gallery / SAP Analytics (pervasive analytics designer), calendar and activities | | ⏸ |
+
+---
+
 ## Administration
 
 ### Company details (OADM)

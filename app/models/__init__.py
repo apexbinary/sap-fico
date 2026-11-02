@@ -7,6 +7,7 @@ from app.models.admin import (
     ExchangeRate,
     NumberingSeries,
     CashDiscount,
+    CockpitWidget,
     DunningLevel,
     DunningTerm,
     CashDiscountLine,
@@ -36,7 +37,7 @@ from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, 
 
 __all__ = [
     # administration
-    "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms", "PaymentTermsInstallment", "CashDiscount", "CashDiscountLine", "DunningTerm", "DunningLevel",
+    "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms", "PaymentTermsInstallment", "CashDiscount", "CashDiscountLine", "CockpitWidget", "DunningTerm", "DunningLevel",
     "SalesEmployee", "Project", "TransactionCode", "Country", "State", "TaxAuthority", "TaxComponent", "TaxType", "HsnCode", "TaxDetermination",
     # financials
     "Account", "JournalEntry", "JournalLine", "AccountDetermination", "ExchangeRateRun", "ExchangeRateRunLine",

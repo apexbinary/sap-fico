@@ -314,3 +314,18 @@ class TransactionCode(Base):
 
     trns_code: Mapped[str] = mapped_column("TrnsCode", String(4), primary_key=True)
     trns_cod_dsc: Mapped[str] = mapped_column("TrnsCodDsc", String(30))
+
+
+class CockpitWidget(Base):
+    """OCPT — Cockpit layout of a user: which widgets are shown and in which order.
+
+    Not B1-verified: B1 stores cockpits and their widgets in its own tables; this one keeps
+    the per-user widget list.
+    """
+
+    __tablename__ = "ocpt"
+
+    user_sign: Mapped[str] = mapped_column("UserSign", String(25), primary_key=True)
+    widget_id: Mapped[str] = mapped_column("WidgetId", String(30), primary_key=True)
+    position: Mapped[int] = mapped_column("Position")
+    visible: Mapped[str] = mapped_column("Visible", String(1), default="Y")

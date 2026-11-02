@@ -178,3 +178,28 @@ h3.section { margin: 16px 0 6px; font-size: 0.85em; text-transform: uppercase; l
   .content { margin: 0; padding: 0; }
   .card.letter { page-break-after: always; border: none; box-shadow: none; }
 }
+/* cockpit */
+.cockpit { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+.cockpit .card { margin: 0; }
+.cockpit .card.wide { grid-column: 1 / -1; }
+.cockpit a.tile, .cockpit a.tile:visited, .cockpit a.tile * { text-decoration: none; color: inherit; }
+.cockpit a.tile .value.good { color: var(--good); }
+.cockpit a.tile .value.bad { color: var(--bad); }
+.cockpit a.tile:hover { outline: 1px solid var(--muted); }
+.chart { width: 100%; height: 240px; display: block; }
+.chart .axis { stroke: var(--muted); stroke-width: 1; }
+.chart .lbl { fill: var(--muted); font-size: 10px; }
+.chart .bar-a, .legend .bar-a { fill: #4a90d9; background: #4a90d9; }
+.chart .bar-b, .legend .bar-b { fill: #e8a33d; background: #e8a33d; }
+.legend { font-size: 0.85em; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.hbars { display: flex; flex-direction: column; gap: 6px; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 40%) 1fr auto; gap: 8px; align-items: center; font-size: 0.9em; }
+.hbar .hl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar .ht { background: rgba(127, 127, 127, 0.15); border-radius: 3px; height: 10px; }
+.hbar .hf { display: block; background: #4a90d9; height: 10px; border-radius: 3px; }
+.hbar .hv { font-variant-numeric: tabular-nums; }
+.alerts { margin: 6px 0 0 18px; padding: 0; }
+.alerts li { margin: 3px 0; }
+.alerts li.bad { color: var(--bad); }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }

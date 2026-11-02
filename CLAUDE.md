@@ -64,6 +64,8 @@ app/
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
   services/fxreval.py exchange rate differences: preview / run (BP open items unrealized + reversed,
                       FC G/L accounts permanent), OEXR/EXR1 runs (models/finance.py)
+  services/cockpit.py cockpit data (KPIs, 12-month chart, aging, top 5, open documents, alerts);
+                      api_cockpit.py with the per-user widget layout (OCPT)
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -90,7 +92,9 @@ web/                  index.html, styles.css, app.js (shell, typed field builder
                       documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup),
                       banking.js (payments, deposits), tax.js (tax setup),
                       bankrec.js (bank statements, bank reconciliation), fxreval.js (exchange rate differences),
-                      dunning.js (dunning wizard, letters), paywiz.js (payment wizard)
+                      dunning.js (dunning wizard, letters), paywiz.js (payment wizard),
+                      cockpit.js (home screen; SVG charts, no chart library)
+                      index.html loads scripts / styles with ?v=N: raise N when they change
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
 

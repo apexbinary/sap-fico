@@ -141,26 +141,7 @@ function route() {
   Promise.resolve((views[view] || views.cockpit)(c)).catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
 }
 
-// ---------- Cockpit ----------
-views.cockpit = async (c) => {
-  const [pl, bs, jes] = await Promise.all([
-    api(`/reports/profit-and-loss?date_from=${yearStart()}&date_to=${yearEnd()}`),
-    api(`/reports/balance-sheet?as_of=${today()}`),
-    api("/journal-entries?limit=8"),
-  ]);
-  const cash = state.accounts.filter((a) => a.cash).reduce((s, a) => s + Number(a.balance), 0);
-  c.innerHTML = `
-    <div class="page-head"><div><h1>Cockpit</h1><div class="sub">${esc(state.company.company_name)} · ${new Date().getFullYear()}</div></div></div>
-    <div class="tiles">
-      <div class="tile"><div class="label">Cash and bank</div><div class="value">${fmt(cash)}</div><div class="foot">${esc(state.company.main_curncy)}</div></div>
-      <div class="tile"><div class="label">Total assets</div><div class="value">${fmt(bs.total_assets)}</div><div class="foot">as of today</div></div>
-      <div class="tile"><div class="label">Gross profit</div><div class="value">${fmt(pl.gross_profit)}</div><div class="foot">this year</div></div>
-      <div class="tile"><div class="label">Net profit</div><div class="value ${Number(pl.net_profit) >= 0 ? "good" : "bad"}">${fmt(pl.net_profit)}</div><div class="foot">this year</div></div>
-    </div>
-    <div class="card"><div class="card-head">Recent journal entries <a class="btn small secondary" href="#/journal-entry">New</a></div>
-      ${jeTable(jes)}</div>`;
-};
-
+// ---------- Cockpit: see cockpit.js ----------
 function jeTable(jes) {
   return `<table><thead><tr><th>No.</th><th>Posting date</th><th>Origin</th><th>Remarks</th><th class="num">Amount</th><th>Status</th></tr></thead>
     <tbody>${jes.map((e) => `<tr style="cursor:pointer" onclick="location.hash='#/journal?id=${e.trans_id}'">

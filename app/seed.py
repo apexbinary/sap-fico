@@ -128,6 +128,16 @@ FSV_ITEMS = [
 ]
 
 
+# TBSL-STBSL: the reversal key flips debit/credit and keeps the account type.
+REVERSAL_KEYS = {
+    "40": "50", "50": "40", "70": "75", "75": "70",
+    "01": "12", "12": "01", "11": "02", "02": "11", "15": "05", "05": "15",
+    "06": "16", "16": "06", "07": "17", "17": "07",
+    "21": "32", "32": "21", "31": "22", "22": "31", "25": "35", "35": "25",
+    "26": "36", "36": "26", "27": "37", "37": "27",
+}
+
+
 def seed() -> None:
     create_all()
     s = SessionLocal()
@@ -241,8 +251,13 @@ def seed() -> None:
             ("37", "Other clearing (vendor)", "H", "K", {}),
             ("70", "Debit asset", "S", "A", {}),
             ("75", "Credit asset", "H", "A", {}),
+            ("02", "Reverse credit memo (customer)", "S", "D", dict(xumsw=True)),
+            ("12", "Reverse invoice (customer)", "H", "D", dict(xumsw=True)),
+            ("22", "Reverse invoice (vendor)", "S", "K", dict(xumsw=True)),
+            ("32", "Reverse credit memo (vendor)", "H", "K", dict(xumsw=True)),
         ]:
-            s.merge(PostingKey(mandt=MANDT, bschl=bschl, ltext=txt, shkzg=shkzg, koart=koart, **extra))
+            s.merge(PostingKey(mandt=MANDT, bschl=bschl, ltext=txt, shkzg=shkzg, koart=koart,
+                               stbsl=REVERSAL_KEYS[bschl], **extra))
 
         # --- Terms of payment (T052) & cash discount accounts (T030) ---
         for zterm, text, t1, p1, t2, p2, t3 in [

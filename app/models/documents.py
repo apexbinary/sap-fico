@@ -65,6 +65,7 @@ class PostingKey(Base):
     xzahl: Mapped[bool] = mapped_column(default=False)  # Payment transaction
     xnegp: Mapped[bool] = mapped_column(default=False)  # Negative posting allowed
     xskrl: Mapped[bool] = mapped_column(default=False)  # Posting key for reversal/reset
+    stbsl: Mapped[str | None] = mapped_column(String(2))  # Posting key for reversal
     bustw: Mapped[str | None] = mapped_column(String(4))  # Posting string (internal)
     fdgrp: Mapped[str | None] = mapped_column(String(10))  # Default planning group
 

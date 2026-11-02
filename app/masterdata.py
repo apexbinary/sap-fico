@@ -125,5 +125,6 @@ def recent_documents(
             "belnr": h.belnr, "gjahr": h.gjahr, "blart": h.blart, "budat": h.budat.isoformat(),
             "bldat": h.bldat.isoformat(), "waers": h.waers, "bktxt": h.bktxt,
             "monat": h.monat, "amount": str(total), "items": len(h.items),
+            "bstat": h.bstat, "stblg": h.stblg, "stjah": h.stjah, "tcode": h.tcode, "xblnr": h.xblnr,
         })
     return out

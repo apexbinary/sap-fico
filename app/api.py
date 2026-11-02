@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -10,20 +12,16 @@ from app.config import settings
 from app.database import get_session
 from app.models.documents import AccountingDocumentHeader
 from app.schemas import DocumentIn, DocumentOut
-from app.services import fsv, reporting
+from app.services import fsv, reporting, reversal
 from app.services.fiscal import PostingError
-from app.services.posting import DocumentRequest, LineRequest, post_document
+from app.services.posting import DocumentRequest, LineRequest, delete_parked, post_document, post_parked
 
 router = APIRouter()
 
 
-@router.post("/documents", response_model=DocumentOut, tags=["Postings"], summary="Post a FI document (FB01)")
-def create_document(
-    doc: DocumentIn,
-    mandt: str = Query(default=None),
-    session: Session = Depends(get_session),
-) -> AccountingDocumentHeader:
-    req = DocumentRequest(
+def _request(doc: DocumentIn, mandt: str | None, bstat: str = " ") -> DocumentRequest:
+    return DocumentRequest(
+        bstat=bstat,
         mandt=mandt or settings.default_client,
         bukrs=doc.bukrs, blart=doc.blart, bldat=doc.bldat, budat=doc.budat,
         waers=doc.waers, kursf=doc.kursf, xblnr=doc.xblnr, bktxt=doc.bktxt,
@@ -38,8 +36,90 @@ def create_document(
             for l in doc.lines
         ],
     )
+
+
+@router.post("/documents", response_model=DocumentOut, tags=["Postings"], summary="Post a FI document (FB01)")
+def create_document(
+    doc: DocumentIn,
+    mandt: str = Query(default=None),
+    session: Session = Depends(get_session),
+) -> AccountingDocumentHeader:
     try:
-        return post_document(session, req)
+        return post_document(session, _request(doc, mandt))
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/documents/park", response_model=DocumentOut, tags=["Postings"], summary="Park a document (FV50 / F-65)")
+def park_document(
+    doc: DocumentIn,
+    mandt: str = Query(default=None),
+    session: Session = Depends(get_session),
+) -> AccountingDocumentHeader:
+    try:
+        return post_document(session, _request(doc, mandt, bstat="V"))
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _m(mandt: str | None) -> str:
+    return mandt or settings.default_client
+
+
+@router.post("/documents/{bukrs}/{gjahr}/{belnr}/post", response_model=DocumentOut, tags=["Postings"],
+             summary="Post a parked document (FBV0)")
+def post_parked_document(
+    bukrs: str, gjahr: int, belnr: str, mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> AccountingDocumentHeader:
+    try:
+        return post_parked(session, _m(mandt), bukrs, belnr, gjahr)
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/documents/{bukrs}/{gjahr}/{belnr}", tags=["Postings"], summary="Delete a parked document (FBV0)")
+def delete_parked_document(
+    bukrs: str, gjahr: int, belnr: str, mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> dict:
+    try:
+        delete_parked(session, _m(mandt), bukrs, belnr, gjahr)
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"deleted": f"{belnr.zfill(10)}/{gjahr}"}
+
+
+class ReverseIn(BaseModel):
+    budat: date | None = Field(None, description="Posting date of the reversal (default: original)")
+    stgrd: str = Field("01", description="Reversal reason: 01 current period, 02 closed period")
+
+
+@router.post("/documents/{bukrs}/{gjahr}/{belnr}/reverse", response_model=DocumentOut, tags=["Postings"],
+             summary="Reverse a document (FB08)")
+def reverse(
+    bukrs: str, gjahr: int, belnr: str, body: ReverseIn,
+    mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> AccountingDocumentHeader:
+    try:
+        return reversal.reverse_document(session, _m(mandt), bukrs, belnr, gjahr, budat=body.budat, stgrd=body.stgrd)
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ResetClearingIn(BaseModel):
+    reverse: bool = Field(False, description="Also reverse the clearing document")
+    budat: date | None = None
+    stgrd: str = "01"
+
+
+@router.post("/documents/{bukrs}/{gjahr}/{belnr}/reset-clearing", tags=["Postings"],
+             summary="Reset cleared items, optionally reverse (FBRA)")
+def reset_clearing(
+    bukrs: str, gjahr: int, belnr: str, body: ResetClearingIn,
+    mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> dict:
+    try:
+        return reversal.reset_clearing(session, _m(mandt), bukrs, belnr, gjahr,
+                                       reverse=body.reverse, budat=body.budat, stgrd=body.stgrd)
     except PostingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

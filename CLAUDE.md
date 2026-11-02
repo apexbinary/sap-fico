@@ -40,6 +40,7 @@ python -m app.verify_assets            # end-to-end asset + bank smoke test
 python -m app.verify_payments          # payments, cash discount, partial/residual, clearing
 python -m app.verify_payment_run       # F110 proposal, payment run, SEPA files, bank clearing
 python -m app.verify_fsv               # balance sheet / P&L by FSV, balance carryforward
+python -m app.verify_documents         # park / post parked / delete, reversal, reset clearing
 
 python -m uvicorn app.main:app --reload --port 8000
 # API docs: http://localhost:8000/docs   |   Web UI: http://localhost:8000/
@@ -60,7 +61,7 @@ scratch DB so they don't post test documents into it:
 
 ```bash
 docker run --rm -e DATABASE_URL=sqlite:////tmp/v.db cloned_system-app \
-  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv"
+  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents"
 ```
 
 ## Architecture (dependencies flow inward)
@@ -88,7 +89,9 @@ app/
     tax.py             tax calc + account determination
     posting.py         THE posting engine — post_document(); account types S/D/K/A,
                        balancing, posting keys, number ranges, GLT0, real-time CO (COEP),
-                       asset value updates (ANEP/ANLC)
+                       asset value updates (ANEP/ANLC); parked documents (bstat V,
+                       post_parked / delete_parked)
+    reversal.py        reverse_document (FB08, TBSL-STBSL keys), reset_clearing (FBRA)
     asset_accounting.py  create_asset, post_acquisition, run_depreciation (straight-line)
     payment_terms.py   T052 -> BSEG terms fields, net due date, cash discount
     clearing.py        post_payment(): F-28/F-53 payments + F-32/F-44/F-03 clearing;
@@ -101,7 +104,8 @@ app/
     reporting.py       trial_balance, account_balance, open_items
     fsv.py             financial_statement (balance sheet / P&L by FSV),
                        carry_forward (FAGLGVTR: GLT0-HSLVT, P&L -> retained earnings)
-  api.py             /api/documents, /api/reports/* (incl. financial-statement),
+  api.py             /api/documents (+ park, post, delete, reverse, reset-clearing),
+                     /api/reports/* (incl. financial-statement),
                      /api/closing/carry-forward
   masterdata.py      /api/master/* (company codes, GL accounts, partners, posting keys, ...)
   api_assets_bank.py /api/assets*, /api/bank*, /api/master/house-banks
@@ -109,7 +113,8 @@ app/
   api_payment_run.py /api/payment-runs (proposal, execute, sepa, sepa-dd, delete)
   main.py            FastAPI app; mounts routers under /api and the web UI at /
   seed.py            demo customizing + master data
-  verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV)
+  verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV,
+                     document lifecycle)
 web/                 index.html, styles.css, app.js (SPA)
 scripts/             setup_postgres.sql
 ```
@@ -134,6 +139,12 @@ scripts/             setup_postgres.sql
   same transaction. Open items = BSEG lines with XOPVW set (all D/K lines, G/L
   lines of SKB1-XOPVW accounts) and empty AUGBL. A zero-balance clearing posts
   a BKPF header without line items (`DocumentRequest.xclear`).
+- Parked documents (BKPF-BSTAT 'V') are numbered and stored but update nothing,
+  and their items have XOPVW off, so every open-item query (which filters on
+  XOPVW) ignores them. Deleted parked documents get BSTAT 'Z'.
+- A reversal uses each posting key's TBSL-STBSL, links both documents via
+  STBLG/STJAH and clears their open items against each other; cleared items
+  block a reversal until reset_clearing reopens them.
 - F110 never posts by itself: `payment_run.execute` calls `clearing.post_payment`
   once per REGUH group; groups with an `exception` are skipped.
 - Seed merges must set every primary-key column explicitly (column defaults
@@ -194,12 +205,17 @@ unassigned-account check, balance carryforward to the next year, UI screen.
 Known gaps: FSV maintenance UI (edit nodes/assignments), functional areas,
 carryforward of sub-ledger balances (open items are not year-bound here).
 
+**Document lifecycle — done:** parking (FV50) with post (FBV0) and delete,
+reversal (FB08) with reasons 01/02, reset clearing with optional reversal
+(FBRA), UI actions on the document view.
+Known gaps: changing a parked document, asset reversal (AB08), mass reversal.
+
 ## Roadmap / likely next tasks
 
 1. ~~Payments~~ — complete (see Status).
 2. ~~Financial Statement Version~~ — done (see Status).
-3. **Dunning** (FBMP/F150), **foreign-currency valuation**, **recurring entries**,
-   **document reversal** (FB08) and **parked documents** (BSTAT='V').
+3. **Recurring entries** (FBD1/F.14), **dunning** (FBMP/F150),
+   **foreign-currency valuation** (FAGL_FCV). Reversal and parking are done.
 4. **PostgreSQL cutover** (see HANDOFF.md) and Alembic migrations.
 5. More CO: assessments/distributions, internal order settlement, CO-PA.
 

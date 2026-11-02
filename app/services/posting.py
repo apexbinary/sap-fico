@@ -13,7 +13,10 @@ This is the heart of Financial Accounting. It enforces the SAP posting rules:
   * G/L transaction figures (GLT0) are updated, and CO-relevant lines are
     mirrored into COEP in real time.
 
-Call ``post_document`` with a ``DocumentRequest``.
+Call ``post_document`` with a ``DocumentRequest``. With ``bstat='V'`` the
+document is parked: it is validated, numbered and stored, but nothing is
+updated (no GLT0, CO or asset values) and its items are not open items until
+``post_parked`` posts it (FBV0); ``delete_parked`` discards it.
 """
 
 from __future__ import annotations
@@ -71,6 +74,7 @@ class LineRequest:
     anbwa: str | None = None  # Asset transaction type (account type A)
     afabe: str = "01"  # Depreciation area (account type A)
     bzdat: date | None = None  # Asset value date
+    buzid: str | None = None  # Line item ID (T = tax line, e.g. copied by a reversal)
 
 
 @dataclass
@@ -91,6 +95,7 @@ class DocumentRequest:
     kokrs: str | None = None  # Controlling area (for CO integration)
     mandt: str | None = None  # Client (defaults to settings)
     xclear: bool = False  # Clearing document: may have no line items (zero-balance clearing)
+    bstat: str = " "  # Document status: ' ' posted, 'V' parked
 
 
 def _to_local(amount: Decimal, rate: Decimal) -> Decimal:
@@ -245,7 +250,7 @@ def _post(
         rl = _ResolvedLine(
             bschl=ln.bschl, koart=pk.koart, shkzg=pk.shkzg, hkont=hkont, saknr=saknr,
             kunnr=kunnr, lifnr=lifnr, wrbtr=ln.wrbtr, dmbtr=dmbtr, src=ln, mwskz=ln.mwskz,
-            xopvw=xopvw,
+            xopvw=xopvw, buzid=ln.buzid,
         )
         # Invoices / credit memos (sales-related keys) carry terms of payment;
         # other sub-ledger lines only when terms are entered explicitly.
@@ -283,8 +288,12 @@ def _post(
 
     _check_balanced(all_lines, req.waers, local_currency)
 
-    for koart in {"+"} | {rl.koart for rl in all_lines}:
-        check_period_open(session, mandt, req.bukrs, koart, gjahr, monat)
+    posted = req.bstat == " "
+    if req.bstat not in (" ", "V"):
+        raise PostingError(f"Document status {req.bstat!r} cannot be posted directly")
+    if posted:  # a parked document is checked when it is posted
+        for koart in {"+"} | {rl.koart for rl in all_lines}:
+            check_period_open(session, mandt, req.bukrs, koart, gjahr, monat)
 
     belnr = _next_document_number(session, mandt, req.bukrs, doc_type.numkr, gjahr)
 
@@ -292,7 +301,8 @@ def _post(
         mandt=mandt, bukrs=req.bukrs, belnr=belnr, gjahr=gjahr, blart=req.blart,
         bldat=req.bldat, budat=req.budat, monat=monat, usnam=req.usnam, tcode=req.tcode,
         xblnr=req.xblnr, bktxt=req.bktxt, waers=req.waers, kursf=req.kursf,
-        hwaer=local_currency, bstat=" ", awtyp="BKPF", kokrs=req.kokrs or cc.kokfi,
+        hwaer=local_currency, bstat=req.bstat, awtyp="BKPF", kokrs=req.kokrs or cc.kokfi,
+        ppnam=None if posted else req.usnam,
     )
     session.add(header)
 
@@ -303,6 +313,7 @@ def _post(
         item = AccountingDocumentItem(
             mandt=mandt, bukrs=req.bukrs, belnr=belnr, gjahr=gjahr, buzei=buzei,
             buzid=rl.buzid, bschl=rl.bschl, koart=rl.koart, shkzg=rl.shkzg,
+            bstat=None if posted else req.bstat,
             umskz=(src.umskz if src else None), hkont=rl.hkont, saknr=rl.saknr,
             kunnr=rl.kunnr, lifnr=rl.lifnr, wrbtr=rl.wrbtr, dmbtr=rl.dmbtr,
             mwskz=rl.mwskz, ktosl=rl.ktosl, wmwst=rl.wmwst, mwsts=rl.mwsts,
@@ -325,7 +336,7 @@ def _post(
             aufnr=(src.aufnr if src else None),
             prctr=(src.prctr if src else None),
             kokrs=req.kokrs or cc.kokfi,
-            xopvw=rl.xopvw,
+            xopvw=rl.xopvw and posted,
             anln1=(src.account if src and rl.koart == "A" else None),
             anln2=(src.anln2 if src and rl.koart == "A" else None),
             anbwa=(src.anbwa if src and rl.koart == "A" else None),
@@ -334,10 +345,11 @@ def _post(
         for name, value in payment_terms.line_fields(rl.terms, rl.wrbtr).items():
             setattr(item, name, value)
         session.add(item)
-        _update_totals(session, mandt, req.bukrs, gjahr, monat, rl, local_currency)
-        _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, cc.kokfi)
-        if rl.koart == "A" and src:
-            _update_asset_values(session, mandt, req, gjahr, belnr, buzei, rl, monat)
+        if posted:
+            _update_totals(session, mandt, req.bukrs, gjahr, monat, rl, local_currency)
+            _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, cc.kokfi)
+            if rl.koart == "A" and src:
+                _update_asset_values(session, mandt, req, gjahr, belnr, buzei, rl, monat)
 
     if commit:
         session.commit()
@@ -345,6 +357,72 @@ def _post(
         session.flush()
     session.refresh(header)
     return header
+
+
+def post_parked(
+    session: Session, mandt: str, bukrs: str, belnr: str, gjahr: int, *, usnam: str = "SYSTEM",
+    commit: bool = True,
+) -> AccountingDocumentHeader:
+    """Post a parked document (FBV0): update totals, CO and assets; activate its open items."""
+    try:
+        header = session.get(AccountingDocumentHeader, (mandt, bukrs, belnr.zfill(10), gjahr))
+        if header is None:
+            raise PostingError(f"Document {belnr}/{gjahr} does not exist in company code {bukrs}")
+        if header.bstat != "V":
+            raise PostingError(f"Document {header.belnr}/{gjahr} is not a parked document")
+        cc = company_code(session, mandt, bukrs)
+        for koart in {"+"} | {i.koart for i in header.items}:
+            check_period_open(session, mandt, bukrs, koart, header.gjahr, header.monat)
+        req = DocumentRequest(
+            mandt=mandt, bukrs=bukrs, blart=header.blart, bldat=header.bldat, budat=header.budat,
+            waers=header.waers, kursf=header.kursf, kokrs=header.kokrs, lines=[],
+        )
+        for item in header.items:
+            rl = _ResolvedLine(
+                bschl=item.bschl, koart=item.koart, shkzg=item.shkzg, hkont=item.hkont,
+                saknr=item.saknr, kunnr=item.kunnr, lifnr=item.lifnr, wrbtr=item.wrbtr,
+                dmbtr=item.dmbtr, src=line_from_item(item), buzid=item.buzid, mwskz=item.mwskz,
+            )
+            _update_totals(session, mandt, bukrs, header.gjahr, header.monat, rl, cc.waers)
+            _mirror_co(session, mandt, req, header.gjahr, header.monat, header.belnr, item.buzei, rl, cc.kokfi)
+            if item.koart == "A":
+                _update_asset_values(session, mandt, req, header.gjahr, header.belnr, item.buzei, rl, header.monat)
+            item.bstat = None
+            item.xopvw = item.koart in ("D", "K") or (
+                item.koart == "S" and _validate_gl_account(session, mandt, bukrs, item.hkont).xopvw)
+        header.bstat, header.aedat, header.usnam = " ", date.today(), usnam
+        if commit:
+            session.commit()
+        else:
+            session.flush()
+        session.refresh(header)
+        return header
+    except Exception:
+        session.rollback()
+        raise
+
+
+def delete_parked(session: Session, mandt: str, bukrs: str, belnr: str, gjahr: int) -> None:
+    """Delete a parked document: status Z, the number stays used (as in SAP)."""
+    header = session.get(AccountingDocumentHeader, (mandt, bukrs, belnr.zfill(10), gjahr))
+    if header is None or header.bstat != "V":
+        raise PostingError(f"Document {belnr}/{gjahr} is not a parked document")
+    header.bstat, header.aedat = "Z", date.today()
+    for item in header.items:
+        item.bstat = "Z"
+    session.commit()
+
+
+def line_from_item(item: AccountingDocumentItem) -> LineRequest:
+    """Rebuild the line request a posted/parked BSEG row came from."""
+    return LineRequest(
+        bschl=item.bschl,
+        account=item.kunnr or item.lifnr or item.anln1 or item.saknr or item.hkont,
+        wrbtr=item.wrbtr, mwskz=item.mwskz, sgtxt=item.sgtxt, zuonr=item.zuonr, gsber=item.gsber,
+        kostl=item.kostl, aufnr=item.aufnr, prctr=item.prctr, zfbdt=item.zfbdt, zterm=item.zterm,
+        umskz=item.umskz, rebzg=item.rebzg, rebzj=item.rebzj, rebzz=item.rebzz, zlsch=item.zlsch,
+        zlspr=item.zlspr, anln2=item.anln2 or "0000", anbwa=item.anbwa, bzdat=item.bzdat, buzid=item.buzid,
+    )
 
 
 def _check_balanced(lines: list[_ResolvedLine], waers: str, local: str) -> None:

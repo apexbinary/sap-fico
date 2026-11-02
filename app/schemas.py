@@ -67,8 +67,16 @@ class DocumentOut(BaseModel):
     gjahr: int
     blart: str
     budat: date
+    bldat: date | None = None
     monat: int
     waers: str
+    xblnr: str | None = None
+    bktxt: str | None = None
+    tcode: str | None = None
+    bstat: str = " "
+    stblg: str | None = None
+    stjah: int | None = None
+    stgrd: str | None = None
     items: list[LineOut]
 
     class Config:

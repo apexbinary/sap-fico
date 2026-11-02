@@ -130,12 +130,22 @@ views.post = async (c) => {
         <span id="balChip" class="chip no">Not balanced</span>
       </div>
       <button class="btn" id="postBtn" disabled>Post Document</button>
+      <button class="btn secondary" id="parkBtn" disabled>Park</button>
     </div></div>`;
 
   $("#addLine").onclick = () => { addLine(); recalc(); };
-  $("#postBtn").onclick = submitDoc;
+  $("#postBtn").onclick = () => submitDoc(false);
+  $("#parkBtn").onclick = () => submitDoc(true);
   addLine("40"); addLine("50"); recalc();
 };
+
+// Document status chip: parked, deleted, reversed, reversal.
+function docStatus(d) {
+  if (d.bstat === "V") return `<span class="chip dr">Parked</span>`;
+  if (d.bstat === "Z") return `<span class="chip no">Deleted</span>`;
+  if (d.stblg) return `<span class="chip cr">${d.tcode === "FB08" ? "Reversal" : "Reversed"}</span>`;
+  return "";
+}
 
 function ccWaers() { const cc = state.companyCodes.find((c) => c.bukrs === state.bukrs); return cc ? cc.waers : "EUR"; }
 
@@ -193,9 +203,10 @@ function recalc() {
   chip.className = "chip " + (balanced ? "ok" : "no");
   chip.textContent = balanced ? "Balanced" : "Not balanced";
   $("#postBtn").disabled = !balanced;
+  $("#parkBtn").disabled = !balanced;
 }
 
-async function submitDoc() {
+async function submitDoc(park) {
   const lines = [...document.querySelectorAll("#lines tr")].map((row) => ({
     bschl: $(".l-bschl", row).value,
     account: $(".l-acct", row).value,
@@ -212,8 +223,8 @@ async function submitDoc() {
     kokrs: null, lines,
   };
   try {
-    const doc = await api("/documents", { method: "POST", body: JSON.stringify(payload) });
-    toast(`Document ${doc.belnr}/${doc.gjahr} posted`, "good");
+    const doc = await api(park ? "/documents/park" : "/documents", { method: "POST", body: JSON.stringify(payload) });
+    toast(`Document ${doc.belnr}/${doc.gjahr} ${park ? "parked" : "posted"}`, "good");
     location.hash = `#/documents?doc=${doc.belnr}:${doc.gjahr}`;
   } catch (e) {
     toast(e.message, "bad");
@@ -228,21 +239,47 @@ views.documents = async (c) => {
   c.innerHTML = `
     <div class="page-head"><div><h1>Documents</h1><div class="sub">Company code ${esc(state.bukrs)}</div></div>
       <a class="btn" href="#/post">+ Post Document</a></div>
-    <div class="card"><table><thead><tr><th>Document</th><th>Type</th><th>Doc date</th><th>Posting</th><th>Period</th><th>Text</th><th class="num">Amount</th><th>Curr</th><th>Items</th></tr></thead>
+    <div class="card"><table><thead><tr><th>Document</th><th>Type</th><th>Doc date</th><th>Posting</th><th>Period</th><th>Text</th><th class="num">Amount</th><th>Curr</th><th>Items</th><th>Status</th></tr></thead>
     <tbody>${docs.map((d) => `<tr style="cursor:pointer" onclick="location.hash='#/documents?doc=${d.belnr}:${d.gjahr}'">
       <td class="mono">${d.belnr}/${d.gjahr}</td><td>${d.blart}</td><td>${d.bldat}</td><td>${d.budat}</td>
-      <td>${d.monat}</td><td>${esc(d.bktxt)}</td><td class="num">${fmt(d.amount)}</td><td>${d.waers}</td><td>${d.items}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">No documents.</td></tr>`}</tbody></table></div>
+      <td>${d.monat}</td><td>${esc(d.bktxt)}</td><td class="num">${fmt(d.amount)}</td><td>${d.waers}</td><td>${d.items}</td><td>${docStatus(d)}</td></tr>`).join("") || `<tr><td colspan="10" class="empty">No documents.</td></tr>`}</tbody></table></div>
     <div id="docDetail"></div>`;
   if (open) {
     const [belnr, gjahr] = open.split(":");
     const d = await api(`/documents/${state.bukrs}/${gjahr}/${belnr}`);
-    $("#docDetail").appendChild(el(`<div class="card"><div class="card-head">Document ${d.belnr}/${d.gjahr} — ${d.blart} · period ${d.monat} · ${d.waers}</div>
+    const actions = d.bstat === "V"
+      ? `<button class="btn small" data-act="post">Post</button><button class="btn small ghost" data-act="delete">Delete</button>`
+      : d.bstat === " " ? `${d.stblg ? "" : `<button class="btn small secondary" data-act="reverse">Reverse (FB08)</button>`}
+          <button class="btn small ghost" data-act="reset">Reset clearing</button>
+          ${d.items.length && !d.stblg ? `<button class="btn small ghost" data-act="reset-reverse">Reset clearing &amp; reverse</button>` : ""}` : "";
+    $("#docDetail").appendChild(el(`<div class="card"><div class="card-head">
+      <span>Document ${d.belnr}/${d.gjahr} — ${d.blart} · period ${d.monat} · ${d.waers} ${docStatus(d)}
+        ${d.stblg ? ` · ${d.tcode === "FB08" ? "reverses" : "reversed by"} <a href="#/documents?doc=${d.stblg}:${d.stjah}">${d.stblg}</a>` : ""}</span>
+      <span style="display:flex;gap:8px">${actions}</span></div>
       <table><thead><tr><th>Itm</th><th>PK</th><th>D/C</th><th>Account</th><th>Tax</th><th>Terms</th><th class="num">Doc amount</th><th class="num">Local amount</th><th>Text</th><th>Clearing</th></tr></thead>
       <tbody>${d.items.map((i) => `<tr><td>${i.buzei}</td><td>${i.bschl}</td>
         <td><span class="chip ${i.shkzg === "S" ? "dr" : "cr"}">${i.shkzg === "S" ? "Debit" : "Credit"}</span></td>
         <td class="mono">${esc(i.kunnr || i.lifnr || i.hkont)}</td><td>${esc(i.mwskz || "")}</td><td>${esc(i.zterm || "")}</td>
         <td class="num">${fmt(i.wrbtr)}</td><td class="num">${fmt(i.dmbtr)}</td><td>${esc(i.sgtxt || "")}</td>
-        <td class="mono">${i.augbl ? `<a href="#/documents?doc=${i.augbl}:${d.gjahr}">${i.augbl}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`));
+        <td class="mono">${i.augbl ? `<a href="#/documents?doc=${i.augbl}:${d.gjahr}">${i.augbl}</a>` : ""}</td></tr>`).join("")
+        || `<tr><td colspan="10" class="empty">Clearing document without line items (zero-balance clearing).</td></tr>`}</tbody></table></div>`));
+    const base = `/documents/${state.bukrs}/${d.gjahr}/${d.belnr}`;
+    const act = async (fn, okMsg) => { try { const r = await fn(); toast(okMsg(r), "good"); route(); } catch (e) { toast(e.message, "bad"); } };
+    document.querySelectorAll("#docDetail [data-act]").forEach((b) => (b.onclick = () => {
+      if (b.dataset.act === "post") act(() => api(`${base}/post`, { method: "POST", body: "{}" }), () => "Parked document posted");
+      if (b.dataset.act === "delete") act(() => api(base, { method: "DELETE" }), () => "Parked document deleted");
+      if (b.dataset.act === "reverse") {
+        if (!confirm(`Reverse document ${d.belnr}? A reversal document will be posted.`)) return;
+        act(() => api(`${base}/reverse`, { method: "POST", body: JSON.stringify({ stgrd: "01" }) }),
+          (r) => { setTimeout(() => (location.hash = `#/documents?doc=${r.belnr}:${r.gjahr}`), 0); return `Reversed by ${r.belnr}`; });
+      }
+      if (b.dataset.act === "reset" || b.dataset.act === "reset-reverse") {
+        const reverse = b.dataset.act === "reset-reverse";
+        if (!confirm(`Reopen the items cleared by ${d.belnr}${reverse ? " and reverse it" : ""}?`)) return;
+        act(() => api(`${base}/reset-clearing`, { method: "POST", body: JSON.stringify({ reverse }) }),
+          (r) => `${r.reset_items} item(s) reopened${r.reversal ? `, reversed by ${r.reversal.belnr}` : ""}`);
+      }
+    }));
   }
 };
 

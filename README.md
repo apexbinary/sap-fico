@@ -30,6 +30,7 @@ so the model is recognizable to anyone who knows SAP FICO.
 | Payments & clearing | Terms of payment (T052), F-28/F-53 payments, F-32/F-44/F-03 clearing, cash discount with tax adjustment, tolerances (T043G), partial/residual items | ✅ |
 | Automatic payment program | F110 parameters (REGUV), proposal and payment run (REGUH/REGUP), SEPA transfers (pain.001) and direct debits with mandates (pain.008), bank clearing account flow | ✅ |
 | Reporting | Trial balance, account balances, open items (net due date) | ✅ |
+| Document lifecycle | Parked documents (park / post / delete), reversal FB08, reset clearing FBRA | ✅ |
 | Financial statements | FSV (T011/FAGL_011PC/FAGL_011ZC), balance sheet / P&L with comparison year, balance carryforward | ✅ |
 
 ### Web UI

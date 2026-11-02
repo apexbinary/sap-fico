@@ -115,6 +115,7 @@ def create_proposal(
                 AccountingDocumentItem.mandt == mandt,
                 AccountingDocumentItem.bukrs == zbukr,
                 AccountingDocumentItem.koart == koart,
+                AccountingDocumentItem.xopvw.is_(True),  # not parked
                 AccountingDocumentItem.augbl.is_(None),
                 AccountingDocumentHeader.cpudt <= run.cpudt,
             )

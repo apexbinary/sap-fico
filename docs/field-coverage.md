@@ -26,7 +26,8 @@ is built, change its status.
 | Company name | CompnyName | text | ✅ |
 | Address | CompnyAddr | text | ✅ |
 | Country | Country (OCRY) | dropdown | ✅ |
-| Federal tax ID | TaxIdNum | text | ✅ |
+| State (GST place of business) | State (OCST) | dropdown | ✅ |
+| Federal tax ID / GSTIN | TaxIdNum | text | ✅ |
 | Telephone 1 / 2 | Phone1 / Phone2 | text | ✅ |
 | Fax | Fax | text | ✅ |
 | E-mail | E_Mail | text | ✅ |
@@ -56,11 +57,25 @@ is built, change its status.
 |---|---|---|---|
 | Series / name / first / next / last number / default | Series, SeriesName, InitialNum, NextNumber, LastNum, IsDefault | — | 🔒 one default series "Primary" per document type; shown as the **Series** dropdown on every document and journal entry. ⏸ maintaining additional series |
 
-### Tax groups (OVTG)
+### Tax setup (Administration -> Tax Setup)
+B1 for India keeps tax codes in OSTC; here the tax codes are OVTG rows whose components are
+STC1 lines (one tax authority each). Every part is maintained on the Tax Setup screen.
+
 | Field | Column | Type | Status |
 |---|---|---|---|
-| Code / name / category / rate / tax account / inactive | Code, Name, Category, Rate, Account, Inactive | text / dropdown / number / choose / checkbox | ✅ (seeded, shown) |
+| Tax type code / name | OSTT Code / Name | text | ✅ |
+| Tax authority code / name / tax type | OSTA Code / Name / Type | text / dropdown | ✅ |
+| Output / input tax account | OSTA SalesTax / PurchTax | choose | ✅ validated: active, not a control account |
+| Tax code / name / category (output / input) / inactive | OVTG Code / Name / Category / Inactive | text / dropdown / checkbox | ✅ |
+| Components: tax authority / rate | STC1 STACode / EfctivRate | dropdown / number | ✅ rate of the code = sum of the components; each component rounded on its own |
+| Rate / tax account of a code without components | OVTG Rate / Account | number / choose | ✅ |
+| Used code locked (category, rate, components) | — | — | ✅ as in B1: create a new code and set the old one inactive |
 | Effective from | EffecDate | date | ✅ column; ⏸ rate history (VTG1) |
+| HSN / SAC code / description / goods or services | OCHP ChapterID / Dscription / ItemType | text / text / dropdown | ✅ items choose from it |
+| Tax code determination: priority, sales / purchasing, BP, BP group, item, item group, HSN / SAC, place-of-supply state, intra / inter-state, tax code, description, active | OTCD | number / dropdown / choose / checkbox | ✅ first matching active rule (lowest priority); an entered code wins. ⚠ OTCD column names are descriptive (B1 uses generic key fields) |
+| GST place of supply | OADM State vs CRD1 State | — | ✅ intra-state code (CGST + SGST) and inter-state code (IGST) of the same rate are switched automatically |
+| Tax report (GST summary): output, input, net payable by component and tax code | — | report | ✅ |
+| GSTR-1 / GSTR-3B filing formats, e-invoicing (IRN), e-way bill, TDS / TCS (withholding tax), reverse charge | — | — | ⏸ not built |
 
 ### Payment terms (OCTG)
 | Field | Column | Type | Status |
@@ -87,7 +102,7 @@ is built, change its status.
 | Project code / name / valid from / to / active | PrjCode, PrjName, ValidFrom, ValidTo, Active | text / date / checkbox | ✅ validated on postings |
 | Manufacturer name | FirmName | text | ✅ |
 | Transaction code / description | TrnsCode, TrnsCodDsc | text | ✅ |
-| Country code / name; state code / name / country | Code, Name; Code, Name, Country | dropdown sources | ✅ (seeded) |
+| Country code / name; state code / name / country / GST state code | Code, Name; Code, Name, Country, GSTCode | dropdown sources | ✅ (seeded; all Indian states with GST codes) |
 
 ---
 
@@ -183,6 +198,7 @@ Trial balance, balance sheet, profit and loss: period / as-of selection (date), 
 | Address ID | Address | text | ✅ |
 | Street / block / building / zip / city / county | Street, Block, Building, ZipCode, City, County | text | ✅ |
 | Country / state | Country (OCRY) / State (OCST) | dropdown (state follows country) | ✅ |
+| GSTIN / GST type (regular, unregistered, composition, SEZ) | GSTRegnNo / GstType | text / dropdown | ✅ GSTIN validated (format, state code) |
 | Default bill-to / ship-to | BillToDef / ShipToDef | dropdown | ✅ default on documents |
 | Street no., GLN, tax office | StreetNo, GlbLocNum, TaxOffice | — | ⏸ localization |
 
@@ -232,6 +248,7 @@ Properties (64 checkbox properties), attachments and user-defined fields — ⏸
 | Item group | ItmsGrpCod (OITB) | dropdown | ✅ |
 | Inventory / sales / purchase item | InvntItem / SellItem / PrchseItem | checkbox | ✅ (inventory item fixed after creation, as in B1) |
 | Bar code | CodeBars | text | ✅ |
+| HSN / SAC code | ChapterID (OCHP) | dropdown | ✅ |
 | UoM group, price list + unit price in the header | UgpEntry | — | ⏸ UoM groups; prices are maintained in the Prices grid |
 
 ### General tab
@@ -459,4 +476,5 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | Cost accounting (dimensions, distribution rules, profit centers) | not in the agreed scope |
 | Production, MRP, bills of materials, service, CRM opportunities, HR (employees, owners) | not in the agreed scope |
 | Properties, attachments, pictures, user-defined fields, document printing / layouts, approval procedures, drafts, authorizations | not in the agreed scope |
-| Localization fields (indicator, stamp tax, withholding tax, GLN, tax office) | not in the agreed scope |
+| Localization fields (indicator, stamp tax, GLN, tax office) | not in the agreed scope |
+| India: GSTR filing formats, e-invoicing (IRN / QR), e-way bill, TDS / TCS, reverse charge | not built yet |

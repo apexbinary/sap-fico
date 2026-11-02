@@ -15,6 +15,8 @@ trademarks of SAP SE.
 | Inventory — master data: items, item groups (G/L accounts), warehouses, stock per warehouse, price lists | ✅ |
 | Inventory — goods receipt / issue / transfer, moving-average cost, inventory audit report (OINM) | ✅ |
 | Foreign currency — documents and journal entries in foreign currencies, open FC amounts, realized exchange differences on payment and reconciliation | ✅ |
+| India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
+| Tax setup — tax types, tax authorities, tax codes with components, HSN / SAC codes, tax code determination rules | ✅ |
 | Banking — incoming / outgoing payments (cash, bank transfer with charges, checks), partial payments, payments on account and reconciliation, account payments, foreign-currency payments, check and cash deposits, cancellation | ✅ |
 
 ## Run

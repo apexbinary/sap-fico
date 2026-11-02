@@ -223,6 +223,11 @@ ITEM_FIELDS = ["frgn_name", "item_type", "code_bars", "chapter_id", "firm_code",
 def validate_item_fields(session: Session, data: dict) -> None:
     from app.models.inventory import Manufacturer
 
+    if data.get("chapter_id"):
+        from app.models.admin import HsnCode
+
+        if session.scalar(select(HsnCode).where(HsnCode.chapter_id == data["chapter_id"])) is None:
+            raise B1Error(f"HSN / SAC code {data['chapter_id']} does not exist")
     if data.get("item_type", "I") not in {"I", "L", "T"}:
         raise B1Error("Item type must be I (items), L (labor) or T (travel)")
     if data.get("firm_code") not in (None, -1) and session.get(Manufacturer, data["firm_code"]) is None:

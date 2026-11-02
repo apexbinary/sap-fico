@@ -12,6 +12,7 @@ from app.api_banking import router as banking_router
 from app.api_documents import router as documents_router
 from app.api_finance import router as finance_router
 from app.api_masterdata import router as masterdata_router
+from app.api_tax import router as tax_router
 from app.config import settings
 from app.database import init_db
 
@@ -24,6 +25,7 @@ app.include_router(finance_router, prefix="/api")
 app.include_router(masterdata_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(banking_router, prefix="/api")
+app.include_router(tax_router, prefix="/api")
 
 
 @app.on_event("startup")

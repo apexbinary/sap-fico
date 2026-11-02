@@ -93,7 +93,8 @@ const O = {
   transCodes: () => state.master.transaction_codes.map((t) => [t.trns_code, `${t.trns_code} — ${t.trns_cod_dsc}`]),
   itemTypes: () => state.master.item_types.map((t) => [t.code, t.name]),
   terms: () => state.lookups.payment_terms.map((t) => [t.group_num, t.name]),
-  taxes: (cat) => () => state.lookups.tax_groups.filter((t) => t.category === cat).map((t) => [t.code, `${t.code} — ${t.name}`]),
+  taxes: (cat) => () => state.lookups.tax_groups.filter((t) => t.category === cat && !t.inactive).map((t) => [t.code, `${t.code} — ${t.name}`]),
+  hsn: () => state.taxSetup.hsn.map((h) => [h.chapter_id, `${h.chapter_id} — ${h.dscription}`]),
   priceLists: () => state.priceLists.filter((p) => p.active).map((p) => [p.list_num, p.list_name]),
   warehouses: () => state.warehouses.map((w) => [w.whs_code, `${w.whs_code} — ${w.whs_name}`]),
   vendors: () => state.partners.filter((b) => b.card_type === "S" && !b.frozen).map((b) => [b.card_code, `${b.card_code} — ${b.card_name}`]),
@@ -115,6 +116,7 @@ async function boot() {
   } catch (_) {}
   state.company = await api("/admin/company");
   $("#companyBadge").textContent = `${state.company.company_name} · ${state.company.main_curncy}`;
+  document.title = `Business One — ${state.company.company_name}`;
   await reloadMasterData();
   window.addEventListener("hashchange", route);
   $("#navToggle").onclick = () => $("#sidenav").classList.toggle("collapsed");
@@ -122,8 +124,9 @@ async function boot() {
   route();
 }
 async function reloadMasterData() {
-  [state.accounts, state.lookups, state.partners, state.master, state.priceLists, state.warehouses] = await Promise.all([
-    api("/accounts"), api("/admin/lookups"), api("/partners"), api("/master/lookups"), api("/price-lists"), api("/warehouses")]);
+  [state.accounts, state.lookups, state.partners, state.master, state.priceLists, state.warehouses, state.taxSetup] = await Promise.all([
+    api("/accounts"), api("/admin/lookups"), api("/partners"), api("/master/lookups"), api("/price-lists"), api("/warehouses"),
+    api("/tax/setup")]);
 }
 
 const views = {};

@@ -18,8 +18,9 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.database import SessionLocal, init_db
-from app.models.admin import (Company, Country, Currency, ExchangeRate, NumberingSeries, PaymentTerms, PostingPeriod,
-                              Project, SalesEmployee, State, TaxAuthority, TaxComponent, TaxGroup, TransactionCode)
+from app.models.admin import (Company, Country, Currency, ExchangeRate, HsnCode, NumberingSeries, PaymentTerms,
+                              PostingPeriod, Project, SalesEmployee, State, TaxAuthority, TaxComponent, TaxDetermination,
+                              TaxGroup, TaxType, TransactionCode)
 from app.models.finance import Account, AccountDetermination
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
@@ -106,10 +107,11 @@ SERIES = {
 def _gst_tax_groups() -> list[tuple[str, str, str, Decimal, str, list[tuple[str, Decimal]]]]:
     """(code, name, category, rate, account, components): OCS18 = output CGST 9 % + SGST 9 %, OIG18 = IGST 18 % ..."""
     out = []
-    for cat, prefix, label, other in (("O", "O", "Output", "216000"), ("I", "I", "Input", "116000")):
+    for cat, prefix, label, other in (("O", "O", "Out", "216000"), ("I", "I", "In", "116000")):
         for r in GST_RATES:
             rate, half = Decimal(r), Decimal(r) / 2
-            out.append((f"{prefix}CS{r}", f"{label} GST {r}% (CGST {half.normalize()}% + SGST {half.normalize()}%)", cat,
+            h = f"{half.normalize():f}"  # names fit OVTG.Name (30 characters)
+            out.append((f"{prefix}CS{r}", f"{label} GST {r}% (CGST {h}+SGST {h})", cat,
                         rate, other, [("CGST", half), ("SGST", half)]))
             out.append((f"{prefix}IG{r}", f"{label} IGST {r}%", cat, rate, other, [("IGST", rate)]))
         out.append((f"{prefix}NIL", f"{label} GST nil / exempt", cat, Decimal("0"), other, []))
@@ -181,12 +183,22 @@ def seed() -> None:
                             levels=1 if parent is None else (2 if len(parent) == 1 else 3), postable=postable,
                             act_type=act_type, loc_man_tran=control, finanse=cash), code)
 
+        # tax setup is maintained by users (Administration -> Tax setup): created once, never overwritten
+        for code, name, _, _ in TAX_AUTHORITIES:
+            put_new(TaxType(code=code, name=name), code)
         for code, name, sales, purch in TAX_AUTHORITIES:
-            put(TaxAuthority(code=code, name=name, sales_tax=sales, purch_tax=purch))
+            put_new(TaxAuthority(code=code, name=name, type=code, sales_tax=sales, purch_tax=purch), code)
         for code, name, category, rate, account, comps in _gst_tax_groups():
-            put(TaxGroup(code=code, name=name, category=category, rate=rate, account=account))
-            for line, (authority, comp_rate) in enumerate(comps):
-                put(TaxComponent(stc_code=code, line=line, sta_code=authority, efctiv_rate=comp_rate))
+            if s.get(TaxGroup, code) is None:
+                put(TaxGroup(code=code, name=name, category=category, rate=rate, account=account))
+                for line, (authority, comp_rate) in enumerate(comps):
+                    put(TaxComponent(stc_code=code, line=line, sta_code=authority, efctiv_rate=comp_rate))
+        for n, (chapter, descr, kind) in enumerate(HSN_CODES, start=1):
+            put_new(HsnCode(abs_entry=n, chapter_id=chapter, dscription=descr, item_type=kind), n)
+        # example determination: paper (HSN 4802) is taxed at 12 % in sales and purchasing
+        for n, area, code in [(1, "S", "OCS12"), (2, "P", "ICS12")]:
+            put_new(TaxDetermination(abs_id=n, priority=10, doc_area=area, chapter_id="48025690", tax_code=code,
+                                     descr="Paper: GST 12 %", active="Y"), n)
         for num, name, start, months, days in [(-1, "Cash Basic", "N", 0, 0), (1, "Net 30", "N", 0, 30),
                                                (2, "Net 60", "N", 0, 60), (3, "End of next month", "E", 1, 0)]:
             put_new(PaymentTerms(group_num=num, pymnt_group=name, bsline_date="P", pay_du_month=start,
@@ -243,6 +255,13 @@ ITEMS = [
     ("S00001", "Installation service (hour)", 102, False, "Hour", "OCS18", "ICS18", "1500", None, None, -1, None, "998713"),
 ]
 
+
+# HSN (goods) / SAC (services) codes: (code, description, I goods / S services)
+HSN_CODES = [("84433210", "Printers, laser, connectable to a computer", "I"),
+             ("84433100", "Multifunction printers (print, copy, scan)", "I"),
+             ("84439951", "Toner cartridges", "I"),
+             ("48025690", "Paper, uncoated, for writing / printing (A4)", "I"),
+             ("998713", "Maintenance and repair of computers and peripherals", "S")]
 
 COUNTRIES = [("AE", "United Arab Emirates"), ("AT", "Austria"), ("BE", "Belgium"), ("CH", "Switzerland"),
              ("DE", "Germany"), ("ES", "Spain"), ("FR", "France"), ("GB", "United Kingdom"), ("IN", "India"),

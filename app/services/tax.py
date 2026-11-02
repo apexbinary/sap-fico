@@ -78,15 +78,188 @@ def partner_state(session: Session, bp, address_type: str, address_id: str | Non
     return None
 
 
-def supply_kind(session: Session, side: str, bp, header: dict) -> str | None:
-    """Intra- or inter-state supply: company state against the ship-to (sales) or bill-to (purchasing) state."""
+def supply(session: Session, side: str, bp, header: dict) -> tuple[str | None, str | None]:
+    """Place of supply: (intra / inter / None, state) from the company state against the ship-to
+    (sales) or bill-to (purchasing) state."""
     from app.services.admin import company
 
     comp = company(session)
-    if bp is None or not comp.state:
-        return None
+    if bp is None:
+        return None, None
     state = (partner_state(session, bp, "S", header.get("ship_to_code")) if side == "S" else None) \
         or partner_state(session, bp, "B", header.get("pay_to_code"))
-    if state is None:
-        return None
-    return "intra" if state == comp.state else "inter"
+    if state is None or not comp.state:
+        return None, state
+    return ("intra" if state == comp.state else "inter"), state
+
+
+# ------------------------------------------------------------- tax setup (maintenance)
+def _check_account(session: Session, code: str | None, what: str) -> None:
+    from app.models.finance import Account
+    from app.services.admin import B1Error
+
+    acct = session.get(Account, code) if code else None
+    if acct is None or acct.postable != "Y" or acct.loc_man_tran == "Y":
+        raise B1Error(f"Enter an active {what} G/L account (not a control account)")
+
+
+def tax_code_used(session: Session, code: str) -> bool:
+    """A tax code with postings or document lines keeps its category, rate and components (as in B1)."""
+    from app.models.documents import DOCUMENT_CLASSES
+    from app.models.finance import JournalLine
+
+    if session.scalar(select(JournalLine.trans_id).where(JournalLine.vat_group == code).limit(1)) is not None:
+        return True
+    return any(session.scalar(select(line_cls.doc_entry).where(line_cls.vat_group == code).limit(1)) is not None
+               for _, line_cls in DOCUMENT_CLASSES.values())
+
+
+def save_tax_type(session: Session, code: str, name: str) -> None:
+    from app.models.admin import TaxType
+    from app.services.admin import B1Error
+
+    if not code.strip():
+        raise B1Error("Enter a tax type code")
+    session.merge(TaxType(code=code.strip().upper(), name=name))
+    session.commit()
+
+
+def save_tax_authority(session: Session, code: str, name: str, type_code: str | None, sales_tax: str,
+                       purch_tax: str) -> None:
+    from app.models.admin import TaxType
+    from app.services.admin import B1Error
+
+    if not code.strip():
+        raise B1Error("Enter a tax authority code")
+    if type_code and session.get(TaxType, type_code) is None:
+        raise B1Error(f"Tax type {type_code} does not exist")
+    _check_account(session, sales_tax, "output tax")
+    _check_account(session, purch_tax, "input tax")
+    session.merge(TaxAuthority(code=code.strip().upper(), name=name, type=type_code, sales_tax=sales_tax,
+                               purch_tax=purch_tax))
+    session.commit()
+
+
+def save_tax_code(session: Session, code: str, name: str, category: str, components_in: list[tuple[str, Decimal]],
+                  rate: Decimal | None = None, account: str | None = None, inactive: bool = False) -> TaxGroup:
+    """Add or change a tax code: either components (rate = their sum) or one rate with its own account."""
+    from app.services.admin import B1Error
+
+    code = code.strip().upper()
+    if not code or len(code) > 8:
+        raise B1Error("Enter a tax code of up to 8 characters")
+    if category not in {"O", "I"}:
+        raise B1Error("Category must be O (output, sales) or I (input, purchasing)")
+    components_in = [(sta, Decimal(r)) for sta, r in components_in]
+    for sta, r in components_in:
+        if session.get(TaxAuthority, sta) is None:
+            raise B1Error(f"Tax authority {sta} does not exist")
+        if r < 0:
+            raise B1Error("A component rate cannot be negative")
+    if len({sta for sta, _ in components_in}) != len(components_in):
+        raise B1Error("A tax authority can appear only once in a tax code")
+    new_rate = sum((r for _, r in components_in), ZERO) if components_in else Decimal(rate or 0)
+    if new_rate < 0 or new_rate >= 100:
+        raise B1Error("The rate must be between 0 and 100 %")
+    first = session.get(TaxAuthority, components_in[0][0]) if components_in else None
+    acct = account or ((first.sales_tax if category == "O" else first.purch_tax) if first else None)
+    _check_account(session, acct, "tax")
+    tg = session.get(TaxGroup, code)
+    if tg is not None:
+        old = [(a.code, r) for a, r in components(session, tg)]
+        changed = tg.category != category or tg.rate != new_rate or old != components_in
+        if changed and tax_code_used(session, code):
+            raise B1Error(f"Tax code {code} is used in postings; its category, rate and components cannot change "
+                          f"(create a new code and set this one inactive)")
+    else:
+        tg = TaxGroup(code=code)
+        session.add(tg)
+    tg.name, tg.category, tg.rate, tg.account, tg.inactive = name, category, new_rate, acct, inactive
+    session.flush()
+    for row in session.scalars(select(TaxComponent).where(TaxComponent.stc_code == code)):
+        session.delete(row)
+    session.flush()
+    for line, (sta, r) in enumerate(components_in):
+        session.add(TaxComponent(stc_code=code, line=line, sta_code=sta, efctiv_rate=r))
+    session.commit()
+    return tg
+
+
+def save_hsn(session: Session, chapter_id: str, dscription: str, item_type: str = "I", abs_entry: int | None = None):
+    from sqlalchemy import func
+
+    from app.models.admin import HsnCode
+    from app.services.admin import B1Error
+
+    chapter_id = (chapter_id or "").strip()
+    if not chapter_id.isdigit() or not 4 <= len(chapter_id) <= 8:
+        raise B1Error("An HSN / SAC code has 4 to 8 digits")
+    if item_type not in {"I", "S"}:
+        raise B1Error("Type must be I (goods, HSN) or S (services, SAC)")
+    other = session.scalar(select(HsnCode).where(HsnCode.chapter_id == chapter_id))
+    if other is not None and other.abs_entry != abs_entry:
+        raise B1Error(f"HSN / SAC code {chapter_id} already exists")
+    row = session.get(HsnCode, abs_entry) if abs_entry else None
+    if row is None:
+        row = HsnCode(abs_entry=(session.scalar(select(func.max(HsnCode.abs_entry))) or 0) + 1)
+        session.add(row)
+    row.chapter_id, row.dscription, row.item_type = chapter_id, dscription, item_type
+    session.commit()
+    return row
+
+
+DETERMINATION_FIELDS = ["priority", "doc_area", "card_code", "group_code", "item_code", "itms_grp_cod", "chapter_id",
+                        "state", "supply", "tax_code", "descr", "active"]
+
+
+def save_determination(session: Session, data: dict, abs_id: int | None = None):
+    from sqlalchemy import func
+
+    from app.models.admin import TaxDetermination
+    from app.services.admin import B1Error
+
+    if data.get("doc_area") not in {"S", "P"}:
+        raise B1Error("Document area must be S (sales) or P (purchasing)")
+    if data.get("supply") not in (None, "I", "O"):
+        raise B1Error("Supply must be I (intra-state), O (inter-state) or empty")
+    tg = session.get(TaxGroup, data.get("tax_code") or "")
+    if tg is None or tg.category != ("O" if data["doc_area"] == "S" else "I"):
+        raise B1Error(f"Tax code {data.get('tax_code')} is not "
+                      f"{'an output' if data['doc_area'] == 'S' else 'an input'} tax code")
+    row = session.get(TaxDetermination, abs_id) if abs_id else None
+    if row is None:
+        row = TaxDetermination(abs_id=(session.scalar(select(func.max(TaxDetermination.abs_id))) or 0) + 1)
+        session.add(row)
+    for key in DETERMINATION_FIELDS:
+        if key in data:
+            setattr(row, key, data[key])
+    session.commit()
+    return row
+
+
+# ------------------------------------------------------------- tax code determination
+def determine(session: Session, side: str, bp, item, place: tuple[str | None, str | None]):
+    """The first matching active rule (OTCD, lowest priority number first), or None."""
+    from app.models.admin import TaxDetermination
+
+    kind, state = place
+    rules = session.scalars(select(TaxDetermination).where(
+        TaxDetermination.active == "Y", TaxDetermination.doc_area == side).order_by(
+        TaxDetermination.priority, TaxDetermination.abs_id)).all()
+    for r in rules:
+        if r.card_code and (bp is None or r.card_code != bp.card_code):
+            continue
+        if r.group_code is not None and (bp is None or r.group_code != bp.group_code):
+            continue
+        if r.item_code and (item is None or r.item_code != item.item_code):
+            continue
+        if r.itms_grp_cod is not None and (item is None or r.itms_grp_cod != item.itms_grp_cod):
+            continue
+        if r.chapter_id and (item is None or r.chapter_id != item.chapter_id):
+            continue
+        if r.state and r.state != state:
+            continue
+        if r.supply and r.supply != {"intra": "I", "inter": "O"}.get(kind):
+            continue
+        return r
+    return None

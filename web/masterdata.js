@@ -205,7 +205,7 @@ const ITEM_SECTIONS = (groups, isNew) => [
     { k: "item_type", label: "Item type", type: "select", blank: false, options: () => O.itemTypes(), value: "I" },
     { k: "itms_grp_cod", label: "Item group", type: "select", int: true, blank: false, ro: !isNew, options: groups.map((g) => [g.itms_grp_cod, g.itms_grp_nam]) },
     { k: "code_bars", label: "Bar code", max: 254 },
-    { k: "chapter_id", label: "HSN / SAC code", max: 20 },
+    { k: "chapter_id", label: "HSN / SAC code", type: "select", options: () => O.hsn() },
     { k: "firm_code", label: "Manufacturer", type: "select", int: true, blank: false, options: () => O.manufacturers(), value: -1 },
     ...(isNew ? [{ k: "invnt_item", label: "Inventory item", type: "check", value: true }] : []),
     { k: "sell_item", label: "Sales item", type: "check", value: true },

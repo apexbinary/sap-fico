@@ -153,13 +153,23 @@ class State(Base):
     gst_code: Mapped[str | None] = mapped_column("GSTCode", String(2))  # India: GST state code (first digits of the GSTIN)
 
 
+class TaxType(Base):
+    """OSTT — Tax type (India: CGST, SGST, IGST, Cess)."""
+
+    __tablename__ = "ostt"
+
+    code: Mapped[str] = mapped_column("Code", String(8), primary_key=True)
+    name: Mapped[str] = mapped_column("Name", String(50))
+
+
 class TaxAuthority(Base):
-    """OSTA — Tax authority / tax type of a component (India: CGST, SGST, IGST) with its accounts."""
+    """OSTA — Tax authority of a tax type with its output and input accounts."""
 
     __tablename__ = "osta"
 
     code: Mapped[str] = mapped_column("Code", String(8), primary_key=True)
     name: Mapped[str] = mapped_column("Name", String(50))
+    type: Mapped[str | None] = mapped_column("Type", String(8), ForeignKey("ostt.Code"))  # Tax type
     sales_tax: Mapped[str] = mapped_column("SalesTax", String(15))  # Output tax account
     purch_tax: Mapped[str] = mapped_column("PurchTax", String(15))  # Input tax account
 
@@ -173,6 +183,42 @@ class TaxComponent(Base):
     line: Mapped[int] = mapped_column("Line", primary_key=True)
     sta_code: Mapped[str] = mapped_column("STACode", String(8), ForeignKey("osta.Code"))  # Tax authority
     efctiv_rate: Mapped[Decimal] = mapped_column("EfctivRate", Numeric(19, 6))  # Component rate %
+
+
+class HsnCode(Base):
+    """OCHP — HSN (goods) / SAC (services) code that items are classified by (India)."""
+
+    __tablename__ = "ochp"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    chapter_id: Mapped[str] = mapped_column("ChapterID", String(20), unique=True)  # HSN / SAC code
+    dscription: Mapped[str] = mapped_column("Dscription", String(254))
+    item_type: Mapped[str] = mapped_column("ItemType", String(1), default="I", server_default="I")  # I goods (HSN), S services (SAC)
+
+
+class TaxDetermination(Base):
+    """OTCD — Tax code determination rule: the first matching active rule (lowest priority number)
+    decides a line's tax code when the user does not enter one. Empty conditions match everything.
+
+    Not B1-verified: B1 stores the conditions as generic key fields; the columns here are named
+    after the conditions instead.
+    """
+
+    __tablename__ = "otcd"
+
+    abs_id: Mapped[int] = mapped_column("AbsId", primary_key=True)
+    priority: Mapped[int] = mapped_column("Priority", default=10)
+    doc_area: Mapped[str] = mapped_column("DocArea", String(1), default="S")  # S sales, P purchasing
+    card_code: Mapped[str | None] = mapped_column("CardCode", String(15))
+    group_code: Mapped[int | None] = mapped_column("GroupCode")  # BP group
+    item_code: Mapped[str | None] = mapped_column("ItemCode", String(50))
+    itms_grp_cod: Mapped[int | None] = mapped_column("ItmsGrpCod")
+    chapter_id: Mapped[str | None] = mapped_column("ChapterID", String(20))  # HSN / SAC
+    state: Mapped[str | None] = mapped_column("State", String(3))  # place-of-supply state
+    supply: Mapped[str | None] = mapped_column("Supply", String(1))  # I intra-state, O inter-state
+    tax_code: Mapped[str] = mapped_column("TaxCode", String(8), ForeignKey("ovtg.Code"))
+    descr: Mapped[str | None] = mapped_column("Descr", String(100))
+    active: Mapped[str] = mapped_column("Active", String(1), default="Y")
 
 
 class SalesEmployee(Base):

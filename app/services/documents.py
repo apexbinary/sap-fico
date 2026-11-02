@@ -326,7 +326,8 @@ def _create(session: Session, req: DocumentRequest):
         raise B1Error(f"Documents of {bp.card_code} are in {bp.currency} or {main}")
     rate = exchange_rate(session, cur, req.doc_date)  # 1 for the local currency; error if no rate
     fc = cur != main
-    supply = tax.supply_kind(session, d.side, bp, header) if d.side != "I" else None  # GST place of supply
+    place = tax.supply(session, d.side, bp, header) if d.side != "I" else (None, None)  # GST place of supply
+    supply = place[0]
     if not (0 <= hdisc < 100):
         raise B1Error("The document discount must be between 0 and 100 %")
 
@@ -384,14 +385,19 @@ def _create(session: Session, req: DocumentRequest):
         if price < 0:
             raise B1Error(f"Line {n + 1}: the price cannot be negative")
         disc = Decimal(lr.disc_prcnt if lr.disc_prcnt is not None else (base_line.disc_prcnt if base_line else 0))
+        # tax code: entered, else base line, else determination rule (OTCD), else item, else business partner
         vat_code = lr.vat_group or (base_line.vat_group if base_line else None)
+        rule = None
+        if vat_code is None and d.side != "I":
+            rule = tax.determine(session, d.side, bp, item, place)
+            vat_code = rule.tax_code if rule else None
         if vat_code is None and d.side != "I":
             vat_code = (item.vat_gourp_sa if d.side == "S" else item.vat_group_pu) if item else None
             vat_code = vat_code or bp.vat_group
         tg = _tax(session, d, vat_code)
         kind = tax.gst_kind(session, tg)
-        if kind and supply and kind != supply:  # intra- vs inter-state GST: the matching code of the same rate
-            tg = tax.matching_gst_group(session, tg, supply) or tg
+        if kind and supply and kind != supply and not (rule and rule.supply):
+            tg = tax.matching_gst_group(session, tg, supply) or tg  # intra- vs inter-state: same rate, other code
         whs = None
         if item is not None and item.invnt_item == "Y":
             whs = lr.whs_code or (base_line.whs_code if base_line else None) or req.to_whs or item.dflt_wh

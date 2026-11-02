@@ -14,6 +14,12 @@ the full SAP ERP **FI/CO** suite instead; that work lives on the branch
 kept). **This branch, `feature/sap-b1`, is the B1 product.** Do not bring FI/CO
 concepts (company codes, posting keys, CO, F110, FSV ...) into it.
 
+## Localization
+
+The demo company is **Demo Trading India Pvt Ltd** (Bengaluru, Karnataka, GSTIN 29...):
+local currency **INR**, USD / EUR / GBP as foreign currencies, Indian chart of accounts,
+**GST**. (Before commit d50ddc0 the demo was a German EUR company.)
+
 ## Scope (agreed with the user)
 
 1. Core financials — chart of accounts, journal entries, financial reports. **Done.**
@@ -46,7 +52,8 @@ Schema changes need an Alembic revision (`migrations/`); `init_db()` runs
 
 ```
 app/
-  models/admin.py     OADM OCRN ORTT OFPR NNM1 OVTG OCTG, OSLP OPRJ OTRC OCRY OCST
+  models/admin.py     OADM OCRN ORTT OFPR NNM1 OVTG OCTG, OSLP OPRJ OTRC OCRY OCST,
+                      tax setup: OSTT OSTA STC1 OCHP OTCD
   models/finance.py   OACT OJDT JDT1 OACP (G/L account determination)
   models/partners.py  OCRG OCRD OCPR CRD1
   models/inventory.py OITB OITM OMRC OWHS OITW OPLN ITM1
@@ -62,15 +69,18 @@ app/
   services/documents.py  document engine: DEFS (object types, copy-from bases), create /
                       cancel / close, stock moves (receive/issue/revalue -> OINM), automatic JEs
   api_documents.py    /api/documents/{obj}*, /api/documents/types, /api/inventory/journal
+  services/tax.py     tax components (split), GST kind, place of supply, tax setup maintenance,
+                      tax code determination (OTCD)
+  api_tax.py          /api/tax/setup, /api/tax/types|authorities|codes|hsn|determination
   services/banking.py payments (open items, apply / on account / reconcile, FC means, cancel), deposits
   api_banking.py      /api/payments/{incoming|outgoing}*, /api/payments/open-items, /api/checks, /api/deposits
   api_masterdata.py   /api/partners*, /api/partner-groups, /api/items*, /api/item-groups,
                       /api/warehouses, /api/price-lists
-  seed.py             demo company "Demo Trading Ltd" (EUR), chart of accounts, periods 2025-2027
+  seed.py             demo company "Demo Trading India Pvt Ltd" (INR, GST), chart of accounts, periods 2025-2027
   verify_*.py         end-to-end checks; verify_all runs them all
 web/                  index.html, styles.css, app.js (shell, typed field builder, journal entries,
                       documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup),
-                      banking.js (payments, deposits)
+                      banking.js (payments, deposits), tax.js (tax setup)
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
 
@@ -134,6 +144,17 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   is matched by FC amount; each side's LC reduces proportionally and the LC
   difference is a realized exchange difference (gain / loss account).
 
+### Tax (keep invariant)
+- A tax code (OVTG) posts either its own rate to its account, or its components (STC1):
+  each component's tax authority (OSTA) gives the output / input account; every
+  component is rounded on its own and the line tax is their sum.
+- Line tax code: entered > base line > first matching OTCD rule > item default > BP default.
+- GST: company state (OADM State) vs ship-to (sales) / bill-to (purchasing) state decides
+  intra (CGST + SGST) or inter (IGST); a code of the wrong kind is switched to the one of
+  the same rate, except when the deciding OTCD rule has its own supply condition.
+- A tax code used in postings keeps its category, rate and components.
+- Tax setup data is maintained by users: the seed creates it once.
+
 ### Banking (keep invariant)
 - A payment pays open partner lines (JDT1 with BalDue) of its BP in LC; the means are
   in the payment currency (LC = FC x ORTT rate); a small FC mismatch (<= 0.5 %) is an
@@ -150,10 +171,12 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 Drawers (GroupMask) 1 assets, 2 liabilities, 3 capital and reserves, 4 turnover,
 5 cost of sales, 6 operating costs, 7 non-operating, 8 taxation, 9 other. Title
 accounts (Postable N) form the tree via FatherNum/Levels. Demo accounts: 112000 bank,
-114000 A/R control, 115000 inventory, 116000 input VAT, 211000 A/P control, 212000
-goods received not invoiced, 216000 output VAT, 411000 sales revenue, 511000 COGS,
-512000 price differences, 513000 inventory adjustments, 6xxxxx expenses, 711000/
-712000 exchange gains/losses. Tax groups O1/O2/O0 (output) and I1/I2/I0 (input);
+114000 sundry debtors (A/R control), 115000 stock-in-trade, 116100/116200/116300 input
+CGST/SGST/IGST (116000 other input tax), 211000 sundry creditors (A/P control), 212000
+goods received not invoiced, 216100/216200/216300 output CGST/SGST/IGST (216000 other),
+411000 sales, 511000 COGS, 512000 price variance, 513000 stock adjustments, 6xxxxx
+expenses, 711000/712000 exchange gain/loss. Tax codes OCS5/12/18/28 (output CGST + SGST),
+OIG5/12/18/28 (output IGST), ONIL, and the input equivalents ICS.., IIG.., INIL;
 payment terms -1 cash, 1 net 30, 2 net 60, 3 end of next month.
 BP groups 100 Customers, 101 Wholesale, 102 Vendors; customers C10000-C30000,
 vendors V10000/V20000. Price lists 1 Base Price, 2 Wholesale (= base x 0.9),

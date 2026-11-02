@@ -125,7 +125,7 @@ class CompanyCode(Base):
     ktopl: Mapped[str] = mapped_column(String(4))  # Chart of accounts
     periv: Mapped[str] = mapped_column(String(2))  # Fiscal year variant
     waabw: Mapped[int] = mapped_column(default=10)  # Max exchange-rate deviation %
-    kokfi: Mapped[str | None] = mapped_column(String(1))  # CO area <-> FI reconciliation
+    kokfi: Mapped[str | None] = mapped_column(String(1))  # Allocation indicator (CO area = company code: 1)
     rcomp: Mapped[str | None] = mapped_column(String(6))  # Company (trading partner)
     adrnr: Mapped[str | None] = mapped_column(String(10))  # Address
     stceg: Mapped[str | None] = mapped_column(String(20))  # VAT registration number
@@ -154,7 +154,7 @@ class ControllingArea(Base):
     bezei: Mapped[str] = mapped_column(String(25))  # Name
     waers: Mapped[str] = mapped_column(String(5))  # Controlling area currency
     ctyp: Mapped[str] = mapped_column(String(2), default="10")  # Currency type (10=company code)
-    khinr: Mapped[str | None] = mapped_column(String(4))  # Standard hierarchy (cost centers)
+    khinr: Mapped[str | None] = mapped_column(String(12))  # Standard hierarchy (cost centers)
     ktopl: Mapped[str] = mapped_column(String(4))  # Chart of accounts
     lmona: Mapped[str] = mapped_column(String(2))  # Fiscal year variant
     bukrs: Mapped[str | None] = mapped_column(String(4))  # Company code (if 1:1 assignment)

@@ -24,7 +24,7 @@ from app.models.assets import (
     DepreciationPosting,
 )
 from app.models.organizational import CompanyCode
-from app.services.fiscal import PostingError
+from app.services.fiscal import PostingError, controlling_area
 from app.services.posting import DocumentRequest, LineRequest, post_document
 
 _CENT = Decimal("0.01")
@@ -81,7 +81,7 @@ def post_acquisition(
     )
     req = DocumentRequest(
         mandt=mandt, bukrs=bukrs, blart="AA", bldat=budat, budat=budat, waers=waers,
-        bktxt=bktxt or f"Acquisition asset {anln1}",
+        bktxt=bktxt or f"Acquisition {anln1}",
         lines=[
             LineRequest(bschl="70", account=anln1, anln2=anln2, anbwa="100",
                         wrbtr=amount, sgtxt="Asset acquisition", bzdat=budat),
@@ -156,7 +156,7 @@ def run_depreciation(
 
         req = DocumentRequest(
             mandt=mandt, bukrs=bukrs, blart="AF", bldat=budat, budat=budat, waers=cc.waers,
-            bktxt=f"Depreciation {term.anln1} period {period}", kokrs=cc.kokfi,
+            bktxt=f"Depr. {term.anln1} P{period:02d}", kokrs=controlling_area(session, mandt, bukrs),
             lines=[
                 LineRequest(bschl="40", account=det.ktaufw_dep, wrbtr=dep,
                             kostl=kostl, sgtxt=f"Depreciation {term.anln1}"),

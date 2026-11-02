@@ -25,7 +25,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.database import SessionLocal, create_all
+from app.database import SessionLocal, init_db
 from app.models.assets import (
     AssetAccountDetermination,
     AssetClass,
@@ -151,58 +151,65 @@ REVERSAL_KEYS = {
 
 
 def seed() -> None:
-    create_all()
+    init_db()
     s = SessionLocal()
+
+    def put(obj) -> None:
+        # Flush record by record, in code order (parents first): SQLAlchemy only
+        # orders inserts by relationships, and PostgreSQL enforces every foreign key.
+        s.merge(obj)
+        s.flush()
+
     try:
         # --- Client & currency ---
-        s.merge(Client(mandt=MANDT, mtext="Demo Group", ort01="Walldorf", mwaer="EUR", cccategory="C"))
+        put(Client(mandt=MANDT, mtext="Demo Group", ort01="Walldorf", mwaer="EUR", cccategory="C"))
         for cur, name, iso in [("EUR", "Euro", "EUR"), ("USD", "US Dollar", "USD")]:
-            s.merge(Currency(mandt=MANDT, waers=cur, isocd=iso, ltext=name, currdec=2))
+            put(Currency(mandt=MANDT, waers=cur, isocd=iso, ltext=name, currdec=2))
 
         # Exchange rates (type M): value of 1 USD in EUR, valid from GDATU
         for gdatu, ukurs in [(date(2025, 1, 1), "0.93"), (date(2026, 1, 1), "0.92"), (date(2026, 6, 1), "0.90"),
                              (date(2026, 9, 1), "0.95"), (date(2026, 12, 1), "0.88")]:
-            s.merge(ExchangeRate(mandt=MANDT, kurst="M", fcurr="USD", tcurr="EUR", gdatu=gdatu,
+            put(ExchangeRate(mandt=MANDT, kurst="M", fcurr="USD", tcurr="EUR", gdatu=gdatu,
                                  ukurs=Decimal(ukurs), ffact=1, tfact=1))
 
         # --- Country & tax procedure ---
-        s.merge(Country(mandt=MANDT, land1="DE", landx="Germany", kalsm="TAXD", intca="DE", waers="EUR", xegld=True))
+        put(Country(mandt=MANDT, land1="DE", landx="Germany", kalsm="TAXD", intca="DE", waers="EUR", xegld=True))
 
         # --- Chart of accounts & account groups ---
-        s.merge(ChartOfAccounts(mandt=MANDT, ktopl=KTOPL, ktplt="Chart of accounts - international", seona=6, spras="E"))
+        put(ChartOfAccounts(mandt=MANDT, ktopl=KTOPL, ktplt="Chart of accounts - international", seona=6, spras="E"))
         for grp, txt, lo, hi in [
             ("GL00", "General G/L accounts", "0", "399999"),
             ("PL00", "P&L accounts", "400000", "899999"),
             ("RECN", "Reconciliation accounts", "100000", "199999"),
         ]:
-            s.merge(GLAccountGroup(mandt=MANDT, ktopl=KTOPL, ktoks=grp, txt30=txt, vonkt=lo, biskt=hi))
+            put(GLAccountGroup(mandt=MANDT, ktopl=KTOPL, ktoks=grp, txt30=txt, vonkt=lo, biskt=hi))
 
         # --- Fiscal year variant K4 (calendar) + open periods ---
-        s.merge(FiscalYearVariant(mandt=MANDT, periv=PERIV, xmon=True, anzbp=12, anzsp=4, beztx="Calendar year, 4 special periods"))
+        put(FiscalYearVariant(mandt=MANDT, periv=PERIV, xmon=True, anzbp=12, anzsp=4, beztx="Calendar year, 4 spec. periods"))
 
         # --- Company code 1000 ---
-        s.merge(CompanyCode(
+        put(CompanyCode(
             mandt=MANDT, bukrs=BUKRS, butxt="Demo Company AG", ort01="Walldorf", land1="DE",
-            waers="EUR", spras="E", ktopl=KTOPL, periv=PERIV, kokfi=KOKRS, stceg="DE123456789",
+            waers="EUR", spras="E", ktopl=KTOPL, periv=PERIV, kokfi="1", stceg="DE123456789",
             land1_iso="DE", waers_iso="EUR",
         ))
 
         # Open posting periods for all account types ('+')
-        s.merge(PostingPeriodControl(
+        put(PostingPeriodControl(
             mandt=MANDT, bukrs=BUKRS, koart="+", konti_von="",
             frpe1=1, frgj1=0, tope1=12, tagj1=9999, frpe2=13, frgj2=0, tope2=16, tagj2=9999,
         ))
 
         # --- Controlling area 1000 ---
-        s.merge(ControllingArea(mandt=MANDT, kokrs=KOKRS, bezei="Controlling area 1000", waers="EUR", ctyp="10", ktopl=KTOPL, lmona=PERIV, bukrs=BUKRS, khinr="H1000"))
-        s.merge(ControllingAreaAssignment(mandt=MANDT, kokrs=KOKRS, bukrs=BUKRS))
-        s.merge(CostCenter(mandt=MANDT, kokrs=KOKRS, kostl="0000001000", datbi=HIGH, datab=LOW, ktext="Admin", ltext="Administration cost center", bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar="1"))
+        put(ControllingArea(mandt=MANDT, kokrs=KOKRS, bezei="Controlling area 1000", waers="EUR", ctyp="10", ktopl=KTOPL, lmona=PERIV, bukrs=BUKRS, khinr="H1000"))
+        put(ControllingAreaAssignment(mandt=MANDT, kokrs=KOKRS, bukrs=BUKRS))
+        put(CostCenter(mandt=MANDT, kokrs=KOKRS, kostl="0000001000", datbi=HIGH, datab=LOW, ktext="Admin", ltext="Administration cost center", bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar="1"))
 
         # --- G/L accounts ---
         for saknr, name, is_bs, grp, recon, taxcat in _gl_accounts():
-            s.merge(GLAccountCOA(mandt=MANDT, ktopl=KTOPL, saknr=saknr, xbilk=is_bs, gvtyp=None if is_bs else "X", ktoks=grp, erdat="20260101", ernam="SEED"))
-            s.merge(GLAccountText(mandt=MANDT, spras="E", ktopl=KTOPL, saknr=saknr, txt20=name[:20], txt50=name, mcod1=name[:25].upper()))
-            s.merge(GLAccountCompanyCode(
+            put(GLAccountCOA(mandt=MANDT, ktopl=KTOPL, saknr=saknr, xbilk=is_bs, gvtyp=None if is_bs else "X", ktoks=grp, erdat="20260101", ernam="SEED"))
+            put(GLAccountText(mandt=MANDT, spras="E", ktopl=KTOPL, saknr=saknr, txt20=name[:20], txt50=name, mcod1=name[:25].upper()))
+            put(GLAccountCompanyCode(
                 mandt=MANDT, bukrs=BUKRS, saknr=saknr, waers="EUR", xkres=True,
                 mwskz=taxcat, mitkz=recon, xopvw=recon is not None or saknr in OPEN_ITEM_GL,
                 fstag="G001", zuawa="001", erdat="20260101", ernam="SEED",
@@ -210,16 +217,16 @@ def seed() -> None:
 
         # --- Cost elements for P&L accounts ---
         for kstar, katyp in [("400000", "1"), ("476000", "1"), ("480000", "1"), ("800000", "11")]:
-            s.merge(CostElement(mandt=MANDT, ktopl=KTOPL, kstar=kstar, erdat="20260101"))
-            s.merge(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar=kstar, datbi=HIGH, datab=LOW, katyp=katyp, ktext=kstar))
+            put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar=kstar, erdat="20260101"))
+            put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar=kstar, datbi=HIGH, datab=LOW, katyp=katyp, ktext=kstar))
 
         # --- Tax codes (TAXD) ---
-        s.merge(TaxCode(mandt=MANDT, kalsm="TAXD", mwskz="A1", mwart="A", text1="Output VAT 19%"))
-        s.merge(TaxCode(mandt=MANDT, kalsm="TAXD", mwskz="V1", mwart="V", text1="Input VAT 19%"))
-        s.merge(TaxRate(mandt=MANDT, kalsm="TAXD", mwskz="A1", ktosl="MWS", kschl="MWAS", kbetr=Decimal("19.000")))
-        s.merge(TaxRate(mandt=MANDT, kalsm="TAXD", mwskz="V1", ktosl="VST", kschl="MWVS", kbetr=Decimal("19.000")))
-        s.merge(TaxAccount(mandt=MANDT, ktopl=KTOPL, ktosl="MWS", mwskz="A1", bukrs="", konts="175000", shkzg="H"))
-        s.merge(TaxAccount(mandt=MANDT, ktopl=KTOPL, ktosl="VST", mwskz="V1", bukrs="", konts="154000", shkzg="S"))
+        put(TaxCode(mandt=MANDT, kalsm="TAXD", mwskz="A1", mwart="A", text1="Output VAT 19%"))
+        put(TaxCode(mandt=MANDT, kalsm="TAXD", mwskz="V1", mwart="V", text1="Input VAT 19%"))
+        put(TaxRate(mandt=MANDT, kalsm="TAXD", mwskz="A1", ktosl="MWS", kschl="MWAS", kbetr=Decimal("19.000")))
+        put(TaxRate(mandt=MANDT, kalsm="TAXD", mwskz="V1", ktosl="VST", kschl="MWVS", kbetr=Decimal("19.000")))
+        put(TaxAccount(mandt=MANDT, ktopl=KTOPL, ktosl="MWS", mwskz="A1", bukrs="", konts="175000", shkzg="H"))
+        put(TaxAccount(mandt=MANDT, ktopl=KTOPL, ktosl="VST", mwskz="V1", bukrs="", konts="154000", shkzg="S"))
 
         # --- Document types ---
         for blart, txt, numkr, flags in [
@@ -233,7 +240,7 @@ def seed() -> None:
             ("AB", "Accounting document", "01", dict(xsach=True, xkund=True, xlief=True, xanlg=True)),
             ("ZP", "Payment posting (F110)", "15", dict(xsach=True, xkund=True, xlief=True)),
         ]:
-            s.merge(DocumentType(mandt=MANDT, blart=blart, ltext=txt, numkr=numkr, **flags))
+            put(DocumentType(mandt=MANDT, blart=blart, ltext=txt, numkr=numkr, **flags))
 
         # --- Number ranges (per company code, year-independent) ---
         for numkr, lo, hi in [
@@ -246,7 +253,7 @@ def seed() -> None:
         ]:
             # Only create missing intervals: NRLEVEL is the live counter and must survive re-seeding.
             if s.get(NumberRange, (MANDT, "RF_BELEG", BUKRS, numkr, 0)) is None:
-                s.add(NumberRange(mandt=MANDT, object="RF_BELEG", subobject=BUKRS, nrrangenr=numkr, toyear=0, fromnumber=str(lo), tonumber=str(hi), nrlevel=str(lo - 1)))
+                put(NumberRange(mandt=MANDT, object="RF_BELEG", subobject=BUKRS, nrrangenr=numkr, toyear=0, fromnumber=str(lo), tonumber=str(hi), nrlevel=str(lo - 1)))
 
         # --- Posting keys (standard SAP) ---
         for bschl, txt, shkzg, koart, extra in [
@@ -275,7 +282,7 @@ def seed() -> None:
             ("22", "Reverse invoice (vendor)", "S", "K", dict(xumsw=True)),
             ("32", "Reverse credit memo (vendor)", "H", "K", dict(xumsw=True)),
         ]:
-            s.merge(PostingKey(mandt=MANDT, bschl=bschl, ltext=txt, shkzg=shkzg, koart=koart,
+            put(PostingKey(mandt=MANDT, bschl=bschl, ltext=txt, shkzg=shkzg, koart=koart,
                                stbsl=REVERSAL_KEYS[bschl], **extra))
 
         # --- Terms of payment (T052) & cash discount accounts (T030) ---
@@ -284,27 +291,27 @@ def seed() -> None:
             ("NT30", "30 days due net", 0, "0", 0, "0", 30),
             ("ZB01", "14 days 3%, 30 days 2%, 45 days due net", 14, "3", 30, "2", 45),
         ]:
-            s.merge(PaymentTerms(
+            put(PaymentTerms(
                 mandt=MANDT, zterm=zterm, ztagg=0, text1=text, zdart="B",
                 ztag1=t1, zprz1=Decimal(p1), ztag2=t2, zprz2=Decimal(p2), ztag3=t3,
             ))
-        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKT", bwmod="", komok="", bklas="", konts="880000"))
-        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKE", bwmod="", komok="", bklas="", konts="276000"))
-        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="ZDI", bwmod="", komok="", bklas="", konts="880100", konth="880200"))
+        put(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKT", bwmod="", komok="", bklas="", konts="880000"))
+        put(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKE", bwmod="", komok="", bklas="", konts="276000"))
+        put(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="ZDI", bwmod="", komok="", bklas="", konts="880100", konth="880200"))
         # Retained earnings for the balance carryforward (P&L statement account type X)
-        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="BIL", bwmod="", komok="X", bklas="", konts="109000"))
+        put(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="BIL", bwmod="", komok="X", bklas="", konts="109000"))
 
         # --- Financial statement version INT ---
-        s.merge(FinancialStatementVersion(mandt=MANDT, versn="INT", vstxt="Balance sheet / P&L (international)", ktopl=KTOPL))
+        put(FinancialStatementVersion(mandt=MANDT, versn="INT", vstxt="Balance sheet / P&L (international)", ktopl=KTOPL))
         for seqno, (node_id, parent, ergsl, text, kind, sign, ranges) in enumerate(FSV_ITEMS):
-            s.merge(FSVNode(mandt=MANDT, versn="INT", id=node_id, parent=parent, ergsl=ergsl, txt45=text,
+            put(FSVNode(mandt=MANDT, versn="INT", id=node_id, parent=parent, ergsl=ergsl, txt45=text,
                             seqno=seqno, kind=kind, sign=sign))
             for vonkt, biskt, soll, haben in ranges:
-                s.merge(FSVAccountAssignment(mandt=MANDT, versn="INT", ergsl=ergsl, ktopl=KTOPL,
+                put(FSVAccountAssignment(mandt=MANDT, versn="INT", ergsl=ergsl, ktopl=KTOPL,
                                              vonkt=vonkt, biskt=biskt, soll=soll, haben=haben))
 
         # --- Dunning procedure 0001 (four levels, 14-day interval, 3 grace days) ---
-        s.merge(DunningProcedure(mandt=MANDT, mahna="0001", text1="Four-level dunning, every 14 days",
+        put(DunningProcedure(mandt=MANDT, mahna="0001", text1="4-level dunning, every 14 days",
                                  rhytm=14, mstuf=4, gracp=3, minbt=Decimal("10.00")))
         for mahns, verzn, text, always, charge in [
             (1, 1, "Payment reminder", False, "0"),
@@ -312,39 +319,39 @@ def seed() -> None:
             (3, 29, "Final reminder", False, "10.00"),
             (4, 43, "Notice before legal action", True, "25.00"),
         ]:
-            s.merge(DunningLevel(mandt=MANDT, mahna="0001", mahns=mahns, verzn=verzn, text1=text, xalwy=always))
-            s.merge(DunningCharge(mandt=MANDT, mahna="0001", mahns=mahns, waers="EUR", mahng=Decimal(charge)))
+            put(DunningLevel(mandt=MANDT, mahna="0001", mahns=mahns, verzn=verzn, text1=text, xalwy=always))
+            put(DunningCharge(mandt=MANDT, mahna="0001", mahns=mahns, waers="EUR", mahng=Decimal(charge)))
 
         # Exchange rate differences per open-item / reconciliation account (T030H)
         for hkont, korr in [("140000", "140099"), ("160000", "160099"), ("113109", "140099")]:
-            s.merge(ExchangeDifferenceAccounts(mandt=MANDT, ktopl=KTOPL, hkont=hkont, lsrea="230000", lhrea="280000",
+            put(ExchangeDifferenceAccounts(mandt=MANDT, ktopl=KTOPL, hkont=hkont, lsrea="230000", lhrea="280000",
                                                lsbew="230010", lhbew="280010", lkorr=korr))
 
         # Default tolerance group: differences up to 2.00 EUR and 1% are posted automatically.
-        s.merge(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
+        put(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
 
         # --- Demo customer & vendor ---
-        s.merge(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))
-        s.merge(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E"))
-        s.merge(CustomerBankDetails(mandt=MANDT, kunnr="0000010000", banks="DE", bankl="30000000", bankn="0555666777", koinh="Alpha Retail GmbH", iban="DE81300000000555666777"))
+        put(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))
+        put(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E"))
+        put(CustomerBankDetails(mandt=MANDT, kunnr="0000010000", banks="DE", bankl="30000000", bankn="0555666777", koinh="Alpha Retail GmbH", iban="DE81300000000555666777"))
         # KNB5 holds runtime state (last dunning level/date): create only, never re-merge.
         if s.get(CustomerDunningData, (MANDT, "0000010000", BUKRS, "")) is None:
-            s.add(CustomerDunningData(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, maber="", mahna="0001"))
-        s.merge(SepaMandate(mandt=MANDT, mndid="MND-0000010000-001", snd_type="BUS3007", snd_id="0000010000",
+            put(CustomerDunningData(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, maber="", mahna="0001"))
+        put(SepaMandate(mandt=MANDT, mndid="MND-0000010000-001", snd_type="BUS3007", snd_id="0000010000",
                             snd_name1="Alpha Retail GmbH", snd_iban="DE81300000000555666777", snd_bic="BEDEDEBB",
                             rec_type="BUS0002", rec_id=BUKRS, rec_crdid="DE98ZZZ09999999999", rec_name1="Demo Company AG",
                             sign_date=date(2026, 1, 1), sign_city="Berlin", pay_type="RCUR", status="1"))
-        s.merge(Vendor(mandt=MANDT, lifnr="0000020000", ktokk="LIEF", name1="Beta Supplies AG", land1="DE", ort01="Munich", spras="E"))
-        s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="ZB01", zuawa="001", zwels="T"))
-        s.merge(VendorBankDetails(mandt=MANDT, lifnr="0000020000", banks="DE", bankl="20000000", bankn="0987654321", koinh="Beta Supplies AG", iban="DE84200000000987654321"))
+        put(Vendor(mandt=MANDT, lifnr="0000020000", ktokk="LIEF", name1="Beta Supplies AG", land1="DE", ort01="Munich", spras="E"))
+        put(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="ZB01", zuawa="001", zwels="T"))
+        put(VendorBankDetails(mandt=MANDT, lifnr="0000020000", banks="DE", bankl="20000000", bankn="0987654321", koinh="Beta Supplies AG", iban="DE84200000000987654321"))
         # Second vendor without bank details: shows up as an F110 exception.
-        s.merge(Vendor(mandt=MANDT, lifnr="0000020001", ktokk="LIEF", name1="Gamma Logistics GmbH", land1="DE", ort01="Hamburg", spras="E"))
-        s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020001", bukrs=BUKRS, akont="160000", zterm="0001", zuawa="001", zwels="T"))
+        put(Vendor(mandt=MANDT, lifnr="0000020001", ktokk="LIEF", name1="Gamma Logistics GmbH", land1="DE", ort01="Hamburg", spras="E"))
+        put(VendorCompanyCode(mandt=MANDT, lifnr="0000020001", bukrs=BUKRS, akont="160000", zterm="0001", zuawa="001", zwels="T"))
 
         # --- Asset Accounting ---
-        s.merge(DepreciationArea(mandt=MANDT, afaber="01", afbe_txt="Book depreciation", buhbkt="1"))
-        s.merge(AssetClass(mandt=MANDT, anlkl="00003000", txk50="Machinery", ktogr="30000000", num_range="02"))
-        s.merge(AssetAccountDetermination(
+        put(DepreciationArea(mandt=MANDT, afaber="01", afbe_txt="Book depreciation", buhbkt="1"))
+        put(AssetClass(mandt=MANDT, anlkl="00003000", txk50="Machinery", ktogr="30000000", num_range="02"))
+        put(AssetAccountDetermination(
             mandt=MANDT, ktopl=KTOPL, ktogr="30000000", afaber="01",
             ktansw="011000", ktabg_dep="011010", ktaufw_dep="480000",
             ktvabg="113100", ktgewv="800000", ktverl="480000",
@@ -354,22 +361,22 @@ def seed() -> None:
             ("200", "Asset retirement with revenue", "20", "-"),
             ("210", "Asset retirement without revenue", "20", "-"),
         ]:
-            s.merge(AssetTransactionType(mandt=MANDT, bwasl=bwasl, bwatxt=txt, bwagrp=grp, xanz=anz))
+            put(AssetTransactionType(mandt=MANDT, bwasl=bwasl, bwatxt=txt, bwagrp=grp, xanz=anz))
 
         # --- Bank Accounting ---
-        s.merge(Bank(mandt=MANDT, banks="DE", bankl="10000000", banka="Deutsche Demo Bank", ort01="Frankfurt", swift="DEMODEFF"))
-        s.merge(HouseBank(mandt=MANDT, bukrs=BUKRS, hbkid="DB", banks="DE", bankl="10000000", swift="DEMODEFF"))
-        s.merge(HouseBankAccount(mandt=MANDT, bukrs=BUKRS, hbkid="DB", hktid="GIRO", bankn="123456789", iban="DE91100000000123456789", waers="EUR", hkont="113100"))
-        s.merge(Bank(mandt=MANDT, banks="DE", bankl="20000000", banka="Munich Demo Bank", ort01="Munich", swift="MUDEDEMM"))
-        s.merge(Bank(mandt=MANDT, banks="DE", bankl="30000000", banka="Berlin Demo Bank", ort01="Berlin", swift="BEDEDEBB"))
+        put(Bank(mandt=MANDT, banks="DE", bankl="10000000", banka="Deutsche Demo Bank", ort01="Frankfurt", swift="DEMODEFF"))
+        put(HouseBank(mandt=MANDT, bukrs=BUKRS, hbkid="DB", banks="DE", bankl="10000000", swift="DEMODEFF"))
+        put(HouseBankAccount(mandt=MANDT, bukrs=BUKRS, hbkid="DB", hktid="GIRO", bankn="123456789", iban="DE91100000000123456789", waers="EUR", hkont="113100"))
+        put(Bank(mandt=MANDT, banks="DE", bankl="20000000", banka="Munich Demo Bank", ort01="Munich", swift="MUDEDEMM"))
+        put(Bank(mandt=MANDT, banks="DE", bankl="30000000", banka="Berlin Demo Bank", ort01="Berlin", swift="BEDEDEBB"))
 
         # --- Automatic payment program (F110) ---
-        s.merge(PaymentMethod(mandt=MANDT, land1="DE", zlsch="T", text1="Bank transfer (SEPA)", xbkkt=True, blart="ZP", progn="SEPA_CT"))
-        s.merge(PaymentMethod(mandt=MANDT, land1="DE", zlsch="E", text1="SEPA direct debit", xeinz=True, blart="ZP", progn="SEPA_DD"))
+        put(PaymentMethod(mandt=MANDT, land1="DE", zlsch="T", text1="Bank transfer (SEPA)", xbkkt=True, blart="ZP", progn="SEPA_CT"))
+        put(PaymentMethod(mandt=MANDT, land1="DE", zlsch="E", text1="SEPA direct debit", xeinz=True, blart="ZP", progn="SEPA_DD"))
         for zlsch in ("T", "E"):
-            s.merge(CompanyCodePaymentMethod(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, minbt=Decimal("1.00")))
+            put(CompanyCodePaymentMethod(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, minbt=Decimal("1.00")))
             # F110 posts to the bank clearing account; the bank statement later clears it.
-            s.merge(BankDetermination(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, waers="EUR", rangf=1, hbkid="DB", hktid="GIRO", ukont="113109"))
+            put(BankDetermination(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, waers="EUR", rangf=1, hbkid="DB", hktid="GIRO", ukont="113109"))
 
         s.commit()
         print("Seed complete: client 100, company code 1000, chart of accounts INT.")

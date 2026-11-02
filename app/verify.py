@@ -66,6 +66,18 @@ def main() -> None:
         ))
         _print_doc("G/L document", gl)
 
+        # 4) two lines on the same account in a year without totals yet (one GLT0 row per account/side)
+        split = post_document(s, DocumentRequest(
+            bukrs=BUKRS, blart="SA", bldat=date(2028, 1, 15), budat=date(2028, 1, 15),
+            waers="EUR", bktxt="Split expense", lines=[
+                LineRequest(bschl="40", account="476000", wrbtr=Decimal("10.00")),
+                LineRequest(bschl="40", account="476000", wrbtr=Decimal("5.00")),
+                LineRequest(bschl="50", account="113100", wrbtr=Decimal("15.00")),
+            ],
+        ))
+        _print_doc("Split G/L document", split)
+        assert reporting.trial_balance(s, "100", BUKRS, 2028)["balanced"]
+
         # --- Trial balance ---
         tb = reporting.trial_balance(s, "100", BUKRS, 2026)
         print("\nTRIAL BALANCE  company code", BUKRS, "FY", tb["gjahr"])

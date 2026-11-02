@@ -12,7 +12,8 @@ so the model is recognizable to anyone who knows SAP FICO.
 ## Stack
 
 - **Python 3.12**, **FastAPI** (REST API), **SQLAlchemy 2.0** (ORM)
-- **SQLite** by default (zero-setup dev); switch to **PostgreSQL** via `DATABASE_URL`
+- **SQLite** by default (zero-setup dev); **PostgreSQL 16** via `DATABASE_URL` or the compose override
+- **Alembic** migrations (`migrations/`), applied automatically on startup
 
 ## Modules (SAP terminology)
 
@@ -47,7 +48,8 @@ browsers. Open http://localhost:8000/ after starting the server.
 ### Docker
 
 ```bash
-docker compose up -d --build     # http://localhost:8000/  (data in volume sapfico-data)
+docker compose up -d --build     # http://localhost:8000/  (SQLite in volume sapfico-data)
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build   # PostgreSQL
 ```
 
 ### Local Python

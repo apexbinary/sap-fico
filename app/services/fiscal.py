@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.organizational import (
     CompanyCode,
+    ControllingAreaAssignment,
     FiscalYearPeriod,
     FiscalYearVariant,
     PostingPeriodControl,
@@ -99,3 +100,9 @@ def company_code(session: Session, mandt: str, bukrs: str) -> CompanyCode:
     if cc is None:
         raise PostingError(f"Company code {bukrs} does not exist")
     return cc
+
+
+def controlling_area(session: Session, mandt: str, bukrs: str) -> str | None:
+    """Controlling area the company code is assigned to (TKA02), if any."""
+    return session.scalars(select(ControllingAreaAssignment.kokrs).where(
+        ControllingAreaAssignment.mandt == mandt, ControllingAreaAssignment.bukrs == bukrs)).first()

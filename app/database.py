@@ -8,6 +8,7 @@ exactly as in the SAP data dictionary.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -39,10 +40,36 @@ def get_session() -> Iterator[Session]:
         session.close()
 
 
-def create_all() -> None:
-    """Create every mapped table. Imports models so metadata is populated."""
+_ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
+
+
+def init_db() -> None:
+    """Bring the schema to the newest Alembic revision (``alembic upgrade head``).
+
+    A database created before Alembic was introduced (tables, but no
+    ``alembic_version``) is first brought in line with the models by the
+    legacy helpers below and then stamped as the current revision.
+    """
+    from alembic import command
+    from alembic.config import Config
+
     from app import models  # noqa: F401  (registers all models on Base.metadata)
 
+    cfg = Config(str(_ALEMBIC_INI))
+    insp = inspect(engine)
+    legacy = insp.has_table("bkpf") and not insp.has_table("alembic_version")
+    if legacy:
+        _legacy_create_all()
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        if legacy:
+            command.stamp(cfg, "head")
+        else:
+            command.upgrade(cfg, "head")
+
+
+def _legacy_create_all() -> None:
+    """Pre-Alembic schema sync: create tables, rebuild re-keyed ones, add new columns."""
     _rebuild_tables_with_new_key_columns()
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()

@@ -40,7 +40,13 @@ from app.models.gl_master import GLAccountCompanyCode
 from app.models.partners import CustomerCompanyCode, VendorCompanyCode
 from app.services import payment_terms
 from app.services import tax as tax_svc
-from app.services.fiscal import PostingError, check_period_open, company_code, determine_period
+from app.services.fiscal import (
+    PostingError,
+    check_period_open,
+    company_code,
+    controlling_area,
+    determine_period,
+)
 
 _CENT = Decimal("0.01")
 _PRIMARY_CO_CATEGORIES = {"1", "01", "3", "03", "11", "12"}  # primary cost/revenue
@@ -211,6 +217,8 @@ def _post(
     doc_type = session.get(DocumentType, (mandt, req.blart))
     if doc_type is None:
         raise PostingError(f"Document type {req.blart} is not defined")
+    _check_text_lengths(req)
+    kokrs = req.kokrs or controlling_area(session, mandt, req.bukrs)
 
     gjahr, monat = determine_period(session, mandt, cc.periv, req.budat)
     if req.kursf is not None:
@@ -318,7 +326,7 @@ def _post(
         bldat=req.bldat, budat=req.budat, monat=monat, usnam=req.usnam, tcode=req.tcode,
         xblnr=req.xblnr, bktxt=req.bktxt, waers=req.waers, kursf=kursf,
         wwert=req.budat if req.waers != local_currency else None,
-        hwaer=local_currency, bstat=req.bstat, awtyp="BKPF", kokrs=req.kokrs or cc.kokfi,
+        hwaer=local_currency, bstat=req.bstat, awtyp="BKPF", kokrs=kokrs,
         ppnam=req.usnam if req.bstat == "V" else None, dbblg=req.dbblg,
     )
     session.add(header)
@@ -352,7 +360,7 @@ def _post(
             kostl=(src.kostl if src else None),
             aufnr=(src.aufnr if src else None),
             prctr=(src.prctr if src else None),
-            kokrs=req.kokrs or cc.kokfi,
+            kokrs=kokrs,
             xopvw=rl.xopvw and posted,
             anln1=(src.account if src and rl.koart == "A" else None),
             anln2=(src.anln2 if src and rl.koart == "A" else None),
@@ -364,7 +372,7 @@ def _post(
         session.add(item)
         if posted:
             _update_totals(session, mandt, req.bukrs, gjahr, monat, rl, local_currency)
-            _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, cc.kokfi)
+            _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, kokrs)
             if rl.koart == "A" and src:
                 _update_asset_values(session, mandt, req, gjahr, belnr, buzei, rl, monat)
 
@@ -401,7 +409,8 @@ def post_parked(
                 dmbtr=item.dmbtr, src=line_from_item(item), buzid=item.buzid, mwskz=item.mwskz,
             )
             _update_totals(session, mandt, bukrs, header.gjahr, header.monat, rl, cc.waers)
-            _mirror_co(session, mandt, req, header.gjahr, header.monat, header.belnr, item.buzei, rl, cc.kokfi)
+            _mirror_co(session, mandt, req, header.gjahr, header.monat, header.belnr, item.buzei, rl,
+                       header.kokrs or controlling_area(session, mandt, bukrs))
             if item.koart == "A":
                 _update_asset_values(session, mandt, req, header.gjahr, header.belnr, item.buzei, rl, header.monat)
             item.bstat = None
@@ -457,6 +466,23 @@ def _absorb_rounding(lines: list[_ResolvedLine], requested: list[LineRequest]) -
         max(candidates, key=lambda l: l.dmbtr).dmbtr += abs(diff)
 
 
+# BKPF / BSEG text fields and their lengths (PostgreSQL rejects longer values).
+_HEADER_TEXTS = {"bktxt": 25, "xblnr": 16}
+_LINE_TEXTS = {"sgtxt": 50, "zuonr": 18}
+
+
+def _check_text_lengths(req: DocumentRequest) -> None:
+    for field_name, size in _HEADER_TEXTS.items():
+        value = getattr(req, field_name)
+        if value and len(value) > size:
+            raise PostingError(f"Header field {field_name.upper()} allows {size} characters: {value!r}")
+    for n, ln in enumerate(req.lines, start=1):
+        for field_name, size in _LINE_TEXTS.items():
+            value = getattr(ln, field_name)
+            if value and len(value) > size:
+                raise PostingError(f"Line {n}: {field_name.upper()} allows {size} characters: {value!r}")
+
+
 def _check_balanced(lines: list[_ResolvedLine], waers: str, local: str) -> None:
     doc_debit = sum((l.wrbtr for l in lines if l.shkzg == "S"), Decimal("0"))
     doc_credit = sum((l.wrbtr for l in lines if l.shkzg == "H"), Decimal("0"))
@@ -485,13 +511,14 @@ def _update_totals(
             racct=rl.hkont, rbusa=rbusa, drcrk=rl.shkzg, rtcur=currency,
         )
         session.add(row)
+        session.flush([row])  # so the next line of the same account finds it via session.get
     col = f"tsl{monat:02d}"
     setattr(row, col, (getattr(row, col) or Decimal("0")) + rl.dmbtr)
 
 
 def _mirror_co(
     session: Session, mandt: str, req: DocumentRequest, gjahr: int, monat: int,
-    belnr: str, buzei: int, rl: _ResolvedLine, kokfi: str | None,
+    belnr: str, buzei: int, rl: _ResolvedLine, default_kokrs: str | None,
 ) -> None:
     """Real-time FI->CO: mirror cost-element postings onto their CO object."""
     src = rl.src
@@ -499,7 +526,7 @@ def _mirror_co(
         return
     if not (src.kostl or src.aufnr):
         return
-    kokrs = req.kokrs or kokfi
+    kokrs = req.kokrs or default_kokrs
     if not kokrs:
         return
     cc = company_code(session, mandt, req.bukrs)
@@ -598,6 +625,7 @@ def _update_asset_values(
             mandt=mandt, bukrs=req.bukrs, anln1=anln1, anln2=anln2, gjahr=gjahr, afabe=src.afabe
         )
         session.add(val)
+        session.flush([val])
     # Acquisition (debit asset) increases ANSWL; retirement (credit) increases ABGAN.
     if rl.shkzg == "S":
         val.answl = (val.answl or Decimal("0")) + rl.dmbtr

@@ -14,7 +14,7 @@ from app.api_payment_run import router as payment_run_router
 from app.api_periodic import router as periodic_router
 from app.api_payments import router as payments_router
 from app.config import settings
-from app.database import create_all
+from app.database import init_db
 from app.masterdata import router as master_router
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -35,7 +35,7 @@ app.include_router(periodic_router, prefix="/api")
 
 @app.on_event("startup")
 def _startup() -> None:
-    create_all()
+    init_db()
 
 
 @app.get("/health", tags=["System"])

@@ -1,0 +1,28 @@
+# Run the app on PostgreSQL instead of SQLite:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+# The schema is created / migrated by Alembic when the app starts.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: sap-fico-db
+    environment:
+      POSTGRES_USER: sapfico
+      POSTGRES_PASSWORD: sapfico
+      POSTGRES_DB: sapfico
+    volumes:
+      - sapfico-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sapfico -d sapfico"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    environment:
+      DATABASE_URL: postgresql+psycopg://sapfico:sapfico@db:5432/sapfico
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  sapfico-pg:

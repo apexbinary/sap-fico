@@ -44,6 +44,7 @@ python -m app.verify_documents         # park / post parked / delete, reversal, 
 python -m app.verify_recurring         # recurring entry original + F.14 runs
 python -m app.verify_dunning           # dunning levels, interval, charges, notices
 python -m app.verify_fx                # FX translation, rounding, valuation, realized differences
+python -m app.verify_all               # all of the above in order
 
 python -m uvicorn app.main:app --reload --port 8000
 # API docs: http://localhost:8000/docs   |   Web UI: http://localhost:8000/
@@ -51,9 +52,25 @@ python -m uvicorn app.main:app --reload --port 8000
 
 The venv Python on Windows is `.venv/Scripts/python.exe`; on macOS/Linux
 `.venv/bin/python`. Re-running `app.seed` is idempotent (merge by primary key).
-`create_all()` also adds new *nullable* model columns to existing tables
-(`database._add_missing_columns`); any other schema change (new NOT NULL
-column, type change, rename) still needs `sapfico.db` deleted or a migration.
+
+### Schema changes: Alembic
+
+The schema is owned by Alembic (`alembic.ini`, `migrations/`). `init_db()` (run
+by the app on startup and by `app.seed`) does `alembic upgrade head`; a database
+created before Alembic (tables but no `alembic_version`) is synced once by the
+legacy helpers and stamped. After changing a model, add a revision and commit it:
+
+```bash
+alembic revision --autogenerate -m "describe the change"   # review the file!
+docker run --rm -v "$PWD/migrations:/app/migrations" -e DATABASE_URL=sqlite:////tmp/e.db   cloned_system-app sh -c "python -m app.seed >/dev/null; alembic revision --autogenerate -m 'x'"
+```
+
+### PostgreSQL
+
+`docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build`
+runs the app on PostgreSQL 16 (service `db`, volume `sapfico-pg`). PostgreSQL
+enforces VARCHAR lengths and every foreign key: `python -m scripts.check_lengths`
+lists values that SQLite accepted but PostgreSQL would reject.
 
 ### Docker
 
@@ -64,7 +81,7 @@ scratch DB so they don't post test documents into it:
 
 ```bash
 docker run --rm -e DATABASE_URL=sqlite:////tmp/v.db cloned_system-app \
-  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents && python -m app.verify_recurring && python -m app.verify_dunning && python -m app.verify_fx"
+  sh -c "python -m app.seed && python -m app.verify_all"
 ```
 
 ## Architecture (dependencies flow inward)
@@ -72,7 +89,7 @@ docker run --rm -e DATABASE_URL=sqlite:////tmp/v.db cloned_system-app \
 ```
 app/
   config.py          Settings (reads .env: DATABASE_URL, DEFAULT_CLIENT, SQL_ECHO)
-  database.py        engine, SessionLocal, Base, create_all()
+  database.py        engine, SessionLocal, Base, init_db() (Alembic upgrade / legacy stamp)
   models/            ORM tables — authentic SAP names; MANDT (client) is CHAR(3) key
     organizational.py  T000 T001 T004 T009/T009B TKA01/02 TGSB T014 TCURC/TCURR T001B
     gl_master.py       SKA1 SKAT SKB1 T077S T004V/T004G
@@ -126,7 +143,8 @@ app/
   verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV,
                      document lifecycle)
 web/                 index.html, styles.css, app.js (SPA)
-scripts/             setup_postgres.sql
+migrations/          Alembic env + revisions (0001 = baseline schema)
+scripts/             setup_postgres.sql, check_lengths.py
 ```
 
 ### Posting engine rules (the core of FI — keep these invariant)
@@ -167,8 +185,14 @@ scripts/             setup_postgres.sql
   posting date unless KURSF is given; cent differences go to the largest
   translated line. `LineRequest.dmbtr` fixes a line's local amount (clearing
   offsets each item at its historical rate; the rest is realized FX, T030H).
-- `create_all()` also rebuilds a table whose model gained a primary-key column
-  (string, default '') and copies its rows (`_rebuild_tables_with_new_key_columns`).
+- Every model change needs an Alembic revision. The pre-Alembic helpers
+  (`_legacy_create_all`) only run once for databases without `alembic_version`.
+- The controlling area of a company code comes from TKA02
+  (`fiscal.controlling_area`); T001-KOKFI is only the 1-character indicator.
+- Seed inserts are flushed one by one in code order (parents first) because
+  PostgreSQL enforces foreign keys that SQLAlchemy does not order by.
+- The engine rejects header/line texts longer than their columns (BKTXT 25,
+  XBLNR 16, SGTXT 50, ZUONR 18).
 
 ## Demo configuration (from seed)
 
@@ -244,12 +268,17 @@ reversal (FB08) with reasons 01/02, reset clearing with optional reversal
 (FBRA), UI actions on the document view.
 Known gaps: changing a parked document, asset reversal (AB08), mass reversal.
 
+**PostgreSQL + Alembic — done:** baseline revision 0001, upgrade on startup,
+legacy databases stamped, PostgreSQL compose override; the full verify suite
+passes on SQLite and PostgreSQL 16. Fixed on the way: length overflows and
+KOKFI misuse, seed FK order, duplicate GLT0 rows for repeated accounts.
+
 ## Roadmap / likely next tasks
 
 1. ~~Payments~~ — complete (see Status).
 2. ~~Financial Statement Version~~ — done (see Status).
 3. ~~Dunning, FX valuation, recurring entries, reversal, parking~~ — done.
-4. **PostgreSQL cutover** (see HANDOFF.md) and Alembic migrations.
+4. ~~PostgreSQL cutover and Alembic migrations~~ — done.
 5. More CO: assessments/distributions, internal order settlement, CO-PA.
 
 ## Conventions when extending

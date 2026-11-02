@@ -7,3 +7,4 @@ python-dateutil==2.9.0.post0
 httpx==0.28.1
 # PostgreSQL driver (optional - SQLite works out of the box for dev)
 psycopg[binary]==3.2.3
+alembic==1.14.0

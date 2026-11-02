@@ -60,7 +60,9 @@ from app.models.organizational import (
 )
 from app.models.partners import (
     Customer,
+    CustomerBankDetails,
     CustomerCompanyCode,
+    SepaMandate,
     Vendor,
     VendorBankDetails,
     VendorCompanyCode,
@@ -100,6 +102,7 @@ __all__ = [
     "WithholdingTaxCode",
     # partners
     "Customer", "CustomerCompanyCode", "Vendor", "VendorCompanyCode", "VendorBankDetails",
+    "CustomerBankDetails", "SepaMandate",
     # payments
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
     "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",

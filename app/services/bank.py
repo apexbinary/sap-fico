@@ -6,6 +6,12 @@ customer); a debit matched to a vendor becomes an outgoing payment (credit bank
 G/L, debit vendor). If the amount settles one open invoice exactly (net of cash
 discount, or gross) that invoice is cleared; otherwise the payment is posted on
 account for manual clearing. Both go through the clearing service.
+
+An item without a partner is matched against the open items of the house
+bank's clearing accounts (T042I-UKONT, e.g. 113109 where F110 posts): money
+out settles an open credit, money in an open debit of the same amount. The
+bank G/L account is posted against the clearing account and the two clearing
+account items are cleared (F-03 logic). Anything else stays unmatched.
 """
 
 from __future__ import annotations
@@ -21,8 +27,10 @@ from app.models.bank import (
     BankStatementItem,
     HouseBankAccount,
 )
+from app.models.payments import BankDetermination
 from app.services import clearing
 from app.services.fiscal import PostingError
+from app.services.posting import DocumentRequest, LineRequest, post_document
 
 
 def import_statement(
@@ -86,7 +94,15 @@ def post_statement(session: Session, mandt: str, bukrs: str, kukey: str) -> dict
         elif it.lifnr:  # outgoing vendor payment
             koart, partner = "K", it.lifnr
         else:
-            continue  # unmatched item, left for manual processing
+            doc = _clear_bank_clearing_item(session, mandt, bukrs, acct, it, kukey)
+            if doc is None:
+                continue  # unmatched item, left for manual processing
+            belnr, gjahr = doc
+            it.belnr, it.gjahr, it.xbenr, it.nbbln = belnr, gjahr, True, belnr
+            session.commit()
+            posted.append({"esnum": it.esnum, "belnr": belnr, "partner": None,
+                           "cleared": True, "discount": Decimal("0")})
+            continue
 
         match = clearing.match_open_item(session, mandt, bukrs, koart, partner, it.kwbtr, it.budat)
         res = clearing.post_payment(session, clearing.PaymentRequest(
@@ -110,3 +126,37 @@ def post_statement(session: Session, mandt: str, bukrs: str, kukey: str) -> dict
         session.commit()
 
     return {"kukey": kukey, "posted": posted}
+
+
+def _clear_bank_clearing_item(session, mandt, bukrs, acct, it, kukey) -> tuple[str, int] | None:
+    """Post a statement item against the matching clearing-account open item and clear both."""
+    clearing_accounts = sorted({
+        r.ukont for r in session.scalars(select(BankDetermination).where(
+            BankDetermination.mandt == mandt, BankDetermination.zbukr == bukrs,
+            BankDetermination.hbkid == acct.hbkid, BankDetermination.hktid == acct.hktid))
+        if r.ukont != acct.hkont
+    })
+    money_out = it.shkzg == "S"
+    for ukont in clearing_accounts:
+        candidates = [
+            p for p in clearing.proposal(session, mandt, bukrs, "S", ukont, it.budat)
+            if p["shkzg"] == ("H" if money_out else "S") and p["open"].copy_abs() == it.kwbtr
+        ]
+        if not candidates:
+            continue
+        match = candidates[0]
+        debit, credit = (ukont, acct.hkont) if money_out else (acct.hkont, ukont)
+        doc = post_document(session, DocumentRequest(
+            mandt=mandt, bukrs=bukrs, blart="SA", bldat=it.budat, budat=it.budat, waers=acct.waers,
+            bktxt=f"Bank stmt {kukey}/{it.esnum}"[:25], tcode="FF_5", lines=[
+                LineRequest(bschl="40", account=debit, wrbtr=it.kwbtr, sgtxt=it.vwzw1 or "Bank statement"),
+                LineRequest(bschl="50", account=credit, wrbtr=it.kwbtr, sgtxt=it.vwzw1 or "Bank statement"),
+            ]), commit=False)
+        new_line = next(i for i in doc.items if i.hkont == ukont)
+        clearing.post_payment(session, clearing.PaymentRequest(
+            mandt=mandt, bukrs=bukrs, koart="S", account=ukont, budat=it.budat, tcode="FF_5",
+            items=[(match["belnr"], match["gjahr"], match["buzei"]),
+                   (new_line.belnr, new_line.gjahr, new_line.buzei)],
+        ), commit=False)
+        return doc.belnr, doc.gjahr
+    return None

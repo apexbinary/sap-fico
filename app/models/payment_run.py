@@ -2,7 +2,7 @@
 
 Tables modelled here:
     REGUV  Payment run control: parameters and status of a run (LAUFD + LAUFI)
-    REGUH  Payment data: one row per payee group (company code, vendor, method)
+    REGUH  Payment data: one row per payee group (company code, vendor or customer, method)
     REGUP  Payment data: the open items paid (or blocked) within a group
 
 A run is identified by its run date (LAUFD) and identification (LAUFI). The
@@ -38,6 +38,8 @@ class PaymentRunControl(Base):
     cpudt: Mapped[date] = mapped_column()  # Documents entered up to (parameter)
     lifnr_low: Mapped[str | None] = mapped_column(String(10))  # Vendor selection from (parameter)
     lifnr_high: Mapped[str | None] = mapped_column(String(10))  # Vendor selection to (parameter)
+    kunnr_low: Mapped[str | None] = mapped_column(String(10))  # Customer selection from (parameter)
+    kunnr_high: Mapped[str | None] = mapped_column(String(10))  # Customer selection to (parameter)
     xvore: Mapped[bool] = mapped_column(default=False)  # Proposal run carried out
     xecht: Mapped[bool] = mapped_column(default=False)  # Payment run carried out
     usnam: Mapped[str] = mapped_column(String(12), default="SYSTEM")  # User
@@ -46,12 +48,16 @@ class PaymentRunControl(Base):
 
     payees: Mapped[list["PaymentRunPayee"]] = relationship(
         back_populates="run", cascade="all, delete-orphan",
-        order_by="[PaymentRunPayee.lifnr, PaymentRunPayee.zlsch]",
+        order_by="[PaymentRunPayee.lifnr, PaymentRunPayee.kunnr, PaymentRunPayee.zlsch]",
     )
 
 
 class PaymentRunPayee(Base):
-    """REGUH — Payment data per payee (one payment document per row)."""
+    """REGUH — Payment data per payee (one payment document per row).
+
+    Exactly one of LIFNR (outgoing payment to a vendor) and KUNNR (direct debit
+    from a customer) is filled; the other is ''.
+    """
 
     __tablename__ = "reguh"
     __table_args__ = (
@@ -62,7 +68,8 @@ class PaymentRunPayee(Base):
     laufd: Mapped[date] = mapped_column(primary_key=True)  # Run date
     laufi: Mapped[str] = mapped_column(String(6), primary_key=True)  # Run identification
     zbukr: Mapped[str] = mapped_column(String(4), primary_key=True)  # Paying company code
-    lifnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Vendor
+    lifnr: Mapped[str] = mapped_column(String(10), primary_key=True, default="")  # Vendor
+    kunnr: Mapped[str] = mapped_column(String(10), primary_key=True, default="")  # Customer
     zlsch: Mapped[str] = mapped_column(String(1), primary_key=True)  # Payment method ('' = none found)
     name1: Mapped[str | None] = mapped_column(String(35))  # Payee name
     waers: Mapped[str] = mapped_column(String(5))  # Payment currency
@@ -77,6 +84,7 @@ class PaymentRunPayee(Base):
     zbnkn: Mapped[str | None] = mapped_column(String(18))  # Payee bank account number
     ziban: Mapped[str | None] = mapped_column(String(34))  # Payee IBAN
     zswif: Mapped[str | None] = mapped_column(String(11))  # Payee SWIFT/BIC
+    mndid: Mapped[str | None] = mapped_column(String(35))  # SEPA mandate reference (direct debit)
     rwbtr: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Amount paid (payment currency)
     rskon: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Cash discount taken
     vblnr: Mapped[str | None] = mapped_column(String(10))  # Payment document number
@@ -98,8 +106,9 @@ class PaymentRunItem(Base):
     __tablename__ = "regup"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["mandt", "laufd", "laufi", "zbukr", "lifnr", "zlsch"],
-            ["reguh.mandt", "reguh.laufd", "reguh.laufi", "reguh.zbukr", "reguh.lifnr", "reguh.zlsch"],
+            ["mandt", "laufd", "laufi", "zbukr", "lifnr", "kunnr", "zlsch"],
+            ["reguh.mandt", "reguh.laufd", "reguh.laufi", "reguh.zbukr", "reguh.lifnr", "reguh.kunnr",
+             "reguh.zlsch"],
         ),
     )
 
@@ -107,7 +116,8 @@ class PaymentRunItem(Base):
     laufd: Mapped[date] = mapped_column(primary_key=True)  # Run date
     laufi: Mapped[str] = mapped_column(String(6), primary_key=True)  # Run identification
     zbukr: Mapped[str] = mapped_column(String(4), primary_key=True)  # Paying company code
-    lifnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Vendor
+    lifnr: Mapped[str] = mapped_column(String(10), primary_key=True, default="")  # Vendor
+    kunnr: Mapped[str] = mapped_column(String(10), primary_key=True, default="")  # Customer
     zlsch: Mapped[str] = mapped_column(String(1), primary_key=True)  # Payment method of the group
     bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code of the item
     belnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Document number

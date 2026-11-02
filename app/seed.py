@@ -8,7 +8,8 @@ Creates:
   * A small chart of accounts (bank, receivables, payables, tax, revenue, expense)
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
   * Terms of payment 0001 / NT30 / ZB01 and cash discount accounts (SKT/SKE)
-  * F110: payment method T (SEPA transfer), bank determination, vendor bank details
+  * F110: methods T (SEPA transfer) / E (SEPA direct debit), bank determination,
+    vendor/customer bank details, a SEPA mandate for the demo customer
   * Payment-difference tolerances (T043G, key ZDI) and open-item G/L account 113109
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
@@ -50,7 +51,9 @@ from app.models.organizational import (
 )
 from app.models.partners import (
     Customer,
+    CustomerBankDetails,
     CustomerCompanyCode,
+    SepaMandate,
     Vendor,
     VendorBankDetails,
     VendorCompanyCode,
@@ -187,7 +190,9 @@ def seed() -> None:
             ("18", 180000000, 189999999),
             ("19", 190000000, 199999999),
         ]:
-            s.merge(NumberRange(mandt=MANDT, object="RF_BELEG", subobject=BUKRS, nrrangenr=numkr, toyear=0, fromnumber=str(lo), tonumber=str(hi), nrlevel=str(lo - 1)))
+            # Only create missing intervals: NRLEVEL is the live counter and must survive re-seeding.
+            if s.get(NumberRange, (MANDT, "RF_BELEG", BUKRS, numkr, 0)) is None:
+                s.add(NumberRange(mandt=MANDT, object="RF_BELEG", subobject=BUKRS, nrrangenr=numkr, toyear=0, fromnumber=str(lo), tonumber=str(hi), nrlevel=str(lo - 1)))
 
         # --- Posting keys (standard SAP) ---
         for bschl, txt, shkzg, koart, extra in [
@@ -232,7 +237,12 @@ def seed() -> None:
 
         # --- Demo customer & vendor ---
         s.merge(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))
-        s.merge(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001"))
+        s.merge(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E"))
+        s.merge(CustomerBankDetails(mandt=MANDT, kunnr="0000010000", banks="DE", bankl="30000000", bankn="0555666777", koinh="Alpha Retail GmbH", iban="DE81300000000555666777"))
+        s.merge(SepaMandate(mandt=MANDT, mndid="MND-0000010000-001", snd_type="BUS3007", snd_id="0000010000",
+                            snd_name1="Alpha Retail GmbH", snd_iban="DE81300000000555666777", snd_bic="BEDEDEBB",
+                            rec_type="BUS0002", rec_id=BUKRS, rec_crdid="DE98ZZZ09999999999", rec_name1="Demo Company AG",
+                            sign_date=date(2026, 1, 1), sign_city="Berlin", pay_type="RCUR", status="1"))
         s.merge(Vendor(mandt=MANDT, lifnr="0000020000", ktokk="LIEF", name1="Beta Supplies AG", land1="DE", ort01="Munich", spras="E"))
         s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="ZB01", zuawa="001", zwels="T"))
         s.merge(VendorBankDetails(mandt=MANDT, lifnr="0000020000", banks="DE", bankl="20000000", bankn="0987654321", koinh="Beta Supplies AG", iban="DE84200000000987654321"))
@@ -260,12 +270,15 @@ def seed() -> None:
         s.merge(HouseBank(mandt=MANDT, bukrs=BUKRS, hbkid="DB", banks="DE", bankl="10000000", swift="DEMODEFF"))
         s.merge(HouseBankAccount(mandt=MANDT, bukrs=BUKRS, hbkid="DB", hktid="GIRO", bankn="123456789", iban="DE91100000000123456789", waers="EUR", hkont="113100"))
         s.merge(Bank(mandt=MANDT, banks="DE", bankl="20000000", banka="Munich Demo Bank", ort01="Munich", swift="MUDEDEMM"))
+        s.merge(Bank(mandt=MANDT, banks="DE", bankl="30000000", banka="Berlin Demo Bank", ort01="Berlin", swift="BEDEDEBB"))
 
         # --- Automatic payment program (F110) ---
         s.merge(PaymentMethod(mandt=MANDT, land1="DE", zlsch="T", text1="Bank transfer (SEPA)", xbkkt=True, blart="ZP", progn="SEPA_CT"))
-        s.merge(CompanyCodePaymentMethod(mandt=MANDT, zbukr=BUKRS, zlsch="T", minbt=Decimal("1.00")))
-        # SAP usually posts to a bank clearing sub-account; the demo posts to the main bank account.
-        s.merge(BankDetermination(mandt=MANDT, zbukr=BUKRS, zlsch="T", waers="EUR", rangf=1, hbkid="DB", hktid="GIRO", ukont="113100"))
+        s.merge(PaymentMethod(mandt=MANDT, land1="DE", zlsch="E", text1="SEPA direct debit", xeinz=True, blart="ZP", progn="SEPA_DD"))
+        for zlsch in ("T", "E"):
+            s.merge(CompanyCodePaymentMethod(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, minbt=Decimal("1.00")))
+            # F110 posts to the bank clearing account; the bank statement later clears it.
+            s.merge(BankDetermination(mandt=MANDT, zbukr=BUKRS, zlsch=zlsch, waers="EUR", rangf=1, hbkid="DB", hktid="GIRO", ukont="113109"))
 
         s.commit()
         print("Seed complete: client 100, company code 1000, chart of accounts INT.")

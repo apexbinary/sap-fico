@@ -6,6 +6,8 @@ Tables modelled here:
     LFA1   Vendor master   — general (client) data
     LFB1   Vendor master   — company code data
     LFBK   Vendor master   — bank details
+    KNBK   Customer master — bank details
+    SEPA_MANDATE  SEPA direct debit mandates (customer -> our creditor ID)
 
 Open items are not stored in separate BSID/BSIK index tables here; they are
 derived from BSEG line items where the account type is D/K and the clearing
@@ -14,6 +16,7 @@ document (AUGBL) is empty. This keeps a single owner for every posted fact.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import ForeignKeyConstraint, Numeric, String
@@ -165,3 +168,45 @@ class VendorBankDetails(Base):
     koinh: Mapped[str | None] = mapped_column(String(60))  # Account holder name
     xezer: Mapped[bool] = mapped_column(default=False)  # Collection authorization
     iban: Mapped[str | None] = mapped_column(String(34))  # IBAN (TIBAN)
+
+
+class CustomerBankDetails(Base):
+    """KNBK — Customer master, bank details (IBAN from TIBAN folded into iban)."""
+
+    __tablename__ = "knbk"
+    __table_args__ = (
+        ForeignKeyConstraint(["mandt", "kunnr"], ["kna1.mandt", "kna1.kunnr"]),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kunnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Customer number
+    banks: Mapped[str] = mapped_column(String(3), primary_key=True)  # Bank country key
+    bankl: Mapped[str] = mapped_column(String(15), primary_key=True)  # Bank key (-> BNKA)
+    bankn: Mapped[str] = mapped_column(String(18), primary_key=True)  # Bank account number
+    bkont: Mapped[str | None] = mapped_column(String(2))  # Bank control key
+    bvtyp: Mapped[str | None] = mapped_column(String(4))  # Partner bank type
+    koinh: Mapped[str | None] = mapped_column(String(60))  # Account holder name
+    xezer: Mapped[bool] = mapped_column(default=False)  # Collection authorization
+    iban: Mapped[str | None] = mapped_column(String(34))  # IBAN (TIBAN)
+
+
+class SepaMandate(Base):
+    """SEPA_MANDATE — SEPA direct debit mandate (debtor = customer)."""
+
+    __tablename__ = "sepa_mandate"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    mndid: Mapped[str] = mapped_column(String(35), primary_key=True)  # Mandate reference
+    snd_type: Mapped[str] = mapped_column(String(10), default="BUS3007")  # Sender object type (customer)
+    snd_id: Mapped[str] = mapped_column(String(70))  # Sender ID (customer number)
+    snd_name1: Mapped[str | None] = mapped_column(String(70))  # Debtor name
+    snd_iban: Mapped[str] = mapped_column(String(34))  # Debtor IBAN
+    snd_bic: Mapped[str | None] = mapped_column(String(11))  # Debtor BIC
+    rec_type: Mapped[str] = mapped_column(String(10), default="BUS0002")  # Receiver object type (company code)
+    rec_id: Mapped[str] = mapped_column(String(70))  # Receiver ID (company code)
+    rec_crdid: Mapped[str] = mapped_column(String(35))  # Creditor identifier (SEPA CI)
+    rec_name1: Mapped[str | None] = mapped_column(String(70))  # Creditor name
+    sign_date: Mapped[date] = mapped_column()  # Date of signature
+    sign_city: Mapped[str | None] = mapped_column(String(35))  # Place of signature
+    pay_type: Mapped[str] = mapped_column(String(4), default="RCUR")  # RCUR recurring / OOFF one-off
+    status: Mapped[str] = mapped_column(String(1), default="1")  # 0 entered, 1 active, 4 locked, 5 cancelled

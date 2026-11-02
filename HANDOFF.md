@@ -120,12 +120,12 @@ taxes (input/output VAT) · AR/AP sub-ledgers · Controlling (real-time FI→CO)
 Asset Accounting (acquisition + straight-line depreciation) · Bank Accounting
 (electronic statements + auto open-item clearing) · payments & clearing
 (F-28/F-53/F-32/F-44/F-03, cash discount, tolerances, partial/residual) · automatic payment
-program F110 with SEPA file · reporting (trial balance,
+program F110 (SEPA transfers + direct debits) · reporting (trial balance,
 account balances, open items) · REST API · web UI.
 
 ## Roadmap (what to build next)
 
-1. Payments: F110 for customers (direct debit), bank clearing sub-account flow.
+1. Payments: complete.
 2. Financial Statement Version (FSV): balance sheet & P&L hierarchy.
 3. Document reversal (FB08), parked documents, recurring entries, FX valuation,
    dunning.

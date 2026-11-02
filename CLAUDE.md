@@ -73,7 +73,7 @@ app/
     gl_master.py       SKA1 SKAT SKB1 T077S T004V/T004G
     documents.py       T003 TBSL NRIV BKPF BSEG GLT0
     tax.py             T005 T007A TAXRATE T030K T059P/Z
-    partners.py        KNA1 KNB1 LFA1 LFB1 LFBK
+    partners.py        KNA1 KNB1 LFA1 LFB1 LFBK KNBK SEPA_MANDATE
     controlling.py     CSKS CSKA CSKB AUFK CEPC COEP
     assets.py          ANKA T093 T095 TABW ANLA ANLB ANLZ ANLC ANEK ANEP ANLP
     bank.py            BNKA T012 T012K FEBKO FEBEP
@@ -92,14 +92,16 @@ app/
     clearing.py        post_payment(): F-28/F-53 payments + F-32/F-44/F-03 clearing;
                        modes clear / residual / partial / on_account; tolerances,
                        discount tax adjustment; proposal()
-    payment_run.py     F110: create_proposal / execute / sepa_credit_transfer (pain.001)
-    bank.py            import_statement, post_statement (auto-match + clear via clearing.py)
+    payment_run.py     F110 vendors + customers: create_proposal / execute /
+                       sepa_credit_transfer (pain.001) / sepa_direct_debit (pain.008)
+    bank.py            import_statement, post_statement (partner items: auto-match +
+                       clear; partner-less items: clear the T042I clearing account)
     reporting.py       trial_balance, account_balance, open_items
   api.py             /api/documents, /api/reports/*
   masterdata.py      /api/master/* (company codes, GL accounts, partners, posting keys, ...)
   api_assets_bank.py /api/assets*, /api/bank*, /api/master/house-banks
   api_payments.py    /api/payments/open-items, /api/payments, /api/clearing
-  api_payment_run.py /api/payment-runs (proposal, execute, sepa, delete)
+  api_payment_run.py /api/payment-runs (proposal, execute, sepa, sepa-dd, delete)
   main.py            FastAPI app; mounts routers under /api and the web UI at /
   seed.py            demo customizing + master data
   verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110)
@@ -131,6 +133,9 @@ scripts/             setup_postgres.sql
   once per REGUH group; groups with an `exception` are skipped.
 - Seed merges must set every primary-key column explicitly (column defaults
   only apply on INSERT, so a missing key makes `merge` insert a duplicate).
+  Runtime state (NRIV-NRLEVEL counters) is only created, never re-merged.
+- `create_all()` also rebuilds a table whose model gained a primary-key column
+  (string, default '') and copies its rows (`_rebuild_tables_with_new_key_columns`).
 
 ## Demo configuration (from seed)
 
@@ -144,8 +149,10 @@ House bank DB / account GIRO → G/L 113100. Posting keys 40/50 (G/L), 01/11/15
 Terms of payment 0001 (net), NT30, ZB01 (14d 3% / 30d 2% / 45d net); customer
 0000010000 is on 0001, vendor 0000020000 on ZB01. Cash discount accounts
 (T030): SKT granted 880000, SKE received 276000. F110: payment method T (SEPA
-transfer, needs payee IBAN), min 1.00 EUR, bank ranking DB/GIRO -> G/L 113100,
-document type ZP. Vendor 0000020000 has LFBK bank details and ZWELS T; vendor
+transfer, needs payee IBAN) and E (SEPA direct debit, needs an active mandate),
+min 1.00 EUR, bank ranking DB/GIRO -> clearing account 113109, document type
+ZP. Customer 0000010000 pays by E (KNBK + mandate MND-0000010000-001, creditor
+ID DE98ZZZ09999999999). Vendor 0000020000 has LFBK bank details and ZWELS T; vendor
 0000020001 (Gamma Logistics) has none, so it shows up as an F110 exception.
 Tolerance group '' (T043G): gain and loss up to 2.00 EUR and 1%, posted via
 T030 ZDI to 880100 (loss) / 880200 (gain). G/L 113109 is open-item managed.
@@ -166,16 +173,17 @@ invoice's tax lines), header-only zero-balance clearing documents.
 Known gaps: local currency only; T043G column names need checking against
 the SAP DDIC; tolerances per employee (T043T) and reason codes are missing.
 
-**Automatic payment program F110 — done (vendors):** parameters, proposal
-(due / cash-discount rule, credit-memo offset, payment method and house bank
-determination, exception list), payment run, SEPA pain.001 file, UI screen.
-Known gaps: customers (direct debit, pain.008), editing a proposal item by item,
-available amounts per bank (T042Y), checks, bank clearing sub-accounts.
+**Automatic payment program F110 — done:** vendors (SEPA transfer, pain.001)
+and customers (SEPA direct debit with mandates, pain.008); proposal with the
+due / cash-discount rule, credit-memo offset, method and house bank
+determination, exception list; payment run posting to the bank clearing
+account 113109, which the bank statement clears automatically.
+Known gaps: editing a proposal item by item, available amounts per bank
+(T042Y), checks, mandate sequence handling beyond RCUR/OOFF.
 
 ## Roadmap / likely next tasks
 
-1. **Payments (rest)**: F110 for customers (direct debit, pain.008), bank
-   clearing sub-account flow (F110 -> 113109 -> bank statement -> F-03).
+1. ~~Payments~~ — complete (see Status).
 2. **Financial Statement Version (FSV)**: balance sheet & P&L hierarchy over the
    trial balance.
 3. **Dunning** (FBMP/F150), **foreign-currency valuation**, **recurring entries**,

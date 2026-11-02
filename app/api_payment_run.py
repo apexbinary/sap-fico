@@ -27,12 +27,14 @@ class ProposalIn(BaseModel):
     laufd: date = Field(..., description="Run date")
     laufi: str = Field(..., min_length=1, max_length=6, description="Run identification")
     zbukr: str = Field(..., description="Paying company code")
-    zwels: str = Field("T", min_length=1, description="Payment methods, e.g. 'T'")
+    zwels: str = Field("T", min_length=1, description="Payment methods, e.g. 'TE' (transfer + direct debit)")
     zaldt: date = Field(..., description="Posting date of the payments")
     nedat: date = Field(..., description="Next payment run date")
     cpudt: date | None = Field(None, description="Documents entered up to (default today)")
     lifnr_low: str | None = None
     lifnr_high: str | None = None
+    kunnr_low: str | None = None
+    kunnr_high: str | None = None
 
 
 def _run_or_422(fn):
@@ -58,6 +60,8 @@ def proposal(body: ProposalIn, mandt: str = Query(default=None), s: Session = De
         zwels=body.zwels.upper(), zaldt=body.zaldt, nedat=body.nedat, cpudt=body.cpudt,
         lifnr_low=body.lifnr_low.zfill(10) if body.lifnr_low else None,
         lifnr_high=body.lifnr_high.zfill(10) if body.lifnr_high else None,
+        kunnr_low=body.kunnr_low.zfill(10) if body.kunnr_low else None,
+        kunnr_high=body.kunnr_high.zfill(10) if body.kunnr_high else None,
     ))
     return f110.run_summary(run)
 
@@ -82,5 +86,13 @@ def execute(laufd: date, laufi: str, mandt: str = Query(default=None), s: Sessio
 def sepa(laufd: date, laufi: str, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> Response:
     xml = _run_or_422(lambda: f110.sepa_credit_transfer(s, _m(mandt), laufd, laufi))
     name = f"F110_{laufd:%Y%m%d}_{laufi}_pain001.xml"
+    return Response(xml, media_type="application/xml",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/{laufd}/{laufi}/sepa-dd", summary="Payment medium: SEPA direct debit (pain.008.001.02)")
+def sepa_dd(laufd: date, laufi: str, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> Response:
+    xml = _run_or_422(lambda: f110.sepa_direct_debit(s, _m(mandt), laufd, laufi))
+    name = f"F110_{laufd:%Y%m%d}_{laufi}_pain008.xml"
     return Response(xml, media_type="application/xml",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})

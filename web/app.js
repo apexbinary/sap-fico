@@ -259,6 +259,56 @@ views["trial-balance"] = async (c) => {
     <tfoot><tr><td colspan="2">Total</td><td class="num">${fmt(tb.total_debit)}</td><td class="num">${fmt(tb.total_credit)}</td><td class="num">${fmt(Number(tb.total_debit) - Number(tb.total_credit))}</td></tr></tfoot></table></div>`;
 };
 
+// ---------- Balance Sheet / P&L (financial statement version) ----------
+views["financial-statement"] = async (c) => {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const gjahr = Number(q.get("gjahr") || state.gjahr), cmp = Number(q.get("cmp") || gjahr - 1), per = Number(q.get("per") || 16);
+  const fs = await api(`/reports/financial-statement?bukrs=${state.bukrs}&gjahr=${gjahr}&compare_gjahr=${cmp}&period_to=${per}`);
+  const amt = (v) => `<td class="num">${Number(v) ? fmt(v) : ""}</td>`;
+  const rows = [];
+  const walk = (nodes) => nodes.forEach((n) => {
+    const strong = n.depth === 0 ? "font-weight:700" : n.children.length ? "font-weight:600" : "";
+    rows.push(`<tr class="fs-node" data-id="${n.id}" style="cursor:${n.accounts.length ? "pointer" : "default"};${strong}">
+      <td style="padding-left:${14 + n.depth * 22}px">${n.accounts.length ? "▸ " : ""}${esc(n.text)}</td>
+      ${amt(n.current)}${amt(n.previous)}${amt(n.difference)}<td class="num">${n.pct == null ? "" : n.pct + "%"}</td></tr>`);
+    n.accounts.forEach((a) => rows.push(`<tr class="sub-row fs-acct" data-parent="${n.id}" hidden>
+      <td class="help" style="padding-left:${36 + n.depth * 22}px"><span class="mono">${a.saknr}</span> ${esc(a.name || "")}</td>
+      ${amt(a.current)}${amt(a.previous)}${amt(Number(a.current) - Number(a.previous))}<td></td></tr>`));
+    walk(n.children);
+  });
+  walk(fs.tree);
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Balance Sheet / P&amp;L</h1>
+      <div class="sub">${esc(fs.vstxt)} (FSV ${esc(fs.versn)}) · company code ${esc(fs.bukrs)} · ${esc(fs.waers)}</div></div>
+      <span class="chip ${fs.balanced ? "ok" : "no"}">${fs.balanced ? "Assets = Liabilities + Equity" : "Out of balance"}</span></div>
+    <div class="toolbar">
+      <div class="field"><label>Fiscal year</label><input id="fs-gjahr" type="number" value="${gjahr}"></div>
+      <div class="field"><label>Comparison year</label><input id="fs-cmp" type="number" value="${cmp}"></div>
+      <div class="field"><label>Up to period</label><input id="fs-per" type="number" min="1" max="16" value="${per}"></div>
+      <button class="btn" id="fs-go">Show</button>
+      <button class="btn secondary" id="fs-cf">Carry forward ${gjahr} → ${gjahr + 1}</button>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="label">Total assets</div><div class="value">${fmt(fs.total_assets)}</div></div>
+      <div class="tile"><div class="label">Liabilities &amp; equity</div><div class="value">${fmt(fs.total_liabilities_equity)}</div></div>
+      <div class="tile"><div class="label">Net result ${gjahr}</div><div class="value ${Number(fs.net_result) >= 0 ? "good" : "bad"}">${fmt(fs.net_result)}</div><div class="foot">${Number(fs.net_result) >= 0 ? "profit" : "loss"}</div></div>
+    </div>
+    ${fs.unassigned.length ? `<div class="card"><div class="card-body" style="color:var(--bad)">Accounts not assigned to the FSV: ${fs.unassigned.map(esc).join(", ")}</div></div>` : ""}
+    <div class="card"><table><thead><tr><th>Item</th><th class="num">${gjahr}</th><th class="num">${cmp}</th><th class="num">Difference</th><th class="num">%</th></tr></thead>
+      <tbody>${rows.join("")}</tbody></table></div>
+    <div class="help">Click an item to show its accounts. Balance sheet accounts include balances carried forward from the previous year.</div>`;
+
+  document.querySelectorAll(".fs-node").forEach((tr) => (tr.onclick = () => {
+    document.querySelectorAll(`.fs-acct[data-parent="${tr.dataset.id}"]`).forEach((r) => (r.hidden = !r.hidden));
+  }));
+  $("#fs-go").onclick = () => { location.hash = `#/financial-statement?gjahr=${$("#fs-gjahr").value}&cmp=${$("#fs-cmp").value}&per=${$("#fs-per").value}`; };
+  $("#fs-cf").onclick = async () => {
+    try { const r = await api("/closing/carry-forward", { method: "POST", body: JSON.stringify({ bukrs: state.bukrs, gjahr }) });
+      toast(`Carried ${r.accounts} account(s) into ${r.to_gjahr}; retained earnings ${fmt(r.retained_earnings)}`, "good"); route(); }
+    catch (e) { toast(e.message, "bad"); }
+  };
+};
+
 // ---------- Open Items ----------
 views["open-items"] = async (c) => {
   c.innerHTML = `

@@ -11,6 +11,7 @@ Creates:
   * F110: methods T (SEPA transfer) / E (SEPA direct debit), bank determination,
     vendor/customer bank details, a SEPA mandate for the demo customer
   * Payment-difference tolerances (T043G, key ZDI) and open-item G/L account 113109
+  * Financial statement version INT and retained earnings 109000 (T030 BIL)
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
 Run:  python -m app.seed
@@ -32,6 +33,7 @@ from app.models.assets import (
 from app.models.bank import Bank, HouseBank, HouseBankAccount
 from app.models.controlling import CostCenter, CostElement, CostElementCO
 from app.models.documents import DocumentType, NumberRange, PostingKey
+from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
 from app.models.gl_master import (
     GLAccountCOA,
     GLAccountCompanyCode,
@@ -84,6 +86,7 @@ def _gl_accounts():
     """(account, name, is_balance_sheet, account_group, [recon_type], [tax_cat])."""
     return [
         ("100000", "Subscribed capital", True, "GL00", None, None),
+        ("109000", "Retained earnings", True, "GL00", None, None),
         ("113100", "Bank (main account)", True, "GL00", None, None),
         ("113109", "Bank clearing account (open items)", True, "GL00", None, None),
         ("140000", "Trade receivables - domestic", True, "RECN", "D", None),
@@ -101,6 +104,28 @@ def _gl_accounts():
         ("011000", "Machinery (acquisition cost)", True, "GL00", None, None),
         ("011010", "Accumulated depreciation - machinery", True, "GL00", None, None),
     ]
+
+
+# Financial statement version INT: (id, parent, item key, text, kind, sign, [(from, to, debit, credit)])
+FSV_ITEMS = [
+    (1, None, "1", "ASSETS", "A", 1, []),
+    (11, 1, "11", "Fixed assets", "", 1, [("011000", "011999", True, True)]),
+    (12, 1, "12", "Receivables and other assets", "", 1, [("140000", "149999", True, True), ("154000", "154999", True, True)]),
+    (13, 1, "13", "Bank and cash", "", 1, [("113000", "113999", True, False)]),
+    (2, None, "2", "LIABILITIES AND EQUITY", "L", -1, []),
+    (21, 2, "21", "Equity", "", 1, [("100000", "109999", True, True)]),
+    (22, 2, "22", "Net result for the year", "N", 1, []),
+    (23, 2, "23", "Payables and other liabilities", "", 1, [("160000", "169999", True, True), ("175000", "175999", True, True)]),
+    (24, 2, "24", "Bank overdrafts", "", 1, [("113000", "113999", False, True)]),
+    (3, None, "3", "PROFIT AND LOSS", "P", -1, []),
+    (31, 3, "31", "Sales revenue", "", 1, [("800000", "849999", True, True)]),
+    (32, 3, "32", "Sales deductions and payment differences", "", 1, [("880000", "889999", True, True)]),
+    (33, 3, "33", "Other operating income", "", 1, [("270000", "279999", True, True)]),
+    (34, 3, "34", "Cost of materials", "", 1, [("400000", "409999", True, True)]),
+    (35, 3, "35", "Other operating expenses", "", 1, [("410000", "479999", True, True)]),
+    (36, 3, "36", "Depreciation", "", 1, [("480000", "489999", True, True)]),
+    (9, None, "9", "NOT ASSIGNED", "U", 1, []),
+]
 
 
 def seed() -> None:
@@ -232,6 +257,18 @@ def seed() -> None:
         s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKT", bwmod="", komok="", bklas="", konts="880000"))
         s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKE", bwmod="", komok="", bklas="", konts="276000"))
         s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="ZDI", bwmod="", komok="", bklas="", konts="880100", konth="880200"))
+        # Retained earnings for the balance carryforward (P&L statement account type X)
+        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="BIL", bwmod="", komok="X", bklas="", konts="109000"))
+
+        # --- Financial statement version INT ---
+        s.merge(FinancialStatementVersion(mandt=MANDT, versn="INT", vstxt="Balance sheet / P&L (international)", ktopl=KTOPL))
+        for seqno, (node_id, parent, ergsl, text, kind, sign, ranges) in enumerate(FSV_ITEMS):
+            s.merge(FSVNode(mandt=MANDT, versn="INT", id=node_id, parent=parent, ergsl=ergsl, txt45=text,
+                            seqno=seqno, kind=kind, sign=sign))
+            for vonkt, biskt, soll, haben in ranges:
+                s.merge(FSVAccountAssignment(mandt=MANDT, versn="INT", ergsl=ergsl, ktopl=KTOPL,
+                                             vonkt=vonkt, biskt=biskt, soll=soll, haben=haben))
+
         # Default tolerance group: differences up to 2.00 EUR and 1% are posted automatically.
         s.merge(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
 

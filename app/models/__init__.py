@@ -36,6 +36,7 @@ from app.models.documents import (
     NumberRange,
     PostingKey,
 )
+from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
 from app.models.gl_master import (
     FieldStatusGroup,
     FieldStatusVariant,
@@ -106,6 +107,8 @@ __all__ = [
     # payments
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
     "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",
+    # financial statement version
+    "FinancialStatementVersion", "FSVNode", "FSVAccountAssignment",
     # payment run (F110)
     "PaymentRunControl", "PaymentRunPayee", "PaymentRunItem",
     # controlling

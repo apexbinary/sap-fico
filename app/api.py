@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_session
 from app.models.documents import AccountingDocumentHeader
 from app.schemas import DocumentIn, DocumentOut
-from app.services import reporting
+from app.services import fsv, reporting
 from app.services.fiscal import PostingError
 from app.services.posting import DocumentRequest, LineRequest, post_document
 
@@ -88,3 +89,35 @@ def open_items(
         session, mandt or settings.default_client, bukrs, koart,
         account if koart == "S" else account.zfill(10), only_open,
     )
+
+
+@router.get("/reports/financial-statement", tags=["Reports"],
+            summary="Balance sheet / P&L by financial statement version (RFBILA00 / F.01)")
+def financial_statement(
+    bukrs: str, gjahr: int, period_to: int = 16, versn: str | None = None,
+    compare_gjahr: int | None = None,
+    mandt: str = Query(default=None),
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        return fsv.financial_statement(
+            session, mandt or settings.default_client, bukrs, gjahr,
+            versn=versn, period_to=period_to, compare_gjahr=compare_gjahr,
+        )
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class CarryForwardIn(BaseModel):
+    bukrs: str
+    gjahr: int = Field(..., description="Fiscal year to carry forward from")
+
+
+@router.post("/closing/carry-forward", tags=["Closing"], summary="Balance carryforward (FAGLGVTR / F.16)")
+def carry_forward(
+    body: CarryForwardIn, mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> dict:
+    try:
+        return fsv.carry_forward(session, mandt or settings.default_client, body.bukrs, body.gjahr)
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

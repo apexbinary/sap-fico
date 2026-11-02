@@ -77,7 +77,8 @@ INT, and all customizing + demo master data.
 python -m app.verify           # posts customer/vendor/GL documents, prints a balanced trial balance
 python -m app.verify_assets    # asset acquisition + depreciation + bank statement + clearing
 python -m app.verify_payments  # payments, cash discount, partial/residual items, F-32 clearing
-python -m app.verify_payment_run  # F110 proposal, payment run, SEPA pain.001 file
+python -m app.verify_payment_run  # F110 proposal, payment run, SEPA files, bank clearing
+python -m app.verify_fsv       # balance sheet / P&L by FSV, balance carryforward
 ```
 
 Each should end with "OK ... the ledger balances."
@@ -126,7 +127,7 @@ account balances, open items) · REST API · web UI.
 ## Roadmap (what to build next)
 
 1. Payments: complete.
-2. Financial Statement Version (FSV): balance sheet & P&L hierarchy.
+2. Financial Statement Version: done.
 3. Document reversal (FB08), parked documents, recurring entries, FX valuation,
    dunning.
 4. PostgreSQL cutover + Alembic migrations.

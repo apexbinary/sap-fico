@@ -38,7 +38,8 @@ python -m app.seed                     # build schema + demo client 100 / compan
 python -m app.verify                   # end-to-end FI smoke test (posts docs, trial balance)
 python -m app.verify_assets            # end-to-end asset + bank smoke test
 python -m app.verify_payments          # payments, cash discount, partial/residual, clearing
-python -m app.verify_payment_run       # F110 proposal, payment run, SEPA file
+python -m app.verify_payment_run       # F110 proposal, payment run, SEPA files, bank clearing
+python -m app.verify_fsv               # balance sheet / P&L by FSV, balance carryforward
 
 python -m uvicorn app.main:app --reload --port 8000
 # API docs: http://localhost:8000/docs   |   Web UI: http://localhost:8000/
@@ -59,7 +60,7 @@ scratch DB so they don't post test documents into it:
 
 ```bash
 docker run --rm -e DATABASE_URL=sqlite:////tmp/v.db cloned_system-app \
-  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run"
+  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv"
 ```
 
 ## Architecture (dependencies flow inward)
@@ -81,6 +82,7 @@ app/
                        T042Z T042E T042I (F110 payment methods, limits, bank ranking)
                        T043G (customer/vendor payment-difference tolerances)
     payment_run.py     REGUV REGUH REGUP (F110 run control, payees, paid items)
+    fsv.py             T011 FAGL_011PC FAGL_011ZC (financial statement version)
   services/          business logic (the "application layer")
     fiscal.py          period determination (T009B), open-period check (T001B), PostingError
     tax.py             tax calc + account determination
@@ -97,14 +99,17 @@ app/
     bank.py            import_statement, post_statement (partner items: auto-match +
                        clear; partner-less items: clear the T042I clearing account)
     reporting.py       trial_balance, account_balance, open_items
-  api.py             /api/documents, /api/reports/*
+    fsv.py             financial_statement (balance sheet / P&L by FSV),
+                       carry_forward (FAGLGVTR: GLT0-HSLVT, P&L -> retained earnings)
+  api.py             /api/documents, /api/reports/* (incl. financial-statement),
+                     /api/closing/carry-forward
   masterdata.py      /api/master/* (company codes, GL accounts, partners, posting keys, ...)
   api_assets_bank.py /api/assets*, /api/bank*, /api/master/house-banks
   api_payments.py    /api/payments/open-items, /api/payments, /api/clearing
   api_payment_run.py /api/payment-runs (proposal, execute, sepa, sepa-dd, delete)
   main.py            FastAPI app; mounts routers under /api and the web UI at /
   seed.py            demo customizing + master data
-  verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110)
+  verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV)
 web/                 index.html, styles.css, app.js (SPA)
 scripts/             setup_postgres.sql
 ```
@@ -152,7 +157,9 @@ Terms of payment 0001 (net), NT30, ZB01 (14d 3% / 30d 2% / 45d net); customer
 transfer, needs payee IBAN) and E (SEPA direct debit, needs an active mandate),
 min 1.00 EUR, bank ranking DB/GIRO -> clearing account 113109, document type
 ZP. Customer 0000010000 pays by E (KNBK + mandate MND-0000010000-001, creditor
-ID DE98ZZZ09999999999). Vendor 0000020000 has LFBK bank details and ZWELS T; vendor
+ID DE98ZZZ09999999999). FSV INT (items: assets / liabilities & equity with
+net result / P&L / not assigned; 113xxx is a bank asset when in debit and an
+overdraft when in credit). Retained earnings 109000 (T030 BIL, modifier X). Vendor 0000020000 has LFBK bank details and ZWELS T; vendor
 0000020001 (Gamma Logistics) has none, so it shows up as an F110 exception.
 Tolerance group '' (T043G): gain and loss up to 2.00 EUR and 1%, posted via
 T030 ZDI to 880100 (loss) / 880200 (gain). G/L 113109 is open-item managed.
@@ -181,11 +188,16 @@ account 113109, which the bank statement clears automatically.
 Known gaps: editing a proposal item by item, available amounts per bank
 (T042Y), checks, mandate sequence handling beyond RCUR/OOFF.
 
+**Financial Statement Version — done:** FSV tables, balance sheet / P&L report
+with comparison year, debit/credit-dependent assignment, net result in equity,
+unassigned-account check, balance carryforward to the next year, UI screen.
+Known gaps: FSV maintenance UI (edit nodes/assignments), functional areas,
+carryforward of sub-ledger balances (open items are not year-bound here).
+
 ## Roadmap / likely next tasks
 
 1. ~~Payments~~ — complete (see Status).
-2. **Financial Statement Version (FSV)**: balance sheet & P&L hierarchy over the
-   trial balance.
+2. ~~Financial Statement Version~~ — done (see Status).
 3. **Dunning** (FBMP/F150), **foreign-currency valuation**, **recurring entries**,
    **document reversal** (FB08) and **parked documents** (BSTAT='V').
 4. **PostgreSQL cutover** (see HANDOFF.md) and Alembic migrations.

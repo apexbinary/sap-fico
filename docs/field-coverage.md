@@ -461,6 +461,35 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | Journal entry / canceled | TransAbs / Canceled | — | 🔒 cancel reverses it |
 | Credit card deposits, postdated checks, bank reconciliation | DeposType V, … | — | ⏸ |
 
+### Banks and house bank accounts (ODSC / DSC1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Bank code / name / country / SWIFT | ODSC BankCode / BankName / CountryCod / SwiftNum | text / dropdown | ✅ |
+| House bank account: bank / account no. / branch (IFSC) / IBAN / G/L account / name / currency | DSC1 BankCode / Account / Branch / IBAN / GLAccount / AcctName / Currency | dropdown / text / choose | ✅ |
+
+### Bank statements (OBNH / OBNK)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| G/L bank account / house bank account | AcctCode / HouseBank | choose / dropdown | ✅ |
+| Statement no. / date | StatemNo / StatDate | — / date | ✅ number per account |
+| Opening / closing balance | StartBal / EndBal | number | ✅ opening = previous closing; closing = opening + in - out |
+| Rows: value date / reference / narration / money in / money out | OBNK DueDate / Ref / Memo / CredAmnt / DebAmount | date / text / number | ✅ |
+| Import of a bank export (CSV: date, reference, narration, amount or withdrawal / deposit; DD/MM/YYYY or ISO) | DataSource | file | ✅ |
+| Bank transaction code / BP of a row | ExternCode / CardCode | text | ✅ (API) |
+| Reconciliation number / document posted from the row | BankMatch / DocNumType, DocNum | — | 🔒 |
+| ⚠ OBNH (statement header with balances) is not a verified B1 table name; B1 groups rows by StatemNo | | | |
+| MT940 / camt.053 / bank-specific formats, bank statement templates, payment engine | | — | ⏸ |
+
+### Bank statement processing and external reconciliation (OMTH / MTH1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Post a row as incoming payment (BP, open items or on account), outgoing payment or journal entry (offset G/L account: charges, interest) | — | dropdown / choose | ✅ reconciled at once |
+| Manual reconciliation of selected rows and journal lines (sums must agree) | OMTH, MTH1 TransId / TransRowId / BankSeq / ReconSum, JDT1 ExtrMatch / MthDate | checkbox | ✅ |
+| Automatic reconciliation: same amount and direction within N days, reference decides between candidates | OMTH Auto | number | ✅ |
+| Cancel a reconciliation | Canceled | — | ✅ rows and lines open again |
+| Bank reconciliation statement: balance per bank / books, deposits in transit, outstanding payments, bank items not booked, difference | — | report | ✅ |
+| Reconciliation of foreign-currency bank accounts, partial matches by amount, matching rules | | — | ⏸ |
+
 ---
 
 ## Excluded B1 functions (not part of the agreed scope or of a later phase)
@@ -468,7 +497,7 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | B1 function | Why not (yet) |
 |---|---|
 | Payment wizard, payment methods, installments, cash discount, credit cards, bills of exchange, dunning | not in the agreed scope |
-| Bank statements and external (bank) reconciliation, house bank accounts | not in the agreed scope |
+| Bank statement formats (MT940, camt.053), FC bank account reconciliation | not built yet |
 | Exchange-rate revaluation of open FC items (unrealized differences) | next on the priority list |
 | Freight / additional expenses (OEXD), document rounding, down payments | not in the agreed scope |
 | Units of measure groups and quantity conversion on documents | not in the agreed scope; UoM names are stored and shown |

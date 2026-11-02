@@ -105,6 +105,8 @@ class JournalLine(Base):
     bal_due_cred: Mapped[Decimal] = mapped_column("BalDueCred", AMOUNT, default=Decimal("0"))  # Open credit
     bal_fc_deb: Mapped[Decimal] = mapped_column("BalFcDeb", AMOUNT, default=Decimal("0"), server_default="0")  # Open debit (FC)
     bal_fc_cred: Mapped[Decimal] = mapped_column("BalFcCred", AMOUNT, default=Decimal("0"), server_default="0")  # Open credit (FC)
+    extr_match: Mapped[int | None] = mapped_column("ExtrMatch")  # External (bank) reconciliation number (OMTH)
+    mth_date: Mapped[date | None] = mapped_column("MthDate")  # Date of the external reconciliation
     line_memo: Mapped[str | None] = mapped_column("LineMemo", String(50))
     ref_date: Mapped[date] = mapped_column("RefDate")
     due_date: Mapped[date] = mapped_column("DueDate")

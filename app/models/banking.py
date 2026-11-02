@@ -189,3 +189,103 @@ class Deposit(Base):
     trans_abs: Mapped[int | None] = mapped_column("TransAbs")  # Journal entry
     canceled: Mapped[str] = mapped_column("Canceled", String(1), default="N")
     project: Mapped[str | None] = mapped_column("Project", String(20))
+
+
+# ------------------------------------------------------------- bank statements and external reconciliation
+class Bank(Base):
+    """ODSC — Bank (house banks and partners' banks)."""
+
+    __tablename__ = "odsc"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    bank_code: Mapped[str] = mapped_column("BankCode", String(30), unique=True)
+    bank_name: Mapped[str] = mapped_column("BankName", String(250))
+    country_cod: Mapped[str | None] = mapped_column("CountryCod", String(3))
+    swift_num: Mapped[str | None] = mapped_column("SwiftNum", String(50))  # BIC / SWIFT
+
+
+class HouseBankAccount(Base):
+    """DSC1 — House bank account of the company, linked to its G/L bank account."""
+
+    __tablename__ = "dsc1"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    bank_code: Mapped[str] = mapped_column("BankCode", String(30), ForeignKey("odsc.BankCode"))
+    account: Mapped[str] = mapped_column("Account", String(50))  # Bank account number
+    branch: Mapped[str | None] = mapped_column("Branch", String(50))  # Branch (India: IFSC)
+    iban: Mapped[str | None] = mapped_column("IBAN", String(50))
+    gl_account: Mapped[str] = mapped_column("GLAccount", String(15))  # G/L bank account
+    acct_name: Mapped[str | None] = mapped_column("AcctName", String(250))
+    country: Mapped[str | None] = mapped_column("Country", String(3))
+    currency: Mapped[str | None] = mapped_column("Currency", String(3))
+
+
+class BankStatement(Base):
+    """OBNH — Bank statement of a G/L bank account with its opening and closing balance.
+
+    Not B1-verified: B1 keeps the statement number on the rows (OBNK StatemNo); the header table
+    holding the balances is named here OBNH.
+    """
+
+    __tablename__ = "obnh"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    acct_code: Mapped[str] = mapped_column("AcctCode", String(15))  # G/L bank account
+    house_bank: Mapped[int | None] = mapped_column("HouseBank")  # DSC1 AbsEntry
+    statem_no: Mapped[int] = mapped_column("StatemNo")  # Statement number per account
+    stat_date: Mapped[date] = mapped_column("StatDate", Date)
+    start_bal: Mapped[Decimal] = mapped_column("StartBal", AMOUNT)  # Opening balance
+    end_bal: Mapped[Decimal] = mapped_column("EndBal", AMOUNT)  # Closing balance
+    currency: Mapped[str] = mapped_column("Currency", String(3))
+    data_source: Mapped[str] = mapped_column("DataSource", String(1), default="M")  # M manual, I imported
+    rows = relationship("BankStatementRow", order_by="BankStatementRow.vis_order", cascade="all, delete-orphan")
+
+
+class BankStatementRow(Base):
+    """OBNK — Bank statement row (bank page): money in (CredAmnt) or out (DebAmount)."""
+
+    __tablename__ = "obnk"
+
+    sequence: Mapped[int] = mapped_column("Sequence", primary_key=True)
+    statement: Mapped[int] = mapped_column("StatemAbs", ForeignKey("obnh.AbsEntry"))
+    acct_code: Mapped[str] = mapped_column("AcctCode", String(15))
+    statem_no: Mapped[int] = mapped_column("StatemNo")
+    vis_order: Mapped[int] = mapped_column("VisOrder")
+    due_date: Mapped[date] = mapped_column("DueDate", Date)  # Value date
+    ref: Mapped[str | None] = mapped_column("Ref", String(100))  # Bank reference / cheque no.
+    memo: Mapped[str | None] = mapped_column("Memo", String(254))
+    deb_amount: Mapped[Decimal] = mapped_column("DebAmount", AMOUNT, default=Decimal("0"))  # Money out
+    cred_amnt: Mapped[Decimal] = mapped_column("CredAmnt", AMOUNT, default=Decimal("0"))  # Money in
+    extern_code: Mapped[str | None] = mapped_column("ExternCode", String(20))  # Bank transaction code
+    card_code: Mapped[str | None] = mapped_column("CardCode", String(15))
+    bank_match: Mapped[int | None] = mapped_column("BankMatch")  # External reconciliation number (OMTH)
+    doc_num_type: Mapped[str | None] = mapped_column("DocNumType", String(20))  # Object posted from the row
+    doc_num: Mapped[int | None] = mapped_column("DocNum")  # DocEntry / TransId posted from the row
+
+
+class ExternalReconciliation(Base):
+    """OMTH — External reconciliation: bank statement rows matched with G/L bank account lines."""
+
+    __tablename__ = "omth"
+
+    mth_num: Mapped[int] = mapped_column("MthNum", primary_key=True)
+    mth_date: Mapped[date] = mapped_column("MthDate", Date)
+    acct_code: Mapped[str] = mapped_column("AcctCode", String(15))
+    total: Mapped[Decimal] = mapped_column("Total", AMOUNT)
+    auto: Mapped[str] = mapped_column("Auto", String(1), default="N")  # Y automatic matching
+    canceled: Mapped[str] = mapped_column("Canceled", String(1), default="N")
+    lines = relationship("ExternalReconciliationLine", order_by="ExternalReconciliationLine.line_num",
+                         cascade="all, delete-orphan")
+
+
+class ExternalReconciliationLine(Base):
+    """MTH1 — Line of an external reconciliation: a journal line or a bank statement row."""
+
+    __tablename__ = "mth1"
+
+    mth_num: Mapped[int] = mapped_column("MthNum", ForeignKey("omth.MthNum"), primary_key=True)
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    trans_id: Mapped[int | None] = mapped_column("TransId")
+    trans_row_id: Mapped[int | None] = mapped_column("TransRowId")  # JDT1 Line_ID
+    bank_seq: Mapped[int | None] = mapped_column("BankSeq")  # OBNK Sequence
+    recon_sum: Mapped[Decimal] = mapped_column("ReconSum", AMOUNT)  # +money in / -money out

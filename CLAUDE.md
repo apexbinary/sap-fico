@@ -57,7 +57,8 @@ app/
   models/finance.py   OACT OJDT JDT1 OACP (G/L account determination)
   models/partners.py  OCRG OCRD OCPR CRD1
   models/inventory.py OITB OITM OMRC OWHS OITW OPLN ITM1
-  models/banking.py   ORCT/OVPM (+RCT1/2/4, VPM1/2/4), OCHH checks for receipt, ODPS deposits
+  models/banking.py   ORCT/OVPM (+RCT1/2/4, VPM1/2/4), OCHH checks for receipt, ODPS deposits,
+                      ODSC/DSC1 house banks, OBNH/OBNK bank statements, OMTH/MTH1 external reconciliation
   models/documents.py the 15 document header/line pairs (OQUT/QUT1 ... OWTR/WTR1, built from
                       shared DocumentHeader/DocumentLine columns) and OINM warehouse journal
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
@@ -74,13 +75,17 @@ app/
   api_tax.py          /api/tax/setup, /api/tax/types|authorities|codes|hsn|determination
   services/banking.py payments (open items, apply / on account / reconcile, FC means, cancel), deposits
   api_banking.py      /api/payments/{incoming|outgoing}*, /api/payments/open-items, /api/checks, /api/deposits
+  services/bankrec.py bank statements (entry, CSV import), row processing, external reconciliation
+                      (manual / automatic / cancel), bank reconciliation report
+  api_bankrec.py      /api/house-banks, /api/banks, /api/bank-statements*, /api/bank-reconciliation*
   api_masterdata.py   /api/partners*, /api/partner-groups, /api/items*, /api/item-groups,
                       /api/warehouses, /api/price-lists
   seed.py             demo company "Demo Trading India Pvt Ltd" (INR, GST), chart of accounts, periods 2025-2027
   verify_*.py         end-to-end checks; verify_all runs them all
 web/                  index.html, styles.css, app.js (shell, typed field builder, journal entries,
                       documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup),
-                      banking.js (payments, deposits), tax.js (tax setup)
+                      banking.js (payments, deposits), tax.js (tax setup),
+                      bankrec.js (bank statements, bank reconciliation)
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
 
@@ -166,6 +171,14 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - A payment with items but no means posts no JE (pure reconciliation).
 - Cancel: refused if a check is deposited or the amount on account was used; items
   reopen, the JE is reversed. Documents used in an active payment cannot be canceled.
+
+### Bank reconciliation (keep invariant)
+- A statement's opening balance is the previous closing balance; closing = opening + in - out.
+- An external reconciliation matches statement rows (in - out) with journal lines of the same
+  G/L bank account (debit - credit) when the sums agree; JDT1 ExtrMatch / OBNK BankMatch
+  hold its number, canceling clears them.
+- Report: balance per bank + in transit - outstanding = balance per books + bank credits -
+  bank debits not booked (difference 0 when the opening balances agree).
 
 ### Chart of accounts
 Drawers (GroupMask) 1 assets, 2 liabilities, 3 capital and reserves, 4 turnover,

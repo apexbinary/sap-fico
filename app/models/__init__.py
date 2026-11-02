@@ -20,7 +20,9 @@ from app.models.admin import (
     TransactionCode,
 )
 from app.models.finance import Account, AccountDetermination, JournalEntry, JournalLine
-from app.models.banking import PAYMENT_CLASSES, CheckForReceipt, Deposit, IncomingPayment, OutgoingPayment
+from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatementRow, CheckForReceipt, Deposit,
+                                 ExternalReconciliation, ExternalReconciliationLine, HouseBankAccount, IncomingPayment,
+                                 OutgoingPayment)
 from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
@@ -39,4 +41,5 @@ __all__ = [
     "DOCUMENT_CLASSES", "DOCUMENT_TABLES", "WarehouseJournal",
     # banking
     "IncomingPayment", "OutgoingPayment", "PAYMENT_CLASSES", "CheckForReceipt", "Deposit",
+    "Bank", "HouseBankAccount", "BankStatement", "BankStatementRow", "ExternalReconciliation", "ExternalReconciliationLine",
 ]

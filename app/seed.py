@@ -21,6 +21,7 @@ from app.database import SessionLocal, init_db
 from app.models.admin import (Company, Country, Currency, ExchangeRate, HsnCode, NumberingSeries, PaymentTerms,
                               PostingPeriod, Project, SalesEmployee, State, TaxAuthority, TaxComponent, TaxDetermination,
                               TaxGroup, TaxType, TransactionCode)
+from app.models.banking import Bank, HouseBankAccount
 from app.models.finance import Account, AccountDetermination
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
@@ -73,6 +74,8 @@ CHART = [
     ("71", "Foreign Exchange", 7, "7", "N", "N", "N", "N"),
     ("711000", "Foreign Exchange Gain", 7, "71", "Y", "I", "N", "N"),
     ("712000", "Foreign Exchange Loss", 7, "71", "Y", "E", "N", "N"),
+    ("72", "Other Income", 7, "7", "N", "I", "N", "N"),
+    ("721000", "Interest Income", 7, "72", "Y", "I", "N", "N"),
 ]
 
 # GST tax authorities (OSTA): code, name, output account, input account
@@ -220,6 +223,9 @@ def seed() -> None:
                 inventory="115000", allocation="212000", price_diff="512000", expense="611000",
                 inv_offset_inc="513000", inv_offset_dec="513000", exch_gain="711000", exch_loss="712000",
                 opening_bal="313000", bank_charges="613000", checks_received="117000"))
+        put_new(Bank(abs_entry=1, bank_code="HDFC", bank_name="HDFC Bank Ltd", country_cod="IN", swift_num="HDFCINBB"), 1)
+        put_new(HouseBankAccount(abs_entry=1, bank_code="HDFC", account="50100123456789", branch="HDFC0000123",
+                                 gl_account="112000", acct_name="HDFC current account", country="IN", currency=LOCAL), 1)
         _seed_partners_and_items(s, put)
         s.commit()
         print("Seed complete: Demo Trading India Pvt Ltd (INR, GST), chart of accounts, periods 2025-2027, "

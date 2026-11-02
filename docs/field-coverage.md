@@ -125,8 +125,8 @@ is built, change its status.
 | Origin / origin no. / trans. no. | TransType / BaseRef / TransId | text | 🔒 (link to the source document) |
 | Reverse / reversal date | AutoStorno / StornoDate | checkbox / date | ✅ the reversal is posted on the reversal date |
 | Reversal link | StornoToTr | — | 🔒 |
-| Total (LC / FC) | LocTotal / FcTotal | number | 🔒 |
-| Indicator, template (recurring / percentage), blanket agreement, stamp tax, fixed exchange rate, foreign-currency entries | Indicator, … | — | ⏸ localization, recurring postings and FC journal entries not built yet |
+| Total (LC / FC), transaction currency | LocTotal / FcTotal / TransCurr | number | 🔒 |
+| Indicator, template (recurring / percentage), blanket agreement, stamp tax, fixed exchange rate | Indicator, … | — | ⏸ localization and recurring postings not built |
 
 ### Journal entry — lines (JDT1)
 | Field | Column | Type | Status |
@@ -142,7 +142,9 @@ is built, change its status.
 | Contra account | ContraAct | — | 🔒 |
 | Tax group | VatGroup | — | 🔒 set on automatic tax lines |
 | Open amount (BP lines) | BalDueDeb / BalDueCred | — | 🔒 |
-| Debit / credit (FC), distribution rules, tax amount, base amount | FCDebit, OcrCode, … | — | ⏸ FC entries and cost accounting not built yet |
+| Currency / debit (FC) / credit (FC) | FCCurrency / FCDebit / FCCredit | dropdown / number | ✅ local amounts at the rate of the posting date |
+| Open amount (FC) of partner lines | BalFcDeb / BalFcCred | — | 🔒 reduced by payments and reconciliations |
+| Distribution rules, tax amount, base amount, system currency amounts | OcrCode, … | — | ⏸ cost accounting and system-currency reporting not built |
 
 ### Financial reports
 Trial balance, balance sheet, profit and loss: period / as-of selection (date), account tree with title accounts — ✅.
@@ -321,7 +323,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Name | CardName | — | 🔒 |
 | Contact person | CntctCode (OCPR) | dropdown | ✅ default from the BP |
 | Customer / vendor ref. no. | NumAtCard | text | ✅ |
-| Currency | DocCur / DocRate | — | 🔒 local currency (⏸ foreign-currency documents) |
+| Currency / rate | DocCur / DocRate | dropdown / number | ✅ default from the base document or the BP currency; rate of the posting date (ORTT) |
 | No. / series | DocNum / Series | dropdown | 🔒 |
 | Status | DocStatus / CANCELED | — | 🔒 |
 | Posting date / delivery (due) date / document date | DocDate / DocDueDate / TaxDate | date | ✅ due date from payment terms |
@@ -335,6 +337,8 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Journal remark | JrnlMemo | text | ✅ |
 | Remarks | Comments | textarea | ✅ |
 | Total before discount / discount % / discount / tax / total | — / DiscPrcnt / DiscSum / VatSum / DocTotal | number | ✅ discount % default from the BP |
+| Discount / tax / total in the document currency | DiscSumFC / VatSumFC / DocTotalFC | number | 🔒 FC documents |
+| Paid to date (FC) | PaidFC | number | 🔒 |
 | Applied amount / balance due (invoices, credit memos) | PaidToDate | number | 🔒 |
 | Freight (additional expenses), rounding, down payment, owner, shipping type, payment method, installments, indicator, cancellation date | TotalExpns, RoundDif, DpmAmnt, OwnerCode, TrnspCode, PeyMethod, Installmnt, Indicator, … | — | ⏸ freight/expenses, down payments, HR owner and payment wizard not built |
 
@@ -347,6 +351,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Unit price / discount % / price after discount | PriceBefDi / DiscPrcnt / Price | number | ✅ / ✅ / 🔒 |
 | Tax code / tax amount | VatGroup / VatSum | dropdown / number | ✅ / 🔒 |
 | Total (LC) / gross price / gross total | LineTotal / PriceAfVAT / GTotal | number | 🔒 |
+| Total (FC) / tax amount (FC) / gross total (FC) / currency / rate | TotalFrgn / VatSumFrgn / GTotalFC / Currency / Rate | number | 🔒 FC documents; prices are in the document currency |
 | Warehouse | WhsCode | dropdown | ✅ |
 | Delivery date (line) | ShipDate | date | ✅ |
 | Project (line) | Project | dropdown | ✅ |
@@ -401,7 +406,7 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | Selected | — | checkbox | ✅ |
 | Document type / no. / posting date / due date / remarks | InvType / DocEntry / — | — | 🔒 every open partner line: invoices, credit memos, journal entries, payments on account |
 | Total / balance due | — | number | 🔒 |
-| Total payment (LC) | SumApplied (AppliedFC) | number | ✅ partial payments |
+| Total payment | SumApplied (LC) / AppliedFC (FC part of the item) | number | ✅ partial payments; an FC item is paid in its currency when the payment is in that currency (realized exchange difference) |
 | Journal entry / line of the item | DocTransId / DocLine | — | 🔒 |
 | Cash discount, overdue days, installment | DcntSum, InstId | — | ⏸ cash discount and installments not built |
 
@@ -447,7 +452,7 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 |---|---|
 | Payment wizard, payment methods, installments, cash discount, credit cards, bills of exchange, dunning | not in the agreed scope |
 | Bank statements and external (bank) reconciliation, house bank accounts | not in the agreed scope |
-| Foreign-currency documents and journal entries, exchange-rate revaluation (payments in foreign currency are built) | not in the agreed scope |
+| Exchange-rate revaluation of open FC items (unrealized differences) | next on the priority list |
 | Freight / additional expenses (OEXD), document rounding, down payments | not in the agreed scope |
 | Units of measure groups and quantity conversion on documents | not in the agreed scope; UoM names are stored and shown |
 | Serial and batch numbers, bin locations, FIFO / standard costing, inventory counting | not in the agreed scope |

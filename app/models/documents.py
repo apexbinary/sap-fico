@@ -67,6 +67,10 @@ class DocumentHeader:
     vat_sum: Mapped[Decimal] = mapped_column("VatSum", AMOUNT, default=Decimal("0"))
     doc_total: Mapped[Decimal] = mapped_column("DocTotal", AMOUNT, default=Decimal("0"))  # Gross total
     paid_to_date: Mapped[Decimal] = mapped_column("PaidToDate", AMOUNT, default=Decimal("0"))
+    disc_sum_fc: Mapped[Decimal] = mapped_column("DiscSumFC", AMOUNT, default=Decimal("0"), server_default="0")
+    vat_sum_fc: Mapped[Decimal] = mapped_column("VatSumFC", AMOUNT, default=Decimal("0"), server_default="0")
+    doc_total_fc: Mapped[Decimal] = mapped_column("DocTotalFC", AMOUNT, default=Decimal("0"), server_default="0")  # Gross total (FC)
+    paid_fc: Mapped[Decimal] = mapped_column("PaidFC", AMOUNT, default=Decimal("0"), server_default="0")  # Paid to date (FC)
     filler: Mapped[str | None] = mapped_column("Filler", String(8))  # From warehouse (transfer)
     to_whs_code: Mapped[str | None] = mapped_column("ToWhsCode", String(8))  # To warehouse (transfer)
     comments: Mapped[str | None] = mapped_column("Comments", String(254))
@@ -84,14 +88,19 @@ class DocumentLine:
     dscription: Mapped[str | None] = mapped_column("Dscription", String(100))  # B1 spelling
     quantity: Mapped[Decimal] = mapped_column("Quantity", QTY)
     open_qty: Mapped[Decimal] = mapped_column("OpenQty", QTY)  # Not yet copied to a target document
-    price_bef_di: Mapped[Decimal] = mapped_column("PriceBefDi", AMOUNT)  # Unit price before discount
+    price_bef_di: Mapped[Decimal] = mapped_column("PriceBefDi", AMOUNT)  # Unit price before discount (document currency)
     disc_prcnt: Mapped[Decimal] = mapped_column("DiscPrcnt", RATE, default=Decimal("0"))
     price: Mapped[Decimal] = mapped_column("Price", AMOUNT)  # Unit price after discount
-    line_total: Mapped[Decimal] = mapped_column("LineTotal", AMOUNT)  # Net, before header discount
+    line_total: Mapped[Decimal] = mapped_column("LineTotal", AMOUNT)  # Net (LC), before header discount
+    total_frgn: Mapped[Decimal] = mapped_column("TotalFrgn", AMOUNT, default=Decimal("0"), server_default="0")  # Net (FC)
+    currency: Mapped[str | None] = mapped_column("Currency", String(3))  # Price currency of the line
+    rate: Mapped[Decimal] = mapped_column("Rate", RATE, default=Decimal("0"), server_default="0")  # Line rate (FC lines)
     vat_group: Mapped[str | None] = mapped_column("VatGroup", String(8))
     vat_prcnt: Mapped[Decimal] = mapped_column("VatPrcnt", RATE, default=Decimal("0"))
     vat_sum: Mapped[Decimal] = mapped_column("VatSum", AMOUNT, default=Decimal("0"))
-    gtotal: Mapped[Decimal] = mapped_column("GTotal", AMOUNT, default=Decimal("0"))  # Gross line total
+    gtotal: Mapped[Decimal] = mapped_column("GTotal", AMOUNT, default=Decimal("0"))  # Gross line total (LC)
+    vat_sum_frgn: Mapped[Decimal] = mapped_column("VatSumFrgn", AMOUNT, default=Decimal("0"), server_default="0")
+    gtotal_fc: Mapped[Decimal] = mapped_column("GTotalFC", AMOUNT, default=Decimal("0"), server_default="0")
     whs_code: Mapped[str | None] = mapped_column("WhsCode", String(8))
     from_whs_cod: Mapped[str | None] = mapped_column("FromWhsCod", String(8))  # Transfer: from warehouse
     acct_code: Mapped[str | None] = mapped_column("AcctCode", String(15))  # G/L account (service lines, offsets)

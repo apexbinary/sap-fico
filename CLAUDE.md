@@ -125,7 +125,14 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - Cancel: only without target documents / payments; reverses stock at original
   values and the JE (B1 creates a separate cancellation document; we mark the
   original CANCELED=Y and link the reversal JE).
-- Document currency is the local currency for now (DocCur/DocRate kept).
+- Foreign currency: a document has DocCur / DocRate (rate of the posting date); line
+  prices and totals are in the document currency, LC = FC x rate per line (net and
+  VAT rounded separately); the partner line carries the FC total and its open FC
+  amount (JDT1 BalFcDeb/BalFcCred). Copied lines keep the base currency; inventory
+  documents are LC only; a BP with a fixed currency takes that currency or LC.
+- An FC item paid in its currency (or an FC credit memo reconciled with its invoice)
+  is matched by FC amount; each side's LC reduces proportionally and the LC
+  difference is a realized exchange difference (gain / loss account).
 
 ### Banking (keep invariant)
 - A payment pays open partner lines (JDT1 with BalDue) of its BP in LC; the means are

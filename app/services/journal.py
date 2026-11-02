@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.finance import Account, JournalEntry, JournalLine
-from app.services.admin import B1Error, check_project, default_series, next_number, posting_period
+from app.services.admin import B1Error, check_project, company, default_series, exchange_rate, next_number, posting_period
 
 ZERO = Decimal("0")
 CENT = Decimal("0.01")
@@ -121,7 +121,23 @@ def post_entry(session: Session, req: JournalRequest, *, commit: bool = True) ->
         raise
 
 
+def _convert_fc(session: Session, req: JournalRequest) -> None:
+    """Lines entered in a foreign currency only: local amounts at the rate of the posting date."""
+    main = company(session).main_curncy
+    for l in req.lines:
+        if not l.fc_currency:
+            continue
+        if l.fc_currency == main:
+            raise B1Error(f"{main} is the local currency; enter the amount as debit / credit")
+        if l.fc_debit < 0 or l.fc_credit < 0 or (l.fc_debit and l.fc_credit):
+            raise B1Error("A foreign-currency line is either a debit or a credit, and not negative")
+        if not money(l.debit) and not money(l.credit):
+            rate = exchange_rate(session, l.fc_currency, req.ref_date)
+            l.debit, l.credit = money(Decimal(l.fc_debit) * rate), money(Decimal(l.fc_credit) * rate)
+
+
 def _post(session: Session, req: JournalRequest) -> JournalEntry:
+    _convert_fc(session, req)
     lines = [l for l in req.lines if money(l.debit) or money(l.credit) or l.fc_debit or l.fc_credit]
     if len(lines) < 2:
         raise B1Error("A journal entry needs at least two lines with amounts")
@@ -149,8 +165,9 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
         due_date=req.due_date or req.ref_date, tax_date=req.tax_date or req.ref_date, memo=req.memo,
         ref1=req.ref1, ref2=req.ref2, ref3=req.ref3, trans_code=req.trans_code, project=req.project,
         series=default_series(session, "30"), trans_type=req.trans_type, base_ref=req.base_ref,
-        created_by=req.created_by, loc_total=debit, trans_curr=req.trans_curr, user_sign=req.user_sign,
-        fc_total=sum((l.fc_debit for l in lines), ZERO),
+        created_by=req.created_by, loc_total=debit, user_sign=req.user_sign,
+        fc_total=sum((money(l.fc_debit) for l in lines), ZERO),
+        trans_curr=req.trans_curr or next((l.fc_currency for l in lines if l.fc_currency), None),
     )
     session.add(entry)
     # contra account of a line: the first line on the other side
@@ -178,6 +195,7 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
             contra_act=first_credit if amount_d else first_debit, debit=amount_d, credit=amount_c,
             fc_debit=money(l.fc_debit), fc_credit=money(l.fc_credit), fc_currency=l.fc_currency,
             bal_due_deb=amount_d if l.card_code else ZERO, bal_due_cred=amount_c if l.card_code else ZERO,
+            bal_fc_deb=money(l.fc_debit) if l.card_code else ZERO, bal_fc_cred=money(l.fc_credit) if l.card_code else ZERO,
             line_memo=(l.line_memo or req.memo), ref_date=req.ref_date, due_date=l.due_date or req.due_date or req.ref_date,
             trans_type=req.trans_type, created_by=req.created_by, base_ref=req.base_ref, vat_group=l.vat_group,
             project=l.project or req.project, ref1=l.ref1, ref2=l.ref2, ref3_line=l.ref3_line,
@@ -228,4 +246,5 @@ def _reverse(session: Session, orig: JournalEntry, ref_date: date) -> JournalEnt
     for o, r in zip(orig.lines, rev.lines):  # the reversal settles the open partner amounts
         if o.short_name != o.account:
             o.bal_due_deb = o.bal_due_cred = r.bal_due_deb = r.bal_due_cred = ZERO
+            o.bal_fc_deb = o.bal_fc_cred = r.bal_fc_deb = r.bal_fc_cred = ZERO
     return rev

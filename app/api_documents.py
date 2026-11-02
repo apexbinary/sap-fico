@@ -25,7 +25,8 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "doc_type": doc.doc_type, "doc_status": doc.doc_status, "canceled": doc.canceled == "Y",
            "doc_date": doc.doc_date, "doc_due_date": doc.doc_due_date, "tax_date": doc.tax_date,
            "card_code": doc.card_code, "card_name": doc.card_name, "num_at_card": doc.num_at_card,
-           "doc_cur": doc.doc_cur, "disc_prcnt": doc.disc_prcnt, "disc_sum": doc.disc_sum, "vat_sum": doc.vat_sum,
+           "doc_cur": doc.doc_cur, "doc_rate": doc.doc_rate, "doc_total_fc": doc.doc_total_fc, "vat_sum_fc": doc.vat_sum_fc,
+           "disc_sum_fc": doc.disc_sum_fc, "paid_fc": doc.paid_fc, "disc_prcnt": doc.disc_prcnt, "disc_sum": doc.disc_sum, "vat_sum": doc.vat_sum,
            "doc_total": doc.doc_total, "paid_to_date": doc.paid_to_date, "trans_id": doc.trans_id,
            "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
@@ -43,7 +44,8 @@ def _doc_out(doc, detail: bool = False) -> dict:
                          "base_entry": l.base_entry, "base_line": l.base_line, "base_ref": l.base_ref,
                          "target_type": l.target_type, "trget_entry": l.trget_entry, "ship_date": l.ship_date,
                          "free_txt": l.free_txt, "project": l.project, "slp_code": l.slp_code,
-                         "price_af_vat": l.price_af_vat} for l in doc.lines]
+                         "price_af_vat": l.price_af_vat, "total_frgn": l.total_frgn, "vat_sum_frgn": l.vat_sum_frgn,
+                         "gtotal_fc": l.gtotal_fc, "currency": l.currency, "rate": l.rate} for l in doc.lines]
     return out
 
 
@@ -109,6 +111,7 @@ class DocumentIn(BaseModel):
     ship_to_code: str | None = Field(None, max_length=50)
     jrnl_memo: str | None = Field(None, max_length=50)
     ref2: str | None = Field(None, max_length=11)
+    doc_cur: str | None = Field(None, max_length=3)
     lines: list[DocLineIn]
 
 

@@ -103,6 +103,8 @@ class JournalLine(Base):
     fc_currency: Mapped[str | None] = mapped_column("FCCurrency", String(3))
     bal_due_deb: Mapped[Decimal] = mapped_column("BalDueDeb", AMOUNT, default=Decimal("0"))  # Open debit (BP lines)
     bal_due_cred: Mapped[Decimal] = mapped_column("BalDueCred", AMOUNT, default=Decimal("0"))  # Open credit
+    bal_fc_deb: Mapped[Decimal] = mapped_column("BalFcDeb", AMOUNT, default=Decimal("0"), server_default="0")  # Open debit (FC)
+    bal_fc_cred: Mapped[Decimal] = mapped_column("BalFcCred", AMOUNT, default=Decimal("0"), server_default="0")  # Open credit (FC)
     line_memo: Mapped[str | None] = mapped_column("LineMemo", String(50))
     ref_date: Mapped[date] = mapped_column("RefDate")
     due_date: Mapped[date] = mapped_column("DueDate")

@@ -41,7 +41,7 @@ from app.models.partners import BusinessPartner
 from app.models.admin import TaxGroup
 from app.services import journal, masterdata
 from app.services.admin import (B1Error, check_project, check_sales_employee, company, default_series, due_date,
-                                next_number, posting_period)
+                                exchange_rate, next_number, posting_period)
 from app.services.journal import JournalLineRequest, JournalRequest
 
 ZERO = Decimal("0")
@@ -145,6 +145,7 @@ class DocumentRequest:
     ship_to_code: str | None = None  # ship-to address ID (CRD1)
     jrnl_memo: str | None = None
     ref2: str | None = None
+    doc_cur: str | None = None  # document currency (default: base document, BP currency, local currency)
 
 
 # ------------------------------------------------------------- stock movements
@@ -160,6 +161,7 @@ class _Ctx:
     vat: dict = field(default_factory=lambda: defaultdict(lambda: ZERO))  # account -> (debit - credit), by tax group
     vat_groups: dict = field(default_factory=dict)
     oinm: list = field(default_factory=list)
+    bp_fc: Decimal = ZERO  # foreign-currency amount of the partner line (debit positive)
 
     def post(self, account: str, amount: Decimal) -> None:
         """Debit (positive) or credit (negative) a G/L account."""
@@ -315,6 +317,15 @@ def _create(session: Session, req: DocumentRequest):
     pick = lambda value, attr, fallback=None: value if value is not None else (getattr(hb, attr) if hb is not None else fallback)  # noqa: E731
     hdisc = Decimal(pick(req.disc_prcnt, "disc_prcnt", bp.discount if bp else 0) or 0)
     header = _header_defaults(session, d, req, bp, pick)
+    main = company(session).main_curncy
+    cur = (req.doc_cur or (hb.doc_cur if hb is not None else None)
+           or (bp.currency if bp is not None and bp.currency != "##" else None) or main).upper()
+    if d.side == "I" and cur != main:
+        raise B1Error("Inventory documents are posted in the local currency")
+    if bp is not None and bp.currency not in ("##", main, cur):
+        raise B1Error(f"Documents of {bp.card_code} are in {bp.currency} or {main}")
+    rate = exchange_rate(session, cur, req.doc_date)  # 1 for the local currency; error if no rate
+    fc = cur != main
     if not (0 <= hdisc < 100):
         raise B1Error("The document discount must be between 0 and 100 %")
 
@@ -365,6 +376,10 @@ def _create(session: Session, req: DocumentRequest):
                 price = item.last_pur_prc
         else:
             raise B1Error(f"Line {n + 1}: enter an amount")
+        if base_line is None and lr.price is None and fc:
+            price = unit(price / rate)  # master data prices are in the local currency
+        if base is not None and base.doc_cur != cur:
+            raise B1Error(f"Line {n + 1}: {DEFS[lr.base_type].name} {base.doc_num} is in {base.doc_cur}, not {cur}")
         if price < 0:
             raise B1Error(f"Line {n + 1}: the price cannot be negative")
         disc = Decimal(lr.disc_prcnt if lr.disc_prcnt is not None else (base_line.disc_prcnt if base_line else 0))
@@ -383,30 +398,38 @@ def _create(session: Session, req: DocumentRequest):
         project = lr.project or (base_line.project if base_line else None) or header.get("project")
         check_project(session, project, req.doc_date)
         check_sales_employee(session, lr.slp_code)
-        line_total = money(qty * price_after)
+        line_total = money(qty * price_after)  # document currency
         lines.append(dict(lr=lr, item=item, base=base, base_line=base_line, qty=qty, price=price, disc=disc,
                           price_after=price_after, line_total=line_total, tg=tg, whs=whs, acct=acct,
                           project=project))
 
     # header discount and tax per line (document-level amounts used for postings)
-    for x in lines:
-        x["net"] = money(x["line_total"] * (1 - hdisc / 100))
-        x["vat"] = money(x["net"] * (x["tg"].rate if x["tg"] else 0) / 100)
+    for x in lines:  # amounts in the document currency (_fc), then in local currency at the document rate
+        x["line_total_fc"] = x["line_total"]
+        x["net_fc"] = money(x["line_total_fc"] * (1 - hdisc / 100))
+        x["vat_fc"] = money(x["net_fc"] * (x["tg"].rate if x["tg"] else 0) / 100)
+        x["line_total"] = money(x["line_total_fc"] * rate)
+        x["net"] = money(x["net_fc"] * rate)
+        x["vat"] = money(x["vat_fc"] * rate)
     total_before = sum((x["line_total"] for x in lines), ZERO)
     net_total = sum((x["net"] for x in lines), ZERO)
     vat_total = sum((x["vat"] for x in lines), ZERO)
+    total_before_fc = sum((x["line_total_fc"] for x in lines), ZERO)
+    net_total_fc = sum((x["net_fc"] for x in lines), ZERO)
+    vat_total_fc = sum((x["vat_fc"] for x in lines), ZERO)
 
     entry = (session.scalar(select(func.max(header_cls.doc_entry))) or 0) + 1
-    main = company(session).main_curncy
     doc = header_cls(
         doc_entry=entry, doc_num=next_number(session, d.obj), doc_type=req.doc_type, canceled="N", doc_status="O",
         obj_type=d.obj, doc_date=req.doc_date, tax_date=req.tax_date or req.doc_date,
         doc_due_date=req.doc_due_date or (due_date(session, bp.group_num, req.doc_date, req.tax_date)
                                           if bp and d.kind in {"invoice", "credit"} else req.doc_date),
         card_code=bp.card_code if bp else None, card_name=bp.card_name if bp else None, num_at_card=req.num_at_card,
-        doc_cur=main, doc_rate=Decimal("1"), group_num=bp.group_num if bp else None, disc_prcnt=hdisc,
+        doc_cur=cur, doc_rate=rate, group_num=bp.group_num if bp else None, disc_prcnt=hdisc,
         disc_sum=total_before - net_total, vat_sum=vat_total,
         doc_total=net_total + vat_total if d.side != "I" else net_total, paid_to_date=ZERO,
+        disc_sum_fc=total_before_fc - net_total_fc if fc else ZERO, vat_sum_fc=vat_total_fc if fc else ZERO,
+        doc_total_fc=net_total_fc + vat_total_fc if fc else ZERO, paid_fc=ZERO,
         filler=req.from_whs, to_whs_code=req.to_whs, comments=req.comments,
         jrnl_memo=(req.jrnl_memo or (f"{d.name} - {bp.card_code}" if bp else d.name))[:50],
         series=default_series(session, d.obj), ref2=req.ref2, **header,
@@ -428,6 +451,8 @@ def _create(session: Session, req: DocumentRequest):
             free_txt=lr.free_txt if lr.free_txt is not None else (x["base_line"].free_txt if x["base_line"] else None),
             project=x["project"], slp_code=lr.slp_code if lr.slp_code is not None else header.get("slp_code"),
             price_af_vat=unit(x["price_after"] * (1 + (x["tg"].rate if x["tg"] else ZERO) / 100)),
+            total_frgn=x["line_total_fc"] if fc else ZERO, vat_sum_frgn=x["vat_fc"] if fc else ZERO,
+            gtotal_fc=x["net_fc"] + x["vat_fc"] if fc else ZERO, currency=cur, rate=rate if fc else ZERO,
         ))
     session.add(doc)
     session.flush()
@@ -440,6 +465,7 @@ def _create(session: Session, req: DocumentRequest):
     if d.side != "I" and d.kind in {"invoice", "credit"}:
         sign = 1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit")} else -1
         ctx.je[("BP", doc.card_code)] += sign * doc.doc_total
+        ctx.bp_fc = sign * doc.doc_total_fc
     _post_journal(ctx)
     if d.kind == "credit":
         _reconcile_with_invoice(ctx, lines)
@@ -537,7 +563,7 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
                 ctx.post(group.bal_invnt_ac, net)
                 ctx.post(grni, -net)
             line.stock_price = unit(net / qty)
-            item.last_pur_prc = line.price
+            item.last_pur_prc = unit(line.price * ctx.doc.doc_rate)
         elif d.kind == "invoice":
             if base_kind == "delivery" and inventory:
                 base_value = money(qty * x["base_line"].stock_price)
@@ -550,7 +576,7 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
                 ctx.post(expense, net)
             line.stock_price = unit(net / qty)
             if item is not None:
-                item.last_pur_prc = line.price
+                item.last_pur_prc = unit(line.price * ctx.doc.doc_rate)
         elif d.kind == "return":  # goods return
             base_value = money(qty * line.stock_price) if line.base_type else net
             cost = issue(ctx, item, whs, qty, n)
@@ -658,7 +684,10 @@ def _post_journal(ctx: _Ctx) -> None:
             continue
         debit, credit = (amount, ZERO) if amount > 0 else (ZERO, -amount)
         if isinstance(key, tuple) and key[0] == "BP":
-            lines.append(JournalLineRequest(card_code=key[1], debit=debit, credit=credit, due_date=ctx.doc.doc_due_date))
+            fcd, fcc = (ctx.bp_fc, ZERO) if ctx.bp_fc > 0 else (ZERO, -ctx.bp_fc)
+            lines.append(JournalLineRequest(card_code=key[1], debit=debit, credit=credit, due_date=ctx.doc.doc_due_date,
+                                            fc_debit=fcd, fc_credit=fcc,
+                                            fc_currency=ctx.doc.doc_cur if ctx.bp_fc else None))
         elif isinstance(key, tuple):
             lines.append(JournalLineRequest(account=key[1], debit=debit, credit=credit, vat_group=ctx.vat_groups.get(key[1])))
         else:
@@ -693,22 +722,71 @@ def _reconcile_with_invoice(ctx: _Ctx, lines: list[dict]) -> None:
         return
     inv = next(iter(invoices.values()))
     cm = ctx.doc
-    amount = min(cm.doc_total, inv.doc_total - inv.paid_to_date)
     inv_line, cm_line = _bp_line(ctx.session, inv), _bp_line(ctx.session, cm)
-    if amount <= 0 or inv_line is None or cm_line is None:
+    if inv_line is None or cm_line is None:
         return
-    if ctx.d.side == "S":
-        inv_line.bal_due_deb -= amount
-        cm_line.bal_due_cred -= amount
+    sales = ctx.d.side == "S"
+    inv_open, inv_open_fc = (inv_line.bal_due_deb, inv_line.bal_fc_deb) if sales else (inv_line.bal_due_cred, inv_line.bal_fc_cred)
+    cm_open, cm_open_fc = (cm_line.bal_due_cred, cm_line.bal_fc_cred) if sales else (cm_line.bal_due_deb, cm_line.bal_fc_deb)
+    if cm.doc_total_fc:  # foreign currency: match the FC amounts, each side keeps its own rate
+        fc = min(cm_open_fc, inv_open_fc)
+        if fc <= 0:
+            return
+        inv_lc = inv_open if fc == inv_open_fc else money(inv_open * fc / inv_open_fc)
+        cm_lc = cm_open if fc == cm_open_fc else money(cm_open * fc / cm_open_fc)
     else:
-        inv_line.bal_due_cred -= amount
-        cm_line.bal_due_deb -= amount
-    inv.paid_to_date += amount
-    cm.paid_to_date += amount
+        fc = ZERO
+        inv_lc = cm_lc = min(cm_open, inv_open)
+        if inv_lc <= 0:
+            return
+    _reduce(inv_line, inv_lc, fc)
+    _reduce(cm_line, cm_lc, fc)
+    inv.paid_to_date += inv_lc
+    inv.paid_fc += fc
+    cm.paid_to_date += cm_lc
+    cm.paid_fc += fc
     if inv.paid_to_date >= inv.doc_total:
         inv.doc_status = "C"
     if cm.paid_to_date >= cm.doc_total:
         cm.doc_status = "C"
+    # the partner balance must move with its open items: post the LC difference as exchange difference
+    diff = (cm_lc - inv_lc) if sales else (inv_lc - cm_lc)
+    if diff:
+        _exchange_difference(ctx.session, ctx.det, cm, diff)
+
+
+def _reduce(line: JournalLine, lc: Decimal, fc: Decimal) -> None:
+    """Reduce (or, negative, restore) the open LC / FC amount of a partner line on its own side."""
+    if line.debit:
+        line.bal_due_deb -= lc
+        line.bal_fc_deb -= fc
+    else:
+        line.bal_due_cred -= lc
+        line.bal_fc_cred -= fc
+
+
+def _exchange_difference(session: Session, det: AccountDetermination, doc, bp_amount: Decimal) -> None:
+    """Realized exchange difference of a reconciliation: partner line (reconciled at once) against gain / loss."""
+    gain = bp_amount > 0  # the partner is debited: the offset is a credit (gain)
+    amount = abs(bp_amount)
+    je = journal.post_entry(session, JournalRequest(
+        ref_date=doc.doc_date, memo="Exchange rate difference", ref1=str(doc.doc_num), trans_type=doc.obj_type,
+        base_ref=str(doc.doc_num), created_by=doc.doc_entry, manual=False, lines=[
+            JournalLineRequest(card_code=doc.card_code, debit=amount if gain else ZERO, credit=ZERO if gain else amount),
+            JournalLineRequest(account=det.exch_gain if gain else det.exch_loss, debit=ZERO if gain else amount,
+                               credit=amount if gain else ZERO)]), commit=False)
+    for line in je.lines:
+        line.bal_due_deb = line.bal_due_cred = ZERO
+    session.flush()
+
+
+def _exchange_difference_entries(session: Session, doc) -> list:
+    """Exchange difference entries posted for a document (not reversed)."""
+    from app.models.finance import JournalEntry
+
+    return session.scalars(select(JournalEntry).where(
+        JournalEntry.trans_type == doc.obj_type, JournalEntry.created_by == doc.doc_entry,
+        JournalEntry.trans_id != doc.trans_id, JournalEntry.storno_to_tr.is_(None))).all()
 
 
 # ------------------------------------------------------------- partner totals
@@ -835,16 +913,21 @@ def _unreconcile(session: Session, d: DocDef, cm) -> None:
     if base is None:
         raise B1Error(f"{d.name} {cm.doc_num} is paid; cancel the payment first")
     inv = get_document(session, base.base_type, base.base_entry)
-    amount = cm.paid_to_date
+    cm_lc, fc = cm.paid_to_date, cm.paid_fc
+    inv_lc = cm_lc
+    for je in _exchange_difference_entries(session, cm):  # undo the exchange difference of the reconciliation
+        bp_line = next(l for l in je.lines if l.short_name != l.account)
+        bp_amount = bp_line.debit - bp_line.credit
+        inv_lc = cm_lc - bp_amount if d.side == "S" else cm_lc + bp_amount
+        for l in je.lines:
+            l.bal_due_deb, l.bal_due_cred = (l.debit, l.credit) if l.short_name != l.account else (ZERO, ZERO)
+        journal.reverse_entry(session, je.trans_id, commit=False)
     inv_line, cm_line = _bp_line(session, inv), _bp_line(session, cm)
-    if d.side == "S":
-        inv_line.bal_due_deb += amount
-        cm_line.bal_due_cred += amount
-    else:
-        inv_line.bal_due_cred += amount
-        cm_line.bal_due_deb += amount
-    inv.paid_to_date -= amount
-    cm.paid_to_date = ZERO
+    _reduce(inv_line, -inv_lc, -fc)
+    _reduce(cm_line, -cm_lc, -fc)
+    inv.paid_to_date -= inv_lc
+    inv.paid_fc -= fc
+    cm.paid_to_date, cm.paid_fc = ZERO, ZERO
     if inv.canceled == "N":
         inv.doc_status = "O"
 
@@ -862,7 +945,7 @@ def copy_sources(session: Session, obj: str, card_code: str) -> list[dict]:
         for doc in session.scalars(q.order_by(header_cls.doc_entry)):
             open_lines = [l for l in doc.lines if l.line_status == "O" and l.open_qty > 0]
             if open_lines:
-                out.append({"obj": base_obj, "name": DEFS[base_obj].name, "doc_entry": doc.doc_entry,
+                out.append({"obj": base_obj, "name": DEFS[base_obj].name, "doc_entry": doc.doc_entry, "doc_cur": doc.doc_cur,
                             "doc_num": doc.doc_num, "doc_date": doc.doc_date, "doc_type": doc.doc_type,
                             "doc_total": doc.doc_total, "disc_prcnt": doc.disc_prcnt,
                             "lines": [{"line_num": l.line_num, "item_code": l.item_code, "dscription": l.dscription,

@@ -98,6 +98,12 @@ const O = {
   vendors: () => state.partners.filter((b) => b.card_type === "S" && !b.frozen).map((b) => [b.card_code, `${b.card_code} — ${b.card_name}`]),
   accounts: (filter = () => true) => () => state.accounts.filter((a) => a.postable === "Y" && !a.frozen && filter(a)).map((a) => [a.acct_code, `${a.acct_code} — ${a.acct_name}`]),
 };
+async function rateOf(cur, day) {
+  if (!cur || cur === state.company.main_curncy) return 1;
+  const r = (await api(`/admin/exchange-rates?rate_date=${day || today()}`)).find((x) => x.currency === cur);
+  if (!r) throw new Error(`No exchange rate for ${cur} on ${day || today()}`);
+  return Number(r.rate);
+}
 const nameOf = (list, key, val, label) => ((list.find((x) => String(x[key]) === String(val)) || {})[label] ?? "");
 
 // ---------- bootstrap ----------
@@ -196,7 +202,7 @@ views["journal-entry"] = async (c) => {
     <div class="page-head"><div><h1>Journal Entry</h1><div class="sub">Manual journal entry (object 30) — G/L accounts and business partners (posted to their control account)</div></div></div>
     <div class="card"><div class="card-body"><div class="form-grid">${fieldsHtml(JE_HEADER, {}, "je")}</div></div></div>
     <div class="card"><div class="card-body" style="overflow-x:auto">
-      <table class="lines"><thead><tr><th>G/L acct / BP code</th><th>Control acct</th><th class="num w-amt">Debit</th><th class="num w-amt">Credit</th>
+      <table class="lines"><thead><tr><th>G/L acct / BP code</th><th>Control acct</th><th>Currency</th><th class="num">Debit (FC)</th><th class="num">Credit (FC)</th><th class="num w-amt">Debit</th><th class="num w-amt">Credit</th>
         <th>Due date</th><th>Line remarks</th><th>Ref. 1</th><th>Ref. 2</th><th>Project</th><th></th></tr></thead><tbody id="je-lines"></tbody></table>
       <button class="btn secondary small" id="je-add" style="margin-top:8px">+ Line</button>
       <div class="balance-row"><span>Debit <span class="amt" id="je-d">0.00</span></span><span>Credit <span class="amt" id="je-c">0.00</span></span><span id="je-chip" class="chip no">Not balanced</span></div>
@@ -209,6 +215,9 @@ views["journal-entry"] = async (c) => {
       .map((b) => `<option value="BP:${esc(b.card_code)}">${esc(b.card_code)} — ${esc(b.card_name)}</option>`).join("");
     tr.innerHTML = `<td><select class="je-acct"><optgroup label="G/L accounts">${accountOptions((a) => !a.control && !a.bloc_man_pos && !a.frozen)}</optgroup>
       <optgroup label="Business partners">${bps}</optgroup></select></td><td class="mono help je-ctrl"></td>
+      <td><select class="je-cur">${opt("", "LC")}${O.currencies().filter(([v]) => v !== state.company.main_curncy).map(([v]) => opt(v, v)).join("")}</select></td>
+      <td class="num"><input class="je-fcd" type="number" step="0.01" min="0" style="width:90px" disabled></td>
+      <td class="num"><input class="je-fcc" type="number" step="0.01" min="0" style="width:90px" disabled></td>
       <td class="num"><input class="je-debit" type="number" step="0.01" min="0"></td><td class="num"><input class="je-credit" type="number" step="0.01" min="0"></td>
       <td><input class="je-due" type="date"></td><td><input class="je-lm" maxlength="50"></td>
       <td><input class="je-r1" maxlength="100" style="width:90px"></td><td><input class="je-r2" maxlength="100" style="width:90px"></td>
@@ -220,8 +229,24 @@ views["journal-entry"] = async (c) => {
       $(".je-ctrl", tr).textContent = bp ? bp.deb_pay_acct : "";
     };
     $$("input", tr).forEach((i) => (i.oninput = recalc));
+    // a foreign-currency line: the local amounts follow from the rate of the posting date
+    const fcSync = async () => {
+      const cur = $(".je-cur", tr).value;
+      $(".je-fcd", tr).disabled = $(".je-fcc", tr).disabled = !cur;
+      $(".je-debit", tr).readOnly = $(".je-credit", tr).readOnly = !!cur;
+      if (!cur) return recalc();
+      let r;
+      try { r = await rateOf(cur, $("#je-ref_date").value); } catch (e) { toast(e.message, "bad"); return; }
+      const lc = (v) => (v === "" ? "" : (Math.round(Number(v) * r * 100) / 100).toFixed(2));
+      $(".je-debit", tr).value = lc($(".je-fcd", tr).value); $(".je-credit", tr).value = lc($(".je-fcc", tr).value);
+      recalc();
+    };
+    $(".je-cur", tr).onchange = fcSync;
+    $(".je-fcd", tr).oninput = fcSync; $(".je-fcc", tr).oninput = fcSync;
+    tr.fcSync = fcSync;
     $(".je-del", tr).onclick = () => { tr.remove(); recalc(); };
   };
+  $("#je-ref_date").addEventListener("change", () => $$("#je-lines tr").forEach((tr) => tr.fcSync()));
   const recalc = () => {
     let d = 0, cr = 0;
     $$("#je-lines tr").forEach((tr) => { d += Number($(".je-debit", tr).value || 0); cr += Number($(".je-credit", tr).value || 0); });
@@ -235,7 +260,8 @@ views["journal-entry"] = async (c) => {
   $("#je-post").onclick = async () => {
     const target = (v) => (v.startsWith("BP:") ? { card_code: v.slice(3) } : { account: v });
     const val = (tr, cls) => $(cls, tr).value || null;
-    const lines = $$("#je-lines tr").map((tr) => ({ ...target($(".je-acct", tr).value), debit: Number($(".je-debit", tr).value || 0),
+    const lines = $$("#je-lines tr").map((tr) => ({ ...target($(".je-acct", tr).value), fc_currency: val(tr, ".je-cur"),
+      fc_debit: Number($(".je-fcd", tr).value || 0), fc_credit: Number($(".je-fcc", tr).value || 0), debit: Number($(".je-debit", tr).value || 0),
       credit: Number($(".je-credit", tr).value || 0), due_date: val(tr, ".je-due"), line_memo: val(tr, ".je-lm"),
       ref1: val(tr, ".je-r1"), ref2: val(tr, ".je-r2"), project: val(tr, ".je-prj") }));
     const head = readFields(JE_HEADER, "je");
@@ -263,10 +289,13 @@ views.journal = async (c) => {
       ${e.storno_to_tr ? "" : `<button class="btn small secondary" id="je-rev">Reverse</button>`}</div>
     <div class="card-body"><div class="form-grid">${fieldsHtml(JE_HEADER.map((d) => ({ ...d, ro: true, value: undefined })), values, "jd")}</div></div>
     <div style="overflow-x:auto"><table><thead><tr><th>#</th><th>G/L acct / BP code</th><th>Name</th><th>Control acct</th><th>Contra account</th><th class="num">Debit</th><th class="num">Credit</th>
+      <th>Currency</th><th class="num">Debit (FC)</th><th class="num">Credit (FC)</th><th class="num">Open (FC)</th>
       <th>Due date</th><th>Remarks</th><th>Ref. 1</th><th>Ref. 2</th><th>Project</th><th>Tax group</th></tr></thead>
     <tbody>${e.lines.map((l) => `<tr><td>${l.line_id + 1}</td><td class="mono">${esc(l.short_name)}</td><td>${esc(name(l.short_name))}</td>
       <td class="mono help">${l.short_name !== l.account ? esc(l.account) : ""}</td><td class="mono help">${esc(l.contra_act || "")}</td>
       <td class="num">${Number(l.debit) ? fmt(l.debit) : ""}</td><td class="num">${Number(l.credit) ? fmt(l.credit) : ""}</td>
+      <td>${esc(l.fc_currency || "")}</td><td class="num">${Number(l.fc_debit) ? fmt(l.fc_debit) : ""}</td><td class="num">${Number(l.fc_credit) ? fmt(l.fc_credit) : ""}</td>
+      <td class="num">${Number(l.bal_fc_deb) || Number(l.bal_fc_cred) ? fmt(Number(l.bal_fc_deb) - Number(l.bal_fc_cred)) : ""}</td>
       <td>${esc(l.due_date || "")}</td><td>${esc(l.line_memo || "")}</td><td>${esc(l.ref1 || "")}</td><td>${esc(l.ref2 || "")}</td>
       <td>${esc(l.project || "")}</td><td>${esc(l.vat_group || "")}</td></tr>`).join("")}</tbody></table></div></div>`;
   const rev = $("#je-rev");
@@ -313,7 +342,9 @@ function docHeaderDefs(t, mode) {
       .map((b) => [b.card_code, `${b.card_code} — ${b.card_name}`]), blank: "— select —" },
     { k: "cntct_code", label: "Contact person", type: "select", int: true, options: [], ro },
     { k: "num_at_card", label: sales ? "Customer ref. no." : "Vendor ref. no.", max: 100, ro },
-    { k: "doc_cur", label: "Currency", ro: true, value: state.company.main_curncy },
+    { k: "doc_cur", label: "Currency", type: "select", blank: false, options: () => O.currencies(), value: state.company.main_curncy,
+      ro: ro || mode === "copy" },
+    { k: "doc_rate", label: "Rate", type: "number", ro: true, value: 1 },
     { k: "doc_num", label: "No.", ro: true },
     { k: "series", label: "Series", type: "select", options: [["1", "Primary"]], blank: false, ro: true },
     { k: "doc_date", label: "Posting date", type: "date", req: true, value: today(), ro },
@@ -368,6 +399,7 @@ async function docDetail(el, t, entry) {
     : f.k === "pay_to_code" ? { ...f, options: bp.addresses.filter((a) => a.adres_type === "B").map((a) => [a.address, a.address]) }
     : f.k === "ship_to_code" ? { ...f, options: bp.addresses.filter((a) => a.adres_type === "S").map((a) => [a.address, a.address]) } : f);
   const values = { ...d, series: String(d.series || 1), from_whs: d.filler, to_whs: d.to_whs_code };
+  const fcDoc = d.doc_cur !== state.company.main_curncy;
   const cols = t.side === "I"
     ? [["Item No.", (l) => `<span class="mono">${esc(l.item_code)}</span>`], ["Description", (l) => esc(l.dscription)], ["Quantity", (l) => qtyFmt(l.quantity), 1],
        ["UoM", (l) => esc(l.unit_msr || "")], ...(t.kind === "transfer" ? [["From whs", (l) => esc(l.from_whs_cod)], ["To whs", (l) => esc(l.whs_code)]] : [["Whs", (l) => esc(l.whs_code)]]),
@@ -378,7 +410,9 @@ async function docDetail(el, t, entry) {
             ["Open qty", (l) => qtyFmt(l.open_qty), 1], ["UoM", (l) => esc(l.unit_msr || "")]]),
        ["Unit price", (l) => fmt(l.price_bef_di), 1], ["Disc. %", (l) => (Number(l.disc_prcnt) ? Number(l.disc_prcnt) : ""), 1],
        ["Price after disc.", (l) => fmt(l.price), 1], ["Tax code", (l) => esc(l.vat_group || "")], ["Tax amount", (l) => fmt(l.vat_sum), 1],
-       ["Total (LC)", (l) => fmt(l.line_total), 1], ["Gross price", (l) => fmt(l.price_af_vat), 1], ["Gross total", (l) => fmt(l.gtotal), 1],
+       ...(fcDoc ? [["Total (FC)", (l) => fmt(l.total_frgn), 1]] : []),
+       ["Total (LC)", (l) => fmt(l.line_total), 1], ["Gross price", (l) => fmt(l.price_af_vat), 1],
+       ...(fcDoc ? [["Gross total (FC)", (l) => fmt(l.gtotal_fc), 1]] : []), ["Gross total (LC)", (l) => fmt(l.gtotal), 1],
        ...(svc ? [] : [["Whs", (l) => esc(l.whs_code || "")], ["Item cost", (l) => (Number(l.stock_price) ? fmt(l.stock_price) : ""), 1]]),
        ["Del. date", (l) => esc(l.ship_date || "")], ["Project", (l) => esc(l.project || "")], ["Free text", (l) => esc(l.free_txt || "")]];
   el.innerHTML = `<div class="card"><div class="card-head"><span>${esc(t.name)} ${d.doc_num} ${STATUS(d)}</span><span style="display:flex;gap:6px;flex-wrap:wrap">
@@ -394,8 +428,10 @@ async function docDetail(el, t, entry) {
     ${t.side !== "I" ? `<div class="card-body"><div class="totals">
       <div><span>Total before discount</span><b>${fmt(d.lines.reduce((s, l) => s + Number(l.line_total), 0))}</b></div>
       <div><span>Discount ${Number(d.disc_prcnt) ? `${Number(d.disc_prcnt)} %` : ""}</span><b>${fmt(d.disc_sum)}</b></div>
-      <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div><div class="grand"><span>Total</span><b>${fmt(d.doc_total)} ${esc(d.doc_cur)}</b></div>
-      ${isAR(t) ? `<div><span>Applied amount</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Balance due</span><b>${fmt(d.doc_total - d.paid_to_date)}</b></div>` : ""}
+      <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div><div class="grand"><span>Total (LC)</span><b>${fmt(d.doc_total)} ${esc(state.company.main_curncy)}</b></div>
+      ${fcDoc ? `<div><span>Tax (FC)</span><b>${fmt(d.vat_sum_fc)}</b></div><div class="grand"><span>Total (${esc(d.doc_cur)}) at ${Number(d.doc_rate)}</span><b>${fmt(d.doc_total_fc)} ${esc(d.doc_cur)}</b></div>` : ""}
+      ${isAR(t) ? `<div><span>Applied amount</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Balance due</span><b>${fmt(d.doc_total - d.paid_to_date)}</b></div>
+        ${fcDoc ? `<div><span>Applied amount (FC)</span><b>${fmt(d.paid_fc)}</b></div><div><span>Balance due (FC)</span><b>${fmt(d.doc_total_fc - d.paid_fc)}</b></div>` : ""}` : ""}
     </div></div>` : `<div class="card-body"><div class="totals"><div class="grand"><span>Total value</span><b>${fmt(d.doc_total)}</b></div></div></div>`}</div>`;
   const reload = () => { location.hash = `#/docs?obj=${t.obj}&entry=${d.doc_entry}&r=${Date.now()}`; };
   const cl = $("#doc-close");
@@ -431,7 +467,8 @@ views.doc = async (c) => {
         <div><span>Total before discount</span><b id="t-before">0.00</b></div>
         <div><span>Discount %</span><input id="d-disc" type="number" min="0" max="99.99" step="0.01" value="0" style="width:80px;text-align:right"></div>
         <div><span>Discount</span><b id="t-disc">0.00</b></div>
-        <div><span>Tax</span><b id="t-vat">0.00</b></div><div class="grand"><span>Total</span><b id="t-total">0.00</b></div></div>` : ""}
+        <div><span>Tax</span><b id="t-vat">0.00</b></div><div class="grand"><span>Total (<span id="t-cur">${esc(state.company.main_curncy)}</span>)</span><b id="t-total">0.00</b></div>
+        <div id="t-lc-row" style="display:none"><span>Total (LC)</span><b id="t-lc">0.00</b></div></div>` : ""}
       <button class="btn" id="d-post" style="margin-top:12px">Add</button>
     </div></div>`;
 
@@ -439,6 +476,18 @@ views.doc = async (c) => {
   const bpCode = () => ($("#d-card_code") ? $("#d-card_code").value : "");
   const bpRow = () => state.partners.find((b) => b.card_code === bpCode());
   let bpInfo = { contacts: [], addresses: [] };
+  let docRate = 1;
+  const docCur = () => ($("#d-doc_cur") ? $("#d-doc_cur").value : state.company.main_curncy);
+  // currency -> rate of the posting date; prices of not copied lines are converted from the local currency
+  const loadRate = async (reprice = true) => {
+    if (!$("#d-doc_cur")) return;
+    try { docRate = await rateOf(docCur(), $("#d-doc_date").value); } catch (e) { toast(e.message, "bad"); docRate = 0; }
+    $("#d-doc_rate").value = docRate;
+    if ($("#t-cur")) $("#t-cur").textContent = docCur();
+    if ($("#t-lc-row")) $("#t-lc-row").style.display = docCur() === state.company.main_curncy ? "none" : "";
+    if (reprice) $$("#d-lines tr").forEach((tr) => { const s = $(".l-item", tr); if (s && s.value && !tr.base) s.onchange(); });
+    recalc();
+  };
   // business partner -> defaults of contact, sales employee, project, addresses, payment terms, tax ID, discount
   const applyPartner = async (keep = {}) => {
     const b = bpRow();
@@ -455,6 +504,8 @@ views.doc = async (c) => {
       $("#d-group_num").value = b.group_num ?? "";
       $("#d-lic_trad_num").value = b.lic_trad_num || "";
       $("#d-disc").value = Number(def("disc_prcnt", b.discount) || 0);
+      if ($("#d-doc_cur")) $("#d-doc_cur").value = def("doc_cur", b.currency !== "##" ? b.currency : state.company.main_curncy);
+      await loadRate(false);
     }
     showAddresses();
     $$("#d-lines tr").forEach((tr) => { const s = $(".l-item", tr); if (s && s.value && !tr.base) s.onchange(); else if (!tr.base && b && b.vat_group && $(".l-vat", tr) && type() === "S") $(".l-vat", tr).value = b.vat_group; });
@@ -524,7 +575,7 @@ views.doc = async (c) => {
         const pl = $("#d-price_list") && $("#d-price_list").value;
         if (side === "I") price.value = pl ? Number((await api(`/items/${encodeURIComponent(i.item_code)}/price?list_num=${pl}`)).price).toFixed(2)
           : Number(i.avg_price || i.last_pur_prc).toFixed(2);
-        else if (bpCode()) price.value = Number((await api(`/items/${encodeURIComponent(i.item_code)}/price?card_code=${encodeURIComponent(bpCode())}`)).price).toFixed(2);
+        else if (bpCode()) price.value = (Number((await api(`/items/${encodeURIComponent(i.item_code)}/price?card_code=${encodeURIComponent(bpCode())}`)).price) / (docRate || 1)).toFixed(2);
       }
       recalc();
     };
@@ -553,11 +604,16 @@ views.doc = async (c) => {
     const discount = round(before * disc);
     $("#t-before").textContent = fmt(before); $("#t-disc").textContent = fmt(discount); $("#t-vat").textContent = fmt(vat);
     $("#t-total").textContent = fmt(before - discount + vat);
+    if ($("#t-lc")) $("#t-lc").textContent = fmt($$("#d-lines tr").reduce((s, tr) => {
+      const net = round(Number(($(".l-total", tr) || {}).textContent?.replace(/[^0-9.-]/g, "") || 0) * (1 - disc));
+      return s + round(net * docRate) + round(round(net * rate($(".l-vat", tr).value) / 100) * docRate);
+    }, 0));
   };
   const reset = () => { head(); $("#d-lines").innerHTML = ""; addLine(); };
   if ($("#d-doc_type")) $("#d-doc_type").onchange = reset;
   if ($("#d-disc")) $("#d-disc").oninput = recalc;
   if ($("#d-card_code")) $("#d-card_code").onchange = () => applyPartner();
+  if ($("#d-doc_cur")) { $("#d-doc_cur").onchange = () => loadRate(); $("#d-doc_date").addEventListener("change", () => loadRate()); }
   $("#d-add").onclick = () => addLine();
   head();
 

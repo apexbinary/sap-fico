@@ -259,6 +259,9 @@ class JELineIn(BaseModel):
     card_code: str | None = None
     debit: Decimal = Field(Decimal("0"), ge=0)
     credit: Decimal = Field(Decimal("0"), ge=0)
+    fc_currency: str | None = Field(None, max_length=3)
+    fc_debit: Decimal = Field(Decimal("0"), ge=0)
+    fc_credit: Decimal = Field(Decimal("0"), ge=0)
     line_memo: str | None = Field(None, max_length=50)
     due_date: date | None = None
     project: str | None = Field(None, max_length=20)
@@ -287,12 +290,15 @@ def _je_out(e: JournalEntry) -> dict:
             "tax_date": e.tax_date, "due_date": e.due_date, "memo": e.memo, "ref1": e.ref1, "ref2": e.ref2,
             "ref3": e.ref3, "trans_code": e.trans_code, "project": e.project, "storno_date": e.storno_date,
             "is_reversal": e.storno_to_tr is not None and e.storno_to_tr < e.trans_id, "trans_type": e.trans_type,
+            "trans_curr": e.trans_curr, "fc_total": e.fc_total,
             "base_ref": e.base_ref, "created_by": e.created_by, "loc_total": e.loc_total, "storno_to_tr": e.storno_to_tr,
             "auto_storno": e.auto_storno == "Y",
             "lines": [{"line_id": l.line_id, "account": l.account, "short_name": l.short_name, "debit": l.debit,
                        "credit": l.credit, "bal_due_deb": l.bal_due_deb, "bal_due_cred": l.bal_due_cred,
                        "line_memo": l.line_memo, "contra_act": l.contra_act, "vat_group": l.vat_group,
                        "due_date": l.due_date, "project": l.project, "ref1": l.ref1, "ref2": l.ref2,
+                       "fc_currency": l.fc_currency, "fc_debit": l.fc_debit, "fc_credit": l.fc_credit,
+                       "bal_fc_deb": l.bal_fc_deb, "bal_fc_cred": l.bal_fc_cred,
                        "ref3_line": l.ref3_line} for l in e.lines]}
 
 
@@ -303,7 +309,8 @@ def post_journal_entry(body: JournalEntryIn, s: Session = Depends(get_session)) 
         ref1=body.ref1, ref2=body.ref2, ref3=body.ref3, trans_code=body.trans_code or None, project=body.project or None,
         auto_storno=body.auto_storno, storno_date=body.storno_date,
         lines=[journal.JournalLineRequest(account=l.account or None, card_code=l.card_code or None, debit=l.debit,
-                                          credit=l.credit, line_memo=l.line_memo, due_date=l.due_date,
+                                          credit=l.credit, fc_currency=l.fc_currency or None, fc_debit=l.fc_debit,
+                                          fc_credit=l.fc_credit, line_memo=l.line_memo, due_date=l.due_date,
                                           project=l.project or None, ref1=l.ref1, ref2=l.ref2, ref3_line=l.ref3_line)
                for l in body.lines])))
     return _je_out(entry)

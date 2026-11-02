@@ -64,10 +64,10 @@ async function paymentDetail(el, kind, entry) {
       <span style="display:flex;gap:6px">${p.canceled ? "" : '<button class="btn small secondary" id="pay-cancel">Cancel</button>'}
       ${p.trans_id ? `<a class="btn small ghost" href="#/journal?id=${p.trans_id}">Journal entry ${p.trans_id} &#8599;</a>` : ""}</span></div>
     <div class="card-body"><div class="form-grid">${fieldsHtml(defs, { ...p, series: String(p.series || 1) }, "pv")}</div></div>
-    ${p.invoices.length ? `<table><thead><tr><th>Document</th><th>No. / Trans. No.</th><th class="num">Amount applied (LC)</th>${p.doc_curr !== state.company.main_curncy ? '<th class="num">Applied (FC)</th>' : ""}</tr></thead><tbody>
+    ${p.invoices.length ? `<table><thead><tr><th>Document</th><th>No. / Trans. No.</th><th class="num">Amount applied (LC)</th><th class="num">Applied (item FC)</th></tr></thead><tbody>
       ${p.invoices.map((i) => `<tr><td>${docLink(i.inv_type, i.doc_entry, DOC_NAMES[i.inv_type] || PAY_KINDS[i.inv_type === "24" ? "incoming" : "outgoing"]?.name || "Journal entry")}</td>
         <td><a href="#/journal?id=${i.doc_trans_id}">${i.doc_trans_id}</a></td><td class="num">${fmt(i.sum_applied)}</td>
-        ${p.doc_curr !== state.company.main_curncy ? `<td class="num">${fmt(i.applied_fc)}</td>` : ""}</tr>`).join("")}</tbody></table>` : ""}
+        <td class="num">${Number(i.applied_fc) ? fmt(i.applied_fc) : ""}</td></tr>`).join("")}</tbody></table>` : ""}
     ${p.accounts.length ? `<table><thead><tr><th>G/L account</th><th>Name</th><th>Description</th><th>Project</th><th class="num">Amount (LC)</th></tr></thead><tbody>
       ${p.accounts.map((a) => `<tr><td class="mono">${esc(a.acct_code)}</td><td>${esc(name(a.acct_code))}</td><td>${esc(a.descrip || "")}</td><td>${esc(a.prj_code || "")}</td><td class="num">${fmt(a.sum_applied)}</td></tr>`).join("")}</tbody></table>` : ""}
     <div class="card-body"><h3 class="section">Payment means</h3><div style="overflow-x:auto"><table><thead><tr><th>Means</th><th>G/L account</th><th>Details</th><th class="num">Amount (LC)</th>${p.doc_curr !== state.company.main_curncy ? `<th class="num">Amount (${esc(p.doc_curr)})</th>` : ""}</tr></thead><tbody>
@@ -107,10 +107,10 @@ views.payment = async (c) => {
       <h3 class="section">Bank transfer</h3><div class="form-grid">${fieldsHtml(MEANS_TRANSFER, {}, "p")}</div>
       <h3 class="section">Cash</h3><div class="form-grid">${fieldsHtml(MEANS_CASH, {}, "p")}</div>
       <div class="totals" style="margin-top:12px">
-        <div><span>Total amount due (LC)</span><b id="p-due">0.00</b></div>
+        <div><span>Total amount due (<span class="p-curl">${esc(main)}</span>)</span><b id="p-due">0.00</b></div>
         <div><span>Overall amount (<span id="p-cur">${esc(main)}</span>)</span><b id="p-overall">0.00</b></div>
         <div><span>Overall amount (LC)</span><b id="p-overall-lc">0.00</b></div>
-        <div class="grand"><span>Balance due (LC)</span><b id="p-balance">0.00</b></div></div>
+        <div class="grand"><span>Balance due (<span class="p-curl">${esc(main)}</span>)</span><b id="p-balance">0.00</b></div></div>
       <button class="btn" id="p-post" style="margin-top:12px">Add</button></div></div>`;
 
   let rate = 1;
@@ -125,6 +125,7 @@ views.payment = async (c) => {
   const loadRate = async () => {
     const cur = $("#p-doc_curr").value;
     $("#p-cur").textContent = cur;
+    $$(".p-curl").forEach((e) => (e.textContent = cur));
     if (cur === main) { rate = 1; $("#p-rate").textContent = ""; }
     else {
       const rates = await api(`/admin/exchange-rates?rate_date=${$("#p-doc_date").value}`);
@@ -132,6 +133,7 @@ views.payment = async (c) => {
       rate = r ? Number(r.rate) : 0;
       $("#p-rate").textContent = r ? `1 ${cur} = ${Number(r.rate).toFixed(4)} ${main}` : `no exchange rate for ${cur} on this date`;
     }
+    itemCurrencies();
     recalc();
   };
   const loadItems = async () => {
@@ -160,21 +162,23 @@ views.payment = async (c) => {
     $("#p-cntct_code").innerHTML = opt("", "") + bp.contacts.filter((x) => x.active).map((x) => opt(x.cntct_code, x.name, bp.cntct_prsn === x.name ? x.cntct_code : "")).join("");
     // payable direction: incoming pays debit items (invoices), outgoing pays credit items (vendor invoices); the others offset
     $("#p-items").innerHTML = `<table class="lines"><thead><tr><th></th><th>Document</th><th>No.</th><th>Posting date</th><th>Due date</th><th>Remarks</th>
-      <th class="num">Total</th><th class="num">Balance due</th><th class="num w-amt">Total payment (LC)</th></tr></thead><tbody>
+      <th>Currency</th><th class="num">Total</th><th class="num">Balance due (LC)</th><th class="num">Balance due (FC)</th><th class="num w-amt">Total payment</th><th>in</th></tr></thead><tbody>
       ${items.map((it, n) => {
         const sign = (it.side === "D") === incoming ? 1 : -1;
         return `<tr data-n="${n}" data-sign="${sign}"><td><input type="checkbox" class="i-pick"></td>
         <td>${esc(DOC_NAMES[it.inv_type] || (it.inv_type === "24" ? "Incoming Payment" : it.inv_type === "46" ? "Outgoing Payment" : "Journal Entry"))}</td>
         <td>${docLink(it.inv_type, it.doc_entry, it.doc_num)}</td><td>${it.ref_date}</td><td>${it.due_date}</td><td>${esc(it.memo || "")}</td>
-        <td class="num">${fmt(sign * it.amount)}</td><td class="num">${fmt(sign * it.open)}</td>
-        <td class="num"><input class="i-sum" type="number" step="0.01" min="0" max="${Number(it.open)}" value="${Number(it.open).toFixed(2)}" disabled></td></tr>`;
-      }).join("") || `<tr><td colspan="9" class="empty">No open items — the payment will be on account.</td></tr>`}</tbody></table>`;
+        <td>${esc(it.currency || main)}</td><td class="num">${fmt(sign * it.amount)}</td><td class="num">${fmt(sign * it.open)}</td>
+        <td class="num">${it.currency ? fmt(sign * it.open_fc) : ""}</td>
+        <td class="num"><input class="i-sum" type="number" step="0.01" min="0" disabled></td><td class="i-cur help"></td></tr>`;
+      }).join("") || `<tr><td colspan="12" class="empty">No open items — the payment will be on account.</td></tr>`}</tbody></table>`;
     $$("#p-items tr[data-n]").forEach((tr) => {
       const pick = $(".i-pick", tr), sum = $(".i-sum", tr);
       tr.item = items[Number(tr.dataset.n)];
       pick.onchange = () => { sum.disabled = !pick.checked; recalc(); };
       sum.oninput = recalc;
     });
+    itemCurrencies();
     recalc();
   };
   const addCheck = () => {
@@ -189,15 +193,27 @@ views.payment = async (c) => {
     $(".c-del", tr).onclick = () => { tr.remove(); recalc(); };
   };
   const round = (n) => Math.round(n * 100) / 100;
+  // an item in the payment currency is paid in that currency, every other item in local currency
+  const inItemCur = (it) => $("#p-doc_curr").value !== main && it.currency === $("#p-doc_curr").value && Number(it.open_fc) > 0;
+  const itemCurrencies = () => $$("#p-items tr[data-n]").forEach((tr) => {
+    const own = inItemCur(tr.item), open = own ? tr.item.open_fc : tr.item.open;
+    const sum = $(".i-sum", tr);
+    sum.max = Number(open); sum.value = Number(open).toFixed(2);
+    $(".i-cur", tr).textContent = own ? tr.item.currency : main;
+  });
   const recalc = () => {
-    let due = 0;
-    if (type() === "A") $$("#p-acct tr").forEach((tr) => { due += round(Number($(".a-sum", tr).value || 0) * rate); });
-    else $$("#p-items tr[data-n]").forEach((tr) => { if ($(".i-pick", tr).checked) due += Number(tr.dataset.sign) * Number($(".i-sum", tr).value || 0); });
+    let due = 0;  // in the payment currency
+    if (type() === "A") $$("#p-acct tr").forEach((tr) => { due += Number($(".a-sum", tr).value || 0); });
+    else $$("#p-items tr[data-n]").forEach((tr) => {
+      if (!$(".i-pick", tr).checked) return;
+      const v = Number($(".i-sum", tr).value || 0);
+      due += Number(tr.dataset.sign) * (inItemCur(tr.item) ? v : (rate ? v / rate : 0));
+    });
     const checks = $$("#p-checks tr").reduce((s, tr) => s + Number($(".c-sum", tr).value || 0), 0);
     const means = round(checks) + Number($("#p-trsfr_sum").value || 0) + Number($("#p-cash_sum").value || 0);
     const meansLc = round(round(checks) * rate) + round(Number($("#p-trsfr_sum").value || 0) * rate) + round(Number($("#p-cash_sum").value || 0) * rate);
     $("#p-due").textContent = fmt(due); $("#p-overall").textContent = fmt(means); $("#p-overall-lc").textContent = fmt(meansLc);
-    $("#p-balance").textContent = fmt(due - meansLc);
+    $("#p-balance").textContent = fmt(due - means);
   };
   $("#p-doc_type").onchange = fillPartners;
   $("#p-card_code").onchange = loadItems;

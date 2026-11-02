@@ -56,7 +56,8 @@ class CheckRequest:
 class PaidItem:
     trans_id: int  # journal entry of the open item
     line_id: int  # its partner line
-    sum_applied: Decimal  # LC, positive: the amount of the item's open amount that is paid
+    sum_applied: Decimal  # positive: the part of the open amount that is paid, in the item's currency when the
+    #                       payment is in that (foreign) currency, else in local currency
 
 
 @dataclass
@@ -132,6 +133,8 @@ def open_items(session: Session, card_code: str) -> list[dict]:
             doc = session.get(DOCUMENT_CLASSES[l.trans_type][0], l.created_by)
             doc_total, paid = doc.doc_total, doc.paid_to_date
         out.append({"trans_id": l.trans_id, "line_id": l.line_id, "inv_type": l.trans_type,
+                    "currency": l.fc_currency, "amount_fc": l.fc_debit or l.fc_credit,
+                    "open_fc": l.bal_fc_deb or l.bal_fc_cred,
                     "doc_entry": l.created_by or l.trans_id, "doc_num": l.base_ref or str(l.trans_id),
                     "ref_date": l.ref_date, "due_date": l.due_date, "memo": l.line_memo,
                     "side": "D" if l.bal_due_deb else "C", "amount": l.debit or l.credit,
@@ -140,15 +143,18 @@ def open_items(session: Session, card_code: str) -> list[dict]:
     return out
 
 
-def _apply_to_item(session: Session, line: JournalLine, amount: Decimal) -> None:
-    """Reduce (amount > 0) or restore (amount < 0) the open amount of an item and of its document."""
-    if line.bal_due_deb or (line.debit and not line.bal_due_cred and amount < 0):
+def _apply_to_item(session: Session, line: JournalLine, amount: Decimal, amount_fc: Decimal = ZERO) -> None:
+    """Reduce (amounts > 0) or restore (amounts < 0) the open LC / FC amount of an item and of its document."""
+    if line.debit:
         line.bal_due_deb -= amount
+        line.bal_fc_deb -= amount_fc
     else:
         line.bal_due_cred -= amount
+        line.bal_fc_cred -= amount_fc
     if line.trans_type in INVOICE_TYPES and line.created_by:
         doc = session.get(DOCUMENT_CLASSES[line.trans_type][0], line.created_by)
         doc.paid_to_date += amount
+        doc.paid_fc += amount_fc
         if doc.canceled == "N":
             doc.doc_status = "C" if doc.paid_to_date >= doc.doc_total else "O"
     elif line.trans_type in PAYMENT_CLASSES and line.created_by:
@@ -233,8 +239,8 @@ def _create(session: Session, req: PaymentRequest):
     checks_lc = lc(checks_fc)
     means_lc = cash_lc + trsfr_lc + checks_lc
 
-    # paid items (LC) -> signed applied amounts: positive increases the payment
-    applied, items, seen = ZERO, [], set()
+    # paid items -> signed applied amounts (LC; FC of the item; payment currency): positive increases the payment
+    applied, due_pc, items, seen = ZERO, ZERO, [], set()
     for it in req.items:
         line = session.get(JournalLine, (it.trans_id, it.line_id))
         if line is None or line.short_name != bp.card_code or line.short_name == line.account:
@@ -243,14 +249,25 @@ def _create(session: Session, req: PaymentRequest):
             raise B1Error(f"Item {it.trans_id}/{it.line_id} is selected twice")
         seen.add((it.trans_id, it.line_id))
         amount = money(it.sum_applied)
-        open_amt = line.bal_due_deb or line.bal_due_cred
+        open_lc = line.bal_due_deb or line.bal_due_cred
+        open_fc = line.bal_fc_deb or line.bal_fc_cred
+        in_item_currency = curr != main and line.fc_currency == curr and open_fc > 0
+        open_amt = open_fc if in_item_currency else open_lc
         if amount <= 0 or amount > open_amt:
             raise B1Error(f"Item {line.base_ref or line.trans_id}: the amount to pay must be between 0 and the open "
                           f"amount {open_amt.normalize()}")
-        debit_item = bool(line.bal_due_deb)
-        sign = 1 if debit_item == incoming else -1
-        applied += sign * amount
-        items.append((line, amount, sign * amount))
+        if in_item_currency:  # paid in its own currency: LC at the item's rate; the rate difference is realized
+            fc_part = amount
+            lc_part = open_lc if amount == open_fc else money(open_lc * amount / open_fc)
+            pc_part = amount
+        else:
+            lc_part = amount
+            fc_part = open_fc if amount == open_lc else money(open_fc * amount / open_lc) if open_lc else ZERO
+            pc_part = amount / rate
+        sign = 1 if bool(line.debit) == incoming else -1
+        applied += sign * lc_part
+        due_pc += sign * pc_part
+        items.append((line, lc_part, sign * lc_part, fc_part, sign * fc_part))
 
     accounts = []
     for n, a in enumerate(req.accounts):
@@ -269,17 +286,21 @@ def _create(session: Session, req: PaymentRequest):
         exch = means_lc - target
         on_account = ZERO
     else:
-        target = means_lc
-        on_account = means_lc - applied
+        means_pc = cash_fc + trsfr_fc + checks_fc
+        balance_pc = means_pc - due_pc  # in the payment currency
+        target, on_account = means_lc, ZERO
         if not items and means_lc > 0:
             on_account, req.pay_no_doc = means_lc, True  # nothing selected: the whole payment is on account
-        if on_account < 0 or (on_account > 0 and not req.pay_no_doc):
-            if curr != main and items and abs(on_account) <= abs(applied) * FX_TOLERANCE:
-                exch, target, on_account = on_account, applied, ZERO
-            elif on_account < 0:
-                raise B1Error(f"The payment means ({means_lc}) are lower than the amount to pay ({applied})")
-            else:
-                raise B1Error(f"The payment means exceed the amount to pay by {on_account}; select payment on account")
+        elif balance_pc == 0 or (curr != main and items and abs(balance_pc) <= max(Decimal("0.01"), abs(due_pc) * FX_TOLERANCE)):
+            target, exch = applied, means_lc - applied  # exactly paid: the LC difference is an exchange difference
+        elif balance_pc > 0 and req.pay_no_doc:
+            on_account = means_lc - money(due_pc * rate) if curr != main else balance_pc
+            target = applied + on_account
+            exch = means_lc - target
+        elif balance_pc < 0:
+            raise B1Error(f"The payment means ({means_pc}) are lower than the amount to pay ({money(due_pc)})")
+        else:
+            raise B1Error(f"The payment means exceed the amount to pay by {money(balance_pc)}; select payment on account")
         if means_lc == 0 and applied != 0:
             raise B1Error(f"The selected items do not balance (difference {applied}); add payment means")
         if means_lc == 0 and not items:
@@ -309,10 +330,10 @@ def _create(session: Session, req: PaymentRequest):
                                     bank_code=c.bank_code, branch=c.branch, acct_num=c.acct_num,
                                     country_cod=c.country_cod, check_sum=money(c.check_sum),
                                     trnsfrable="Y" if c.trnsfrable else "N", check_act=check_acct))
-    for n, (line, amount, signed) in enumerate(items):
+    for n, (line, _lc, signed, _fc, signed_fc) in enumerate(items):  # AppliedFC: the item's FC part
         pay.invoices.append(inv_cls(invoice_id=n, doc_entry=line.created_by or line.trans_id, inv_type=line.trans_type,
                                     doc_trans_id=line.trans_id, doc_line=line.line_id, sum_applied=signed,
-                                    applied_fc=money(signed / rate) if curr != main else ZERO))
+                                    applied_fc=signed_fc))
     for n, (a, fc, amount_lc) in enumerate(accounts):
         pay.accounts.append(acct_cls(line_id=n, acct_code=a.acct_code, sum_applied=amount_lc,
                                      applied_fc=fc if curr != main else ZERO, descrip=a.descrip, prj_code=a.prj_code))
@@ -340,7 +361,8 @@ def _create(session: Session, req: PaymentRequest):
         add(det.bank_charges, amount=sign * chrg, memo="Bank charges")
     add(check_acct, amount=checks_lc, amount_fc=checks_fc, memo="Checks")
     if bp:
-        add(card=bp.card_code, amount=-target, due=pay.doc_due_date)
+        bp_fc = money(due_pc + (on_account / rate if curr != main else ZERO)) if fc else ZERO
+        add(card=bp.card_code, amount=-target, amount_fc=-bp_fc, due=pay.doc_due_date)
     for a, a_fc, amount_lc in accounts:
         add(a.acct_code, amount=-amount_lc, amount_fc=a_fc, memo=a.descrip, project=a.prj_code)
     if exch:
@@ -355,14 +377,15 @@ def _create(session: Session, req: PaymentRequest):
         pay.trans_id = je.trans_id
         own = _own_line(session, pay)
         if own is not None:  # only the amount on account stays open on the payment
-            own.bal_due_deb = own.bal_due_cred = ZERO
+            own.bal_due_deb = own.bal_due_cred = own.bal_fc_deb = own.bal_fc_cred = ZERO
+            on_account_fc = money(on_account / rate) if fc else ZERO
             if incoming:
-                own.bal_due_cred = on_account
+                own.bal_due_cred, own.bal_fc_cred = on_account, on_account_fc
             else:
-                own.bal_due_deb = on_account
+                own.bal_due_deb, own.bal_fc_deb = on_account, on_account_fc
 
-    for line, amount, _signed in items:
-        _apply_to_item(session, line, amount)
+    for line, lc_part, _signed, fc_part, _signed_fc in items:
+        _apply_to_item(session, line, lc_part, fc_part)
 
     if incoming:  # checks received wait in the checks register until they are deposited
         key = session.scalar(select(func.max(CheckForReceipt.check_key))) or 0
@@ -401,11 +424,12 @@ def cancel_payment(session: Session, obj: str, doc_entry: int, cancel_date: date
                 c.canceled = "Y"
         for inv in pay.invoices:  # reopen the paid items
             line = session.get(JournalLine, (inv.doc_trans_id, inv.doc_line))
-            _apply_to_item(session, line, -abs(inv.sum_applied))
+            _apply_to_item(session, line, -abs(inv.sum_applied), -abs(inv.applied_fc))
         if pay.trans_id:
             own = _own_line(session, pay)
             if own is not None:
                 own.bal_due_deb, own.bal_due_cred = own.debit, own.credit
+                own.bal_fc_deb, own.bal_fc_cred = own.fc_debit, own.fc_credit
             journal.reverse_entry(session, pay.trans_id, ref_date=cancel_date or pay.doc_date, commit=False)
         pay.canceled, pay.open_bal = "Y", ZERO
         session.commit()

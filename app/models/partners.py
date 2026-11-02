@@ -112,3 +112,5 @@ class PartnerAddress(Base):
     state: Mapped[str | None] = mapped_column("State", String(3))
     country: Mapped[str | None] = mapped_column("Country", String(3))
     building: Mapped[str | None] = mapped_column("Building", String(100))
+    gst_regn_no: Mapped[str | None] = mapped_column("GSTRegnNo", String(15))  # India: GSTIN of this address
+    gst_type: Mapped[str | None] = mapped_column("GstType", String(1))  # India: R regular, U unregistered, C composition, E SEZ

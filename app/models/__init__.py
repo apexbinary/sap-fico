@@ -11,6 +11,8 @@ from app.models.admin import (
     Project,
     SalesEmployee,
     State,
+    TaxAuthority,
+    TaxComponent,
     TaxGroup,
     TransactionCode,
 )
@@ -23,7 +25,7 @@ from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, 
 __all__ = [
     # administration
     "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms",
-    "SalesEmployee", "Project", "TransactionCode", "Country", "State",
+    "SalesEmployee", "Project", "TransactionCode", "Country", "State", "TaxAuthority", "TaxComponent",
     # financials
     "Account", "JournalEntry", "JournalLine", "AccountDetermination",
     # business partners

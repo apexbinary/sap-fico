@@ -37,7 +37,7 @@ def lookups(s: Session = Depends(get_session)) -> dict:
         "transaction_codes": [{"trns_code": t.trns_code, "trns_cod_dsc": t.trns_cod_dsc}
                               for t in s.scalars(select(TransactionCode).order_by(TransactionCode.trns_code))],
         "countries": [{"code": c.code, "name": c.name} for c in s.scalars(select(Country).order_by(Country.name))],
-        "states": [{"country": t.country, "code": t.code, "name": t.name}
+        "states": [{"country": t.country, "code": t.code, "name": t.name, "gst_code": t.gst_code}
                    for t in s.scalars(select(State).order_by(State.country, State.name))],
         "item_types": [{"code": "I", "name": "Items"}, {"code": "L", "name": "Labor"}, {"code": "T", "name": "Travel"}],
     }
@@ -186,7 +186,7 @@ def _bp_or_404(s: Session, card_code: str) -> BusinessPartner:
 def _addr_out(a: PartnerAddress) -> dict:
     return {"adres_type": a.adres_type, "address": a.address, "street": a.street, "block": a.block,
             "zip_code": a.zip_code, "city": a.city, "county": a.county, "state": a.state, "country": a.country,
-            "building": a.building}
+            "building": a.building, "gst_regn_no": a.gst_regn_no, "gst_type": a.gst_type}
 
 
 def _contact_out(c: ContactPerson) -> dict:
@@ -251,6 +251,8 @@ class AddressIn(BaseModel):
     state: str | None = Field(None, max_length=3)
     country: str | None = Field(None, max_length=3)
     building: str | None = Field(None, max_length=100)
+    gst_regn_no: str | None = Field(None, max_length=15)
+    gst_type: str | None = Field(None, pattern="^[RUCE]$", description="R regular, U unregistered, C composition, E SEZ")
     make_default: bool = False
 
 
@@ -387,7 +389,7 @@ def update_price_list(list_num: int, body: PriceListUpdate, s: Session = Depends
 
 def _item_out(i: Item, s: Session, detail: bool = False) -> dict:
     out = {"item_code": i.item_code, "item_name": i.item_name, "frgn_name": i.frgn_name, "item_type": i.item_type,
-           "itms_grp_cod": i.itms_grp_cod, "code_bars": i.code_bars, "firm_code": i.firm_code,
+           "itms_grp_cod": i.itms_grp_cod, "code_bars": i.code_bars, "chapter_id": i.chapter_id, "firm_code": i.firm_code,
            "invnt_item": i.invnt_item == "Y", "sell_item": i.sell_item == "Y", "prchse_item": i.prchse_item == "Y",
            "invntry_uom": i.invntry_uom, "vat_gourp_sa": i.vat_gourp_sa, "vat_group_pu": i.vat_group_pu,
            "dflt_wh": i.dflt_wh, "card_code": i.card_code, "supp_cat_num": i.supp_cat_num,
@@ -420,6 +422,7 @@ def items(s: Session = Depends(get_session)) -> list[dict]:
 class ItemFields(BaseModel):
     frgn_name: str | None = Field(None, max_length=100)
     code_bars: str | None = Field(None, max_length=254)
+    chapter_id: str | None = Field(None, max_length=20)
     firm_code: int | None = None
     invntry_uom: str | None = Field(None, max_length=20)
     vat_gourp_sa: str | None = None

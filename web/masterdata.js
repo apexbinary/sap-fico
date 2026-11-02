@@ -90,6 +90,8 @@ const ADDRESS_FIELDS = [
   { k: "city", label: "City", max: 100 }, { k: "county", label: "County", max: 100 },
   { k: "country", label: "Country", type: "select", options: () => O.countries() },
   { k: "state", label: "State", type: "select", options: [] },
+  { k: "gst_regn_no", label: "GSTIN", max: 15 },
+  { k: "gst_type", label: "GST type", type: "select", options: [["R", "Regular"], ["U", "Unregistered"], ["C", "Composition"], ["E", "SEZ"]] },
   { k: "make_default", label: "Set as default", type: "check" },
 ];
 const CONTACT_FIELDS = [
@@ -155,7 +157,8 @@ async function partnerForm(el, groups, b) {
       ${isNew ? "" : `<div class="grid-2">
         <div class="card"><div class="card-head">Addresses (CRD1)</div><table><thead><tr><th>Type</th><th>Address ID</th><th>Address</th><th>Default</th></tr></thead><tbody>
           ${b.addresses.map((a) => `<tr><td>${a.adres_type === "B" ? "Bill to" : "Ship to"}</td><td>${esc(a.address)}</td>
-            <td>${esc([a.street, a.block, a.building, [a.zip_code, a.city].filter(Boolean).join(" "), a.county, a.state, a.country].filter(Boolean).join(", "))}</td>
+            <td>${esc([a.street, a.block, a.building, [a.zip_code, a.city].filter(Boolean).join(" "), a.county, a.state, a.country].filter(Boolean).join(", "))}
+              ${a.gst_regn_no ? `<div class="help">GSTIN ${esc(a.gst_regn_no)}${a.gst_type ? ` · ${esc({ R: "Regular", U: "Unregistered", C: "Composition", E: "SEZ" }[a.gst_type])}` : ""}</div>` : ""}</td>
             <td>${(a.adres_type === "B" ? b.bill_to_def : b.ship_to_def) === a.address ? "&#10003;" : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No addresses.</td></tr>`}</tbody></table>
           <div class="card-body"><div class="form-grid">${fieldsHtml(ADDRESS_FIELDS, {}, "ad")}</div><button class="btn secondary small" id="ad-save" style="margin-top:8px">Add / update address</button></div></div>
         <div class="card"><div class="card-head">Contact persons (OCPR)</div><table><thead><tr><th>Contact ID</th><th>Name</th><th>Position</th><th>Tel 1</th><th>Mobile</th><th>E-mail</th><th>Active</th></tr></thead><tbody>
@@ -202,6 +205,7 @@ const ITEM_SECTIONS = (groups, isNew) => [
     { k: "item_type", label: "Item type", type: "select", blank: false, options: () => O.itemTypes(), value: "I" },
     { k: "itms_grp_cod", label: "Item group", type: "select", int: true, blank: false, ro: !isNew, options: groups.map((g) => [g.itms_grp_cod, g.itms_grp_nam]) },
     { k: "code_bars", label: "Bar code", max: 254 },
+    { k: "chapter_id", label: "HSN / SAC code", max: 20 },
     { k: "firm_code", label: "Manufacturer", type: "select", int: true, blank: false, options: () => O.manufacturers(), value: -1 },
     ...(isNew ? [{ k: "invnt_item", label: "Inventory item", type: "check", value: true }] : []),
     { k: "sell_item", label: "Sales item", type: "check", value: true },
@@ -215,12 +219,12 @@ const ITEM_SECTIONS = (groups, isNew) => [
     { k: "supp_cat_num", label: "Mfr catalog no.", max: 50 },
     { k: "buy_unit_msr", label: "Purchasing UoM name", max: 100 },
     { k: "num_in_buy", label: "Items per purchase unit", type: "number", min: 0, value: 1 },
-    { k: "vat_group_pu", label: "Tax group", type: "select", options: O.taxes("I"), value: "I1" },
+    { k: "vat_group_pu", label: "Tax code", type: "select", options: O.taxes("I"), value: "ICS18" },
   ]],
   ["Sales data", [
     { k: "sal_unit_msr", label: "Sales UoM name", max: 100 },
     { k: "num_in_sale", label: "Items per sales unit", type: "number", min: 0, value: 1 },
-    { k: "vat_gourp_sa", label: "Tax group", type: "select", options: O.taxes("O"), value: "O1" },
+    { k: "vat_gourp_sa", label: "Tax code", type: "select", options: O.taxes("O"), value: "OCS18" },
   ]],
   ["Inventory data", [
     { k: "gl_method", label: "Set G/L accounts by", type: "select", blank: false, options: [["C", "Item group"]], ro: true, value: "C" },
@@ -318,7 +322,7 @@ const WAREHOUSE_FIELDS = [
   { k: "street", label: "Street / PO box", max: 100 }, { k: "block", label: "Block", max: 100 },
   { k: "building", label: "Building / floor / room", max: 100 }, { k: "zip_code", label: "Zip code", max: 20 },
   { k: "city", label: "City", max: 100 }, { k: "county", label: "County", max: 100 },
-  { k: "country", label: "Country", type: "select", options: () => O.countries(), value: "DE" },
+  { k: "country", label: "Country", type: "select", options: () => O.countries(), value: "IN" },
   { k: "state", label: "State", type: "select", options: [] },
   { k: "drop_ship", label: "Drop-ship", type: "check" }, { k: "nettable", label: "Nettable", type: "check", value: true },
 ];
@@ -360,7 +364,8 @@ const COMPANY_FIELDS = [
   { k: "company_name", label: "Company name", req: true, max: 100, span: 2 },
   { k: "address", label: "Address", max: 254, span: 2 },
   { k: "country", label: "Country", type: "select", options: () => O.countries() },
-  { k: "tax_id", label: "Federal tax ID", max: 32 },
+  { k: "state", label: "State", type: "select", options: [] },
+  { k: "tax_id", label: "Federal tax ID / GSTIN", max: 32 },
   { k: "phone", label: "Telephone 1", max: 20 }, { k: "phone2", label: "Telephone 2", max: 20 },
   { k: "fax", label: "Fax", max: 20 }, { k: "e_mail", label: "E-mail", max: 100 },
   { k: "manager", label: "Manager", max: 100 },
@@ -408,8 +413,10 @@ views.setup = async (c) => {
           { k: "currency", label: "Currency", type: "select", blank: false, options: () => O.currencies().filter(([v]) => v !== state.company.main_curncy) },
           { k: "rate_date", label: "Date", type: "date", value: today() }, { k: "rate", label: "Rate", type: "number", step: "0.0001", min: 0 }], {}, "rt")}</div>
           <button class="btn secondary" id="rt-save" style="margin-top:8px">Save rate</button></div></div>
-      <div class="card"><div class="card-head">Tax groups (OVTG)</div><table><thead><tr><th>Code</th><th>Name</th><th>Category</th><th class="num">Rate</th><th>Tax account</th></tr></thead><tbody>
-        ${L.tax_groups.map((t) => `<tr><td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td><td>${t.category === "O" ? "Output" : "Input"}</td><td class="num">${Number(t.rate)}%</td><td class="mono">${esc(t.account)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="card"><div class="card-head">Tax codes (OVTG + components STC1) <a class="btn small ghost" href="#/tax-setup">Tax setup &#8599;</a></div>
+        <div style="max-height:320px;overflow:auto"><table><thead><tr><th>Code</th><th>Name</th><th>Category</th><th class="num">Rate</th><th>Components</th></tr></thead><tbody>
+        ${L.tax_groups.map((t) => `<tr><td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td><td>${t.category === "O" ? "Output" : "Input"}</td><td class="num">${Number(t.rate)}%</td>
+          <td>${t.components.length ? t.components.map((x) => `${esc(x.sta_code)} ${Number(x.rate)}%`).join(" + ") : `<span class="mono">${esc(t.account)}</span>`}</td></tr>`).join("")}</tbody></table></div></div>
     </div>
     <div class="card"><div class="card-head">Payment terms (OCTG)</div><div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Due date based on</th><th>Start from</th><th class="num">Months</th><th class="num">Days</th>
       <th class="num">Tolerance</th><th class="num">Discount %</th><th>Price list</th><th class="num">Max. credit</th><th class="num">Commitment</th></tr></thead><tbody>
@@ -442,6 +449,8 @@ views.setup = async (c) => {
           <button class="btn secondary small" id="tc-add" style="margin-top:8px">Add</button></div></div>
     </div>`;
   const save = (sel, fn, msg) => ($(sel).onclick = async () => { if (await act(fn, msg)) reloadAll(); });
+  bindCountryState("co");
+  $("#co-state").value = state.company.state || "";
   save("#co-save", () => patch("/admin/company", readFields(COMPANY_FIELDS, "co")), "Company details updated");
   save("#rt-save", () => post("/admin/exchange-rates", readFields([{ k: "currency", type: "select" }, { k: "rate_date", type: "date" }, { k: "rate", type: "number" }], "rt")), "Rate saved");
   save("#pt-save", () => (termsEdit ? api(`/admin/payment-terms/${termsEdit.group_num}`, { method: "PUT", body: JSON.stringify(readFields(TERMS_FIELDS, "pt")) })

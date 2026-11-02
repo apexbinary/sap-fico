@@ -1,11 +1,14 @@
-"""Seed the demo company "Demo Trading Ltd" with a complete, postable B1 setup.
+"""Seed the demo company "Demo Trading India Pvt Ltd" with a complete, postable B1 setup.
 
-Creates company details (OADM), currencies and exchange rates, monthly posting
-periods 2025-2027, numbering series for every document type, tax groups,
-payment terms, a chart of accounts tree and the G/L account determination.
+An Indian company in Bengaluru (Karnataka) with INR as local currency and USD, EUR,
+GBP as foreign currencies: company details (OADM) with GSTIN and state, exchange
+rates, monthly posting periods 2025-2027, numbering series, GST tax codes made of
+CGST / SGST / IGST components (OVTG + STC1, tax authorities OSTA), payment terms,
+an Indian chart of accounts, the G/L account determination, business partners with
+GSTINs in several states, items with HSN / SAC codes and INR prices.
 
-Run:  python -m app.seed   (idempotent: master data is merged; runtime state such
-as next numbers in NNM1 is created once and never reset)
+Run:  python -m app.seed   (runs on every start: data users maintain is created once and
+never overwritten; reference data without an edit screen is merged)
 """
 
 from __future__ import annotations
@@ -16,52 +19,65 @@ from decimal import Decimal
 
 from app.database import SessionLocal, init_db
 from app.models.admin import (Company, Country, Currency, ExchangeRate, NumberingSeries, PaymentTerms, PostingPeriod,
-                              Project, SalesEmployee, State, TaxGroup, TransactionCode)
+                              Project, SalesEmployee, State, TaxAuthority, TaxComponent, TaxGroup, TransactionCode)
 from app.models.finance import Account, AccountDetermination
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
+
+LOCAL = "INR"
 
 # Chart of accounts: (code, name, drawer, parent, postable, ActType, control account, cash account)
 CHART = [
     ("1", "Assets", 1, None, "N", "N", "N", "N"),
     ("11", "Current Assets", 1, "1", "N", "N", "N", "N"),
-    ("111000", "Cash on Hand", 1, "11", "Y", "N", "N", "Y"),
-    ("112000", "Bank Account", 1, "11", "Y", "N", "N", "Y"),
-    ("114000", "Accounts Receivable", 1, "11", "Y", "N", "Y", "N"),
-    ("115000", "Inventory", 1, "11", "Y", "N", "N", "N"),
-    ("116000", "Input VAT", 1, "11", "Y", "N", "N", "N"),
-    ("117000", "Checks Received", 1, "11", "Y", "N", "N", "N"),
+    ("111000", "Cash-in-Hand", 1, "11", "Y", "N", "N", "Y"),
+    ("112000", "Bank Account - HDFC Bank", 1, "11", "Y", "N", "N", "Y"),
+    ("114000", "Sundry Debtors", 1, "11", "Y", "N", "Y", "N"),
+    ("115000", "Stock-in-Trade", 1, "11", "Y", "N", "N", "N"),
+    ("116000", "Input Tax (other)", 1, "11", "Y", "N", "N", "N"),
+    ("116100", "Input CGST", 1, "11", "Y", "N", "N", "N"),
+    ("116200", "Input SGST", 1, "11", "Y", "N", "N", "N"),
+    ("116300", "Input IGST", 1, "11", "Y", "N", "N", "N"),
+    ("117000", "Cheques Received", 1, "11", "Y", "N", "N", "N"),
     ("12", "Fixed Assets", 1, "1", "N", "N", "N", "N"),
     ("121000", "Office Equipment", 1, "12", "Y", "N", "N", "N"),
     ("2", "Liabilities", 2, None, "N", "N", "N", "N"),
     ("21", "Current Liabilities", 2, "2", "N", "N", "N", "N"),
-    ("211000", "Accounts Payable", 2, "21", "Y", "N", "Y", "N"),
+    ("211000", "Sundry Creditors", 2, "21", "Y", "N", "Y", "N"),
     ("212000", "Goods Received Not Invoiced", 2, "21", "Y", "N", "N", "N"),
-    ("216000", "Output VAT", 2, "21", "Y", "N", "N", "N"),
+    ("216000", "Output Tax (other)", 2, "21", "Y", "N", "N", "N"),
+    ("216100", "Output CGST", 2, "21", "Y", "N", "N", "N"),
+    ("216200", "Output SGST", 2, "21", "Y", "N", "N", "N"),
+    ("216300", "Output IGST", 2, "21", "Y", "N", "N", "N"),
     ("3", "Capital and Reserves", 3, None, "N", "N", "N", "N"),
-    ("31", "Equity", 3, "3", "N", "N", "N", "N"),
+    ("31", "Shareholders' Funds", 3, "3", "N", "N", "N", "N"),
     ("311000", "Share Capital", 3, "31", "Y", "N", "N", "N"),
-    ("312000", "Retained Earnings", 3, "31", "Y", "N", "N", "N"),
-    ("313000", "Opening Balances", 3, "31", "Y", "N", "N", "N"),
-    ("4", "Turnover", 4, None, "N", "I", "N", "N"),
+    ("312000", "Reserves and Surplus", 3, "31", "Y", "N", "N", "N"),
+    ("313000", "Opening Balance Difference", 3, "31", "Y", "N", "N", "N"),
+    ("4", "Revenue from Operations", 4, None, "N", "I", "N", "N"),
     ("41", "Sales", 4, "4", "N", "I", "N", "N"),
-    ("411000", "Sales Revenue", 4, "41", "Y", "I", "N", "N"),
-    ("412000", "Service Revenue", 4, "41", "Y", "I", "N", "N"),
+    ("411000", "Sales - Goods", 4, "41", "Y", "I", "N", "N"),
+    ("412000", "Sales - Services", 4, "41", "Y", "I", "N", "N"),
     ("5", "Cost of Sales", 5, None, "N", "E", "N", "N"),
     ("51", "Cost of Goods Sold", 5, "5", "N", "E", "N", "N"),
     ("511000", "Cost of Goods Sold", 5, "51", "Y", "E", "N", "N"),
-    ("512000", "Price Differences", 5, "51", "Y", "E", "N", "N"),
-    ("513000", "Inventory Adjustments", 5, "51", "Y", "E", "N", "N"),
-    ("6", "Operating Costs", 6, None, "N", "E", "N", "N"),
+    ("512000", "Purchase Price Variance", 5, "51", "Y", "E", "N", "N"),
+    ("513000", "Stock Adjustments", 5, "51", "Y", "E", "N", "N"),
+    ("6", "Operating Expenses", 6, None, "N", "E", "N", "N"),
     ("61", "Administrative Expenses", 6, "6", "N", "E", "N", "N"),
-    ("611000", "Office Supplies", 6, "61", "Y", "E", "N", "N"),
+    ("611000", "Office Expenses", 6, "61", "Y", "E", "N", "N"),
     ("612000", "Rent", 6, "61", "Y", "E", "N", "N"),
     ("613000", "Bank Charges", 6, "61", "Y", "E", "N", "N"),
-    ("7", "Non-Operating Income and Expenditure", 7, None, "N", "N", "N", "N"),
-    ("71", "Exchange Differences", 7, "7", "N", "N", "N", "N"),
-    ("711000", "Exchange Rate Gains", 7, "71", "Y", "I", "N", "N"),
-    ("712000", "Exchange Rate Losses", 7, "71", "Y", "E", "N", "N"),
+    ("7", "Other Income and Expenses", 7, None, "N", "N", "N", "N"),
+    ("71", "Foreign Exchange", 7, "7", "N", "N", "N", "N"),
+    ("711000", "Foreign Exchange Gain", 7, "71", "Y", "I", "N", "N"),
+    ("712000", "Foreign Exchange Loss", 7, "71", "Y", "E", "N", "N"),
 ]
+
+# GST tax authorities (OSTA): code, name, output account, input account
+TAX_AUTHORITIES = [("CGST", "Central GST", "216100", "116100"), ("SGST", "State GST", "216200", "116200"),
+                   ("IGST", "Integrated GST", "216300", "116300")]
+GST_RATES = ["5", "12", "18", "28"]
 
 # Object types with their document numbering start (NNM1)
 SERIES = {
@@ -87,6 +103,19 @@ SERIES = {
 }
 
 
+def _gst_tax_groups() -> list[tuple[str, str, str, Decimal, str, list[tuple[str, Decimal]]]]:
+    """(code, name, category, rate, account, components): OCS18 = output CGST 9 % + SGST 9 %, OIG18 = IGST 18 % ..."""
+    out = []
+    for cat, prefix, label, other in (("O", "O", "Output", "216000"), ("I", "I", "Input", "116000")):
+        for r in GST_RATES:
+            rate, half = Decimal(r), Decimal(r) / 2
+            out.append((f"{prefix}CS{r}", f"{label} GST {r}% (CGST {half.normalize()}% + SGST {half.normalize()}%)", cat,
+                        rate, other, [("CGST", half), ("SGST", half)]))
+            out.append((f"{prefix}IG{r}", f"{label} IGST {r}%", cat, rate, other, [("IGST", rate)]))
+        out.append((f"{prefix}NIL", f"{label} GST nil / exempt", cat, Decimal("0"), other, []))
+    return out
+
+
 def seed() -> None:
     init_db()
     s = SessionLocal()
@@ -106,21 +135,23 @@ def seed() -> None:
     try:
         for code, name in COUNTRIES:
             put(Country(code=code, name=name))
-        for country, code, name in STATES:
-            put(State(country=country, code=code, name=name))
-        put_new(Company(code=1, company_name="Demo Trading Ltd", main_curncy="EUR", sys_curncy="USD", country="DE",
-                        tax_id="DE123456789", address="Hauptstrasse 1, 69190 Walldorf", phone="+49 6227 0",
-                        e_mail="info@demo-trading.example", manager="Max Mustermann"), 1)
-        for code, name in [("EUR", "Euro"), ("USD", "US Dollar"), ("GBP", "Pound Sterling")]:
+        for country, code, name, gst in STATES:
+            put(State(country=country, code=code, name=name, gst_code=gst))
+        put_new(Company(code=1, company_name="Demo Trading India Pvt Ltd", main_curncy=LOCAL, sys_curncy="USD",
+                        country="IN", state="KA", tax_id="29AAACD1234E1Z5",
+                        address="42 MG Road, Bengaluru 560001, Karnataka", phone="+91 80 4000 1234",
+                        e_mail="accounts@demotrading.example.in", manager="Rahul Mehta"), 1)
+        for code, name in [(LOCAL, "Indian Rupee"), ("USD", "US Dollar"), ("EUR", "Euro"), ("GBP", "Pound Sterling")]:
             put(Currency(curr_code=code, curr_name=name, iso=code, decimals=2))
-        # Daily rates 2025-2027 (EUR per unit): USD drifts from 0.92 to 0.88, GBP 1.17.
+        # Daily rates 2025-2027 (INR per unit): USD 83.00 -> 86.00, EUR 90.50 -> 93.00, GBP 105.20.
         # Rates are user data: only created when the currency has none yet.
         if s.get(ExchangeRate, (date(2025, 1, 1), "USD")) is None:
             day = date(2025, 1, 1)
             while day <= date(2027, 12, 31):
-                usd = Decimal("0.92") - Decimal("0.04") * Decimal((day - date(2025, 1, 1)).days) / Decimal(1095)
-                s.add(ExchangeRate(rate_date=day, currency="USD", rate=usd.quantize(Decimal("0.0001"))))
-                s.add(ExchangeRate(rate_date=day, currency="GBP", rate=Decimal("1.17")))
+                share = Decimal((day - date(2025, 1, 1)).days) / Decimal(1095)
+                s.add(ExchangeRate(rate_date=day, currency="USD", rate=(Decimal("83") + 3 * share).quantize(Decimal("0.0001"))))
+                s.add(ExchangeRate(rate_date=day, currency="EUR", rate=(Decimal("90.5") + Decimal("2.5") * share).quantize(Decimal("0.0001"))))
+                s.add(ExchangeRate(rate_date=day, currency="GBP", rate=Decimal("105.2")))
                 day += timedelta(days=1)
             s.flush()
 
@@ -150,13 +181,12 @@ def seed() -> None:
                             levels=1 if parent is None else (2 if len(parent) == 1 else 3), postable=postable,
                             act_type=act_type, loc_man_tran=control, finanse=cash), code)
 
-        for code, name, category, rate, account in [
-            ("O1", "Output VAT 19%", "O", "19", "216000"), ("O2", "Output VAT 7%", "O", "7", "216000"),
-            ("O0", "Output VAT exempt", "O", "0", "216000"),
-            ("I1", "Input VAT 19%", "I", "19", "116000"), ("I2", "Input VAT 7%", "I", "7", "116000"),
-            ("I0", "Input VAT exempt", "I", "0", "116000"),
-        ]:
-            put(TaxGroup(code=code, name=name, category=category, rate=Decimal(rate), account=account))
+        for code, name, sales, purch in TAX_AUTHORITIES:
+            put(TaxAuthority(code=code, name=name, sales_tax=sales, purch_tax=purch))
+        for code, name, category, rate, account, comps in _gst_tax_groups():
+            put(TaxGroup(code=code, name=name, category=category, rate=rate, account=account))
+            for line, (authority, comp_rate) in enumerate(comps):
+                put(TaxComponent(stc_code=code, line=line, sta_code=authority, efctiv_rate=comp_rate))
         for num, name, start, months, days in [(-1, "Cash Basic", "N", 0, 0), (1, "Net 30", "N", 0, 30),
                                                (2, "Net 60", "N", 0, 60), (3, "End of next month", "E", 1, 0)]:
             put_new(PaymentTerms(group_num=num, pymnt_group=name, bsline_date="P", pay_du_month=start,
@@ -164,9 +194,9 @@ def seed() -> None:
         eom = s.get(PaymentTerms, 3)
         if eom.pymnt_group == "End of next month" and eom.pay_du_month == "N":  # before "start from" existed
             eom.pay_du_month = "E"
-        for code, name in [(-1, "-No Sales Employee-"), (1, "Jane Miller"), (2, "Tom Baker"), (3, "Lisa Wong")]:
+        for code, name in [(-1, "-No Sales Employee-"), (1, "Anita Desai"), (2, "Vikram Singh"), (3, "Neha Gupta")]:
             put_new(SalesEmployee(slp_code=code, slp_name=name, commission=Decimal("0"), active="Y"), code)
-        for code, name in [("P001", "Website relaunch"), ("P002", "Berlin outlet opening")]:
+        for code, name in [("P001", "Website relaunch"), ("P002", "Mumbai outlet opening")]:
             put_new(Project(prj_code=code, prj_name=name, active="Y"), code)
         for code, name in [("OB", "Opening balance"), ("AD", "Adjustment"), ("AC", "Accrual")]:
             put_new(TransactionCode(trns_code=code, trns_cod_dsc=name), code)
@@ -180,45 +210,59 @@ def seed() -> None:
                 opening_bal="313000", bank_charges="613000", checks_received="117000"))
         _seed_partners_and_items(s, put)
         s.commit()
-        print("Seed complete: Demo Trading Ltd (EUR), chart of accounts, periods 2025-2027, "
+        print("Seed complete: Demo Trading India Pvt Ltd (INR, GST), chart of accounts, periods 2025-2027, "
               "business partners, items and warehouses.")
     finally:
         s.close()
 
 
 # Business partners: (code, name, type, group, payment terms, price list, tax group, city, contact,
-#                     sales employee, street, zip, state, phone)
+#                     sales employee, street, zip, state, phone, GSTIN)
 PARTNERS = [
-    ("C10000", "Maxi Teq Retail GmbH", "C", 100, 1, 1, "O1", "Berlin", "Anna Schmidt", 1, "Friedrichstrasse 20", "10117", "BE", "+49 30 1234"),
-    ("C20000", "Earthshaker Corporation", "C", 100, 2, 2, "O1", "Hamburg", "Tom Becker", 2, "Jungfernstieg 4", "20354", "HH", "+49 40 5678"),
-    ("C30000", "Northwind Wholesale", "C", 101, 1, 2, "O1", "Munich", None, 1, "Leopoldstrasse 8", "80802", "BY", "+49 89 9012"),
-    ("V10000", "Acme Supplies AG", "S", 102, 1, 3, "I1", "Frankfurt", "Lena Fischer", 3, "Zeil 100", "60313", "HE", "+49 69 3456"),
-    ("V20000", "Office World Ltd", "S", 102, 3, 3, "I1", "Cologne", None, 3, "Hohe Strasse 50", "50667", "NW", "+49 221 7890"),
+    ("C10000", "Maxi Teq Retail Pvt Ltd", "C", 100, 1, 1, "OCS18", "Bengaluru", "Priya Sharma", 1,
+     "12 Residency Road", "560025", "KA", "+91 80 2222 1234", "29AABCM1234F1Z1"),
+    ("C20000", "Earthshaker Industries Ltd", "C", 100, 2, 2, "OCS18", "Mumbai", "Arjun Patel", 2,
+     "Nariman Point 7", "400021", "MH", "+91 22 6666 5678", "27AACCE5678G1Z3"),
+    ("C30000", "Northwind Wholesale", "C", 101, 1, 2, "OCS18", "Chennai", None, 1,
+     "Anna Salai 88", "600002", "TN", "+91 44 4444 9012", "33AADCN9012H1Z7"),
+    ("V10000", "Acme Supplies Pvt Ltd", "S", 102, 1, 3, "ICS18", "Bengaluru", "Kavita Rao", 3,
+     "Peenya Industrial Area 4", "560058", "KA", "+91 80 3333 3456", "29AAECA3456J1Z2"),
+    ("V20000", "Office World India", "S", 102, 3, 3, "ICS18", "New Delhi", None, 3,
+     "Connaught Place 21", "110001", "DL", "+91 11 5555 7890", "07AAFCO7890K1Z9"),
 ]
 
 # Items: (code, name, group, inventory item, unit, sales tax, purchase tax, base price, purchase price, vendor,
-#         manufacturer, bar code)
+#         manufacturer, bar code, HSN / SAC)
 ITEMS = [
-    ("A00001", "J.B. Officeprint 1420", 100, True, "Each", "O1", "I1", "400", "250", "V10000", 1, "4006381333931"),
-    ("A00002", "J.B. Officeprint 1111", 100, True, "Each", "O1", "I1", "300", "180", "V10000", 1, "4006381333948"),
-    ("A00003", "J.B. Officeprint 1186", 100, True, "Each", "O1", "I1", "500", "320", "V10000", 1, "4006381333955"),
-    ("A00004", "Rainbow Color Printer 7.5", 100, True, "Each", "O1", "I1", "650", "410", "V10000", 2, "4006381333962"),
-    ("C00001", "Toner cartridge black", 101, True, "Box", "O1", "I1", "45", "22", "V20000", -1, None),
-    ("C00002", "Paper A4, 500 sheets", 101, True, "Pack", "O2", "I2", "6", "3.5", "V20000", -1, None),
-    ("S00001", "Installation service (hour)", 102, False, "Hour", "O1", "I1", "90", None, None, -1, None),
+    ("A00001", "J.B. Officeprint 1420", 100, True, "Each", "OCS18", "ICS18", "35000", "22000", "V10000", 1, "8901234500011", "84433210"),
+    ("A00002", "J.B. Officeprint 1111", 100, True, "Each", "OCS18", "ICS18", "26000", "15500", "V10000", 1, "8901234500028", "84433210"),
+    ("A00003", "J.B. Officeprint 1186", 100, True, "Each", "OCS18", "ICS18", "42000", "27000", "V10000", 1, "8901234500035", "84433210"),
+    ("A00004", "Rainbow Color Printer 7.5", 100, True, "Each", "OCS18", "ICS18", "55000", "35000", "V10000", 2, "8901234500042", "84433100"),
+    ("C00001", "Toner cartridge black", 101, True, "Box", "OCS18", "ICS18", "3800", "1900", "V20000", -1, None, "84439951"),
+    ("C00002", "Paper A4, 500 sheets", 101, True, "Pack", "OCS12", "ICS12", "500", "300", "V20000", -1, None, "48025690"),
+    ("S00001", "Installation service (hour)", 102, False, "Hour", "OCS18", "ICS18", "1500", None, None, -1, None, "998713"),
 ]
 
 
-COUNTRIES = [("AT", "Austria"), ("BE", "Belgium"), ("CH", "Switzerland"), ("DE", "Germany"), ("DK", "Denmark"),
-             ("ES", "Spain"), ("FR", "France"), ("GB", "United Kingdom"), ("IN", "India"), ("IT", "Italy"),
-             ("NL", "Netherlands"), ("PL", "Poland"), ("SE", "Sweden"), ("US", "United States")]
-STATES = [("DE", code, name) for code, name in [
-    ("BW", "Baden-Wuerttemberg"), ("BY", "Bavaria"), ("BE", "Berlin"), ("BB", "Brandenburg"), ("HB", "Bremen"),
-    ("HH", "Hamburg"), ("HE", "Hesse"), ("MV", "Mecklenburg-Western Pomerania"), ("NI", "Lower Saxony"),
-    ("NW", "North Rhine-Westphalia"), ("RP", "Rhineland-Palatinate"), ("SL", "Saarland"), ("SN", "Saxony"),
-    ("ST", "Saxony-Anhalt"), ("SH", "Schleswig-Holstein"), ("TH", "Thuringia")]] + [
-    ("US", code, name) for code, name in [("CA", "California"), ("FL", "Florida"), ("IL", "Illinois"),
-                                          ("NY", "New York"), ("TX", "Texas"), ("WA", "Washington")]]
+COUNTRIES = [("AE", "United Arab Emirates"), ("AT", "Austria"), ("BE", "Belgium"), ("CH", "Switzerland"),
+             ("DE", "Germany"), ("ES", "Spain"), ("FR", "France"), ("GB", "United Kingdom"), ("IN", "India"),
+             ("IT", "Italy"), ("JP", "Japan"), ("NL", "Netherlands"), ("SG", "Singapore"), ("US", "United States")]
+# (country, state code, name, GST state code)
+STATES = [("IN", code, name, gst) for code, name, gst in [
+    ("JK", "Jammu and Kashmir", "01"), ("HP", "Himachal Pradesh", "02"), ("PB", "Punjab", "03"),
+    ("CH", "Chandigarh", "04"), ("UK", "Uttarakhand", "05"), ("HR", "Haryana", "06"), ("DL", "Delhi", "07"),
+    ("RJ", "Rajasthan", "08"), ("UP", "Uttar Pradesh", "09"), ("BR", "Bihar", "10"), ("SK", "Sikkim", "11"),
+    ("AR", "Arunachal Pradesh", "12"), ("NL", "Nagaland", "13"), ("MN", "Manipur", "14"), ("MZ", "Mizoram", "15"),
+    ("TR", "Tripura", "16"), ("ML", "Meghalaya", "17"), ("AS", "Assam", "18"), ("WB", "West Bengal", "19"),
+    ("JH", "Jharkhand", "20"), ("OD", "Odisha", "21"), ("CG", "Chhattisgarh", "22"), ("MP", "Madhya Pradesh", "23"),
+    ("GJ", "Gujarat", "24"), ("DN", "Dadra and Nagar Haveli and Daman and Diu", "26"), ("MH", "Maharashtra", "27"),
+    ("KA", "Karnataka", "29"), ("GA", "Goa", "30"), ("LD", "Lakshadweep", "31"), ("KL", "Kerala", "32"),
+    ("TN", "Tamil Nadu", "33"), ("PY", "Puducherry", "34"), ("AN", "Andaman and Nicobar Islands", "35"),
+    ("TS", "Telangana", "36"), ("AP", "Andhra Pradesh", "37"), ("LA", "Ladakh", "38")]] + [
+    ("US", code, name, None) for code, name in [("CA", "California"), ("FL", "Florida"), ("IL", "Illinois"),
+                                                ("NY", "New York"), ("TX", "Texas"), ("WA", "Washington")]] + [
+    ("DE", code, name, None) for code, name in [("BE", "Berlin"), ("BY", "Bavaria"), ("HH", "Hamburg"),
+                                                ("NW", "North Rhine-Westphalia")]]
 
 
 def _seed_partners_and_items(s, put) -> None:
@@ -227,13 +271,13 @@ def _seed_partners_and_items(s, put) -> None:
     # price lists: 1 base price, 2 wholesale = 90 % of base, 3 purchase price (own list)
     put_new = lambda obj, key: (s.add(obj), s.flush()) if s.get(type(obj), key) is None else None  # noqa: E731
     for num, name, base, factor in [(1, "Base Price", 1, "1"), (2, "Wholesale", 1, "0.9"), (3, "Purchase Price", 3, "1")]:
-        put_new(PriceList(list_num=num, list_name=name, base_num=base, factor=Decimal(factor), prim_curr="EUR",
+        put_new(PriceList(list_num=num, list_name=name, base_num=base, factor=Decimal(factor), prim_curr=LOCAL,
                           valid_for="Y"), num)
     for code, name, street, zip_code, city, state in [
-            ("01", "General Warehouse", "Industriestrasse 5", "69190", "Walldorf", "BW"),
-            ("02", "Outlet Berlin", "Unter den Linden 10", "10117", "Berlin", "BE")]:
+            ("01", "Bengaluru Main Warehouse", "Peenya Industrial Area, Phase 2", "560058", "Bengaluru", "KA"),
+            ("02", "Mumbai Outlet", "Andheri East, MIDC", "400093", "Mumbai", "MH")]:
         put_new(Warehouse(whs_code=code, whs_name=name, street=street, zip_code=zip_code, city=city, state=state,
-                          country="DE", drop_ship="N", nettable="Y", inactive="N"), code)
+                          country="IN", drop_ship="N", nettable="Y", inactive="N"), code)
     for code, name, inv, cogs, rev, exp in [(100, "Printers", "115000", "511000", "411000", "611000"),
                                              (101, "Supplies", "115000", "511000", "411000", "611000"),
                                              (102, "Services", "115000", "511000", "412000", "611000")]:
@@ -242,13 +286,14 @@ def _seed_partners_and_items(s, put) -> None:
 
     # partner balances, item stock and cost are runtime state: create only, never re-merge
     contact = 1
-    for code, name, kind, group, terms, plist, vat, city, person, slp, street, zip_code, state, phone in PARTNERS:
+    for (code, name, kind, group, terms, plist, vat, city, person, slp, street, zip_code, state, phone,
+         gstin) in PARTNERS:
         if s.get(BusinessPartner, code) is None:
             put(BusinessPartner(card_code=code, card_name=name, card_type=kind, group_code=group, currency="##",
                                 deb_pay_acct="211000" if kind == "S" else "114000", group_num=terms, list_num=plist,
-                                vat_group=vat, address=street, zip_code=zip_code, city=city, country="DE",
-                                cntct_prsn=person, slp_code=slp, phone1=phone,
-                                credit_line=Decimal("20000") if kind == "C" else Decimal("0"),
+                                vat_group=vat, address=street, zip_code=zip_code, city=city, country="IN",
+                                cntct_prsn=person, slp_code=slp, phone1=phone, lic_trad_num=gstin,
+                                credit_line=Decimal("500000") if kind == "C" else Decimal("0"),
                                 balance=Decimal("0"), dnotes_bal=Decimal("0"), orders_bal=Decimal("0"), frozen_for="N"))
             if person:
                 first, last = person.split(" ", 1)
@@ -256,23 +301,24 @@ def _seed_partners_and_items(s, put) -> None:
                                   position="Purchasing" if kind == "C" else "Sales", tel1=phone, active="Y"))
         contact += 1
         bp = s.get(BusinessPartner, code)
-        for adres_type in ("B", "S"):  # bill-to and ship-to addresses (CRD1), created once
+        for adres_type in ("B", "S"):  # bill-to and ship-to addresses (CRD1) with GSTIN, created once
             if s.get(PartnerAddress, (code, adres_type, "Main")) is None:
                 s.add(PartnerAddress(card_code=code, adres_type=adres_type, address="Main", street=street,
-                                     zip_code=zip_code, city=city, state=state, country="DE"))
+                                     zip_code=zip_code, city=city, state=state, country="IN", gst_regn_no=gstin,
+                                     gst_type="R"))
                 s.flush()
         bp.bill_to_def = bp.bill_to_def or "Main"
         bp.ship_to_def = bp.ship_to_def or "Main"
         if bp.slp_code is None:
             bp.slp_code = slp
-    for code, name, group, inv, uom, vat_sa, vat_pu, price, pur, vendor, firm, bars in ITEMS:
+    for code, name, group, inv, uom, vat_sa, vat_pu, price, pur, vendor, firm, bars, hsn in ITEMS:
         if s.get(Item, code) is None:
             put(Item(item_code=code, item_name=name, itms_grp_cod=group, invnt_item="Y" if inv else "N",
                      sell_item="Y", prchse_item="Y" if inv else "N", eval_system="A", gl_method="C", invntry_uom=uom,
                      vat_gourp_sa=vat_sa, vat_group_pu=vat_pu, dflt_wh="01" if inv else None, card_code=vendor,
                      min_level=Decimal("5") if inv else Decimal("0"), on_hand=Decimal("0"), is_commited=Decimal("0"),
                      on_order=Decimal("0"), avg_price=Decimal("0"), stock_value=Decimal("0"), last_pur_prc=Decimal("0"),
-                     frozen_for="N", item_type="I" if inv else "L", firm_code=firm, code_bars=bars,
+                     frozen_for="N", item_type="I" if inv else "L", firm_code=firm, code_bars=bars, chapter_id=hsn,
                      buy_unit_msr=uom, sal_unit_msr=uom, max_level=Decimal("50") if inv else Decimal("0"),
                      reorder_qty=Decimal("10") if inv else Decimal("0"), lead_time=7 if inv else None))
         if inv:
@@ -281,7 +327,7 @@ def _seed_partners_and_items(s, put) -> None:
                     put(ItemWarehouse(item_code=code, whs_code=whs))
         for plist, amount in [(1, price), (3, pur)]:  # prices are maintained by users: create only
             if amount and s.get(ItemPrice, (code, plist)) is None:
-                put(ItemPrice(item_code=code, price_list=plist, price=Decimal(amount), currency="EUR"))
+                put(ItemPrice(item_code=code, price_list=plist, price=Decimal(amount), currency=LOCAL))
 
 
 if __name__ == "__main__":

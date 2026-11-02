@@ -84,7 +84,7 @@ def main() -> None:
 
         # 3) document defaults from the business partner
         bp = s.get(BusinessPartner, "C10000")
-        anna = s.query(ContactPerson).filter_by(card_code="C10000", name="Anna Schmidt").one()
+        anna = s.query(ContactPerson).filter_by(card_code="C10000", name="Priya Sharma").one()
         old_discount, bp.discount = bp.discount, D("5")
         s.commit()
         inv = docs.create_document(s, DR(obj="13", doc_date=DAY, card_code="C10000", lines=[
@@ -94,10 +94,10 @@ def main() -> None:
               f"'{inv.address}', ship-to '{inv.address2}', discount {inv.disc_prcnt}%, line delivery {line.ship_date}, "
               f"gross price {line.price_af_vat}")
         assert inv.slp_code == bp.slp_code and inv.cntct_code == anna.cntct_code
-        assert inv.pay_to_code == "Main" and inv.ship_to_code == "Main" and "Berlin" in inv.address2
+        assert inv.pay_to_code == "Main" and inv.ship_to_code == "Main" and "Bengaluru" in inv.address2
         assert inv.disc_prcnt == D("5") and inv.series == 1 and line.ship_date == inv.doc_due_date
-        assert line.free_txt == "On site" and line.project == "P002" and line.price_af_vat == D("107.100000")
-        assert inv.doc_total == D("203.49"), "2 x 90 = 180, -5 % = 171, +19 % VAT"
+        assert line.free_txt == "On site" and line.project == "P002" and line.price_af_vat == D("1770.000000")
+        assert inv.doc_total == D("3363.00"), "2 x 1500 = 3000, -5 % = 2850, + CGST 9 % + SGST 9 %"
         bp.discount = old_discount
         s.commit()
         other = s.query(ContactPerson).filter(ContactPerson.card_code != "C10000").first()

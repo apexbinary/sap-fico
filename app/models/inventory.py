@@ -51,6 +51,7 @@ class Item(Base):
     frgn_name: Mapped[str | None] = mapped_column("FrgnName", String(100))  # Foreign name
     item_type: Mapped[str] = mapped_column("ItemType", String(1), default="I", server_default="I")  # I items, L labor, T travel
     code_bars: Mapped[str | None] = mapped_column("CodeBars", String(254))  # Bar code
+    chapter_id: Mapped[str | None] = mapped_column("ChapterID", String(20))  # India: HSN (goods) / SAC (services) code
     firm_code: Mapped[int | None] = mapped_column("FirmCode")  # Manufacturer (OMRC)
     supp_cat_num: Mapped[str | None] = mapped_column("SuppCatNum", String(50))  # Mfr catalog no.
     buy_unit_msr: Mapped[str | None] = mapped_column("BuyUnitMsr", String(100))  # Purchasing UoM

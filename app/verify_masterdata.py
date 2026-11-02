@@ -38,7 +38,7 @@ def main() -> None:
         if s.get(BusinessPartner, "CVERIFY") is None:
             masterdata.create_partner(s, masterdata.PartnerRequest(
                 card_code="cverify", card_name="Verify Customer", card_type="C", group_code=100, group_num=1,
-                list_num=2, vat_group="O1"))
+                list_num=2, vat_group="OCS18"))
         bp = s.get(BusinessPartner, "CVERIFY")
         assert bp.deb_pay_acct == "114000", "customer defaults to the A/R control account"
         print(f"1 Customer {bp.card_code} posts to control account {bp.deb_pay_acct}")
@@ -49,7 +49,7 @@ def main() -> None:
         _rejects(lambda: masterdata.create_partner(s, masterdata.PartnerRequest(
             card_code="XBAD2", card_name="x", card_type="S", group_code=100)), "customer group for a vendor")
         _rejects(lambda: masterdata.create_partner(s, masterdata.PartnerRequest(
-            card_code="XBAD3", card_name="x", card_type="S", vat_group="O1")), "output tax group for a vendor")
+            card_code="XBAD3", card_name="x", card_type="S", vat_group="OCS18")), "output tax group for a vendor")
 
         # 2) journal entry with a business partner line: control account, BP balance, open amount
         ar_before, bal_before = s.get(Account, "114000").curr_total, bp.balance
@@ -83,7 +83,7 @@ def main() -> None:
         if s.get(ItemWarehouse, (code, "01")) is None:
             masterdata.create_item(s, masterdata.ItemRequest(
                 item_code=code, item_name="Verify item", itms_grp_cod=100, invntry_uom="Each",
-                vat_gourp_sa="O1", vat_group_pu="I1", dflt_wh="01", prices={1: D("200"), 3: D("120")}))
+                vat_gourp_sa="OCS18", vat_group_pu="ICS18", dflt_wh="01", prices={1: D("200"), 3: D("120")}))
         whs = set(s.scalars(select(Warehouse.whs_code)))
         stock = set(s.scalars(select(ItemWarehouse.whs_code).where(ItemWarehouse.item_code == code)))
         assert stock == whs, f"stock rows {stock} != warehouses {whs}"
@@ -92,7 +92,7 @@ def main() -> None:
         assert (base, wholesale, purchase) == (D("200.00"), D("180.00"), D("120.00"))
         assert masterdata.partner_price(s, "CVERIFY", code) == D("180.00"), "partner uses its price list"
         _rejects(lambda: masterdata.create_item(s, masterdata.ItemRequest(
-            item_code="XBAD", item_name="x", itms_grp_cod=100, vat_gourp_sa="I1")), "input tax group as sales tax")
+            item_code="XBAD", item_name="x", itms_grp_cod=100, vat_gourp_sa="ICS18")), "input tax group as sales tax")
         _rejects(lambda: masterdata.create_item(s, masterdata.ItemRequest(
             item_code="XBAD", item_name="x", itms_grp_cod=100, card_code="CVERIFY")), "customer as preferred vendor")
         print("\nOK - business partners post through their control accounts; items, warehouses and prices are consistent.")

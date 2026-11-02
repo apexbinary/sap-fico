@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Numeric, String
+from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -38,6 +38,7 @@ class Company(Base):
     main_curncy: Mapped[str] = mapped_column("MainCurncy", String(3))  # Local currency
     sys_curncy: Mapped[str] = mapped_column("SysCurrncy", String(3))  # System currency
     country: Mapped[str | None] = mapped_column("Country", String(3))  # Country
+    state: Mapped[str | None] = mapped_column("State", String(3))  # State (GST: place of business)
     tax_id: Mapped[str | None] = mapped_column("TaxIdNum", String(32))  # Federal tax ID
     address: Mapped[str | None] = mapped_column("CompnyAddr", String(254))  # Address
     phone: Mapped[str | None] = mapped_column("Phone1", String(20))  # Telephone
@@ -149,6 +150,29 @@ class State(Base):
     country: Mapped[str] = mapped_column("Country", String(3), primary_key=True)
     code: Mapped[str] = mapped_column("Code", String(3), primary_key=True)
     name: Mapped[str] = mapped_column("Name", String(100))
+    gst_code: Mapped[str | None] = mapped_column("GSTCode", String(2))  # India: GST state code (first digits of the GSTIN)
+
+
+class TaxAuthority(Base):
+    """OSTA — Tax authority / tax type of a component (India: CGST, SGST, IGST) with its accounts."""
+
+    __tablename__ = "osta"
+
+    code: Mapped[str] = mapped_column("Code", String(8), primary_key=True)
+    name: Mapped[str] = mapped_column("Name", String(50))
+    sales_tax: Mapped[str] = mapped_column("SalesTax", String(15))  # Output tax account
+    purch_tax: Mapped[str] = mapped_column("PurchTax", String(15))  # Input tax account
+
+
+class TaxComponent(Base):
+    """STC1 — Component of a tax code: tax authority and its rate (CGST 9 % + SGST 9 % = 18 %)."""
+
+    __tablename__ = "stc1"
+
+    stc_code: Mapped[str] = mapped_column("STCCode", String(8), ForeignKey("ovtg.Code"), primary_key=True)  # Tax code
+    line: Mapped[int] = mapped_column("Line", primary_key=True)
+    sta_code: Mapped[str] = mapped_column("STACode", String(8), ForeignKey("osta.Code"))  # Tax authority
+    efctiv_rate: Mapped[Decimal] = mapped_column("EfctivRate", Numeric(19, 6))  # Component rate %
 
 
 class SalesEmployee(Base):

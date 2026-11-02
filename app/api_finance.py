@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.database import get_session
 from app.models.admin import Currency, ExchangeRate, PaymentTerms, PostingPeriod, TaxGroup
 from app.models.finance import DRAWERS, Account, JournalEntry
-from app.services import journal, reports
+from app.services import journal, reports, tax
 from app.services.admin import B1Error, company
 
 router = APIRouter()
@@ -40,7 +40,7 @@ def run(fn):
 # ------------------------------------------------------------- administration
 def _company_out(c) -> dict:
     return {"company_name": c.company_name, "main_curncy": c.main_curncy, "sys_curncy": c.sys_curncy,
-            "country": c.country, "tax_id": c.tax_id, "address": c.address, "phone": c.phone, "phone2": c.phone2,
+            "country": c.country, "state": c.state, "tax_id": c.tax_id, "address": c.address, "phone": c.phone, "phone2": c.phone2,
             "fax": c.fax, "e_mail": c.e_mail, "manager": c.manager}
 
 
@@ -52,6 +52,7 @@ def get_company(s: Session = Depends(get_session)) -> dict:
 class CompanyIn(BaseModel):
     company_name: str | None = Field(None, max_length=100)
     country: str | None = Field(None, max_length=3)
+    state: str | None = Field(None, max_length=3)
     tax_id: str | None = Field(None, max_length=32)
     address: str | None = Field(None, max_length=254)
     phone: str | None = Field(None, max_length=20)
@@ -67,7 +68,7 @@ def update_company(body: CompanyIn, s: Session = Depends(get_session)) -> dict:
 
     c = run(lambda: company(s))
     data = body.model_dump(exclude_unset=True)
-    run(lambda: check_country(s, data.get("country")))
+    run(lambda: check_country(s, data.get("country", c.country), data.get("state")))
     apply_changes(c, data)
     s.commit()
     return _company_out(c)
@@ -77,8 +78,10 @@ def update_company(body: CompanyIn, s: Session = Depends(get_session)) -> dict:
 def lookups(s: Session = Depends(get_session)) -> dict:
     return {
         "currencies": [{"code": c.curr_code, "name": c.curr_name} for c in s.scalars(select(Currency))],
-        "tax_groups": [{"code": t.code, "name": t.name, "category": t.category, "rate": t.rate, "account": t.account}
-                       for t in s.scalars(select(TaxGroup).order_by(TaxGroup.code))],
+        "tax_groups": [{"code": t.code, "name": t.name, "category": t.category, "rate": t.rate, "account": t.account,
+                        "inactive": t.inactive, "gst": tax.gst_kind(s, t),
+                        "components": [{"sta_code": a.code, "rate": r} for a, r in tax.components(s, t)]}
+                       for t in s.scalars(select(TaxGroup).order_by(TaxGroup.category.desc(), TaxGroup.rate, TaxGroup.code))],
         "payment_terms": [_terms_out(p) for p in s.scalars(select(PaymentTerms).order_by(PaymentTerms.group_num))],
     }
 
@@ -348,6 +351,11 @@ def trial_balance(date_from: date, date_to: date, s: Session = Depends(get_sessi
 @router.get("/reports/profit-and-loss", tags=["Financial reports"])
 def profit_and_loss(date_from: date, date_to: date, s: Session = Depends(get_session)) -> dict:
     return reports.profit_and_loss(s, date_from, date_to)
+
+
+@router.get("/reports/tax", tags=["Financial reports"], summary="Tax report: output and input tax by component (GST summary)")
+def tax_report(date_from: date, date_to: date, s: Session = Depends(get_session)) -> dict:
+    return reports.tax_report(s, date_from, date_to)
 
 
 @router.get("/reports/balance-sheet", tags=["Financial reports"])

@@ -39,7 +39,7 @@ from app.models.finance import Account, AccountDetermination, JournalLine
 from app.models.inventory import Item, ItemGroup, ItemWarehouse, Warehouse
 from app.models.partners import BusinessPartner
 from app.models.admin import TaxGroup
-from app.services import journal, masterdata
+from app.services import journal, masterdata, tax
 from app.services.admin import (B1Error, check_project, check_sales_employee, company, default_series, due_date,
                                 exchange_rate, next_number, posting_period)
 from app.services.journal import JournalLineRequest, JournalRequest
@@ -326,6 +326,7 @@ def _create(session: Session, req: DocumentRequest):
         raise B1Error(f"Documents of {bp.card_code} are in {bp.currency} or {main}")
     rate = exchange_rate(session, cur, req.doc_date)  # 1 for the local currency; error if no rate
     fc = cur != main
+    supply = tax.supply_kind(session, d.side, bp, header) if d.side != "I" else None  # GST place of supply
     if not (0 <= hdisc < 100):
         raise B1Error("The document discount must be between 0 and 100 %")
 
@@ -388,6 +389,9 @@ def _create(session: Session, req: DocumentRequest):
             vat_code = (item.vat_gourp_sa if d.side == "S" else item.vat_group_pu) if item else None
             vat_code = vat_code or bp.vat_group
         tg = _tax(session, d, vat_code)
+        kind = tax.gst_kind(session, tg)
+        if kind and supply and kind != supply:  # intra- vs inter-state GST: the matching code of the same rate
+            tg = tax.matching_gst_group(session, tg, supply) or tg
         whs = None
         if item is not None and item.invnt_item == "Y":
             whs = lr.whs_code or (base_line.whs_code if base_line else None) or req.to_whs or item.dflt_wh
@@ -407,10 +411,12 @@ def _create(session: Session, req: DocumentRequest):
     for x in lines:  # amounts in the document currency (_fc), then in local currency at the document rate
         x["line_total_fc"] = x["line_total"]
         x["net_fc"] = money(x["line_total_fc"] * (1 - hdisc / 100))
-        x["vat_fc"] = money(x["net_fc"] * (x["tg"].rate if x["tg"] else 0) / 100)
+        comps = tax.split(session, x["tg"], x["net_fc"])  # each tax component rounded on its own
+        x["vat_fc"] = sum((amount for _, amount, _ in comps), ZERO)
+        x["vat_comps"] = [(account, money(amount * rate)) for account, amount, _ in comps]
         x["line_total"] = money(x["line_total_fc"] * rate)
         x["net"] = money(x["net_fc"] * rate)
-        x["vat"] = money(x["vat_fc"] * rate)
+        x["vat"] = sum((amount for _, amount in x["vat_comps"]), ZERO)
     total_before = sum((x["line_total"] for x in lines), ZERO)
     net_total = sum((x["net"] for x in lines), ZERO)
     vat_total = sum((x["vat"] for x in lines), ZERO)
@@ -530,8 +536,9 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
 
     if d.side in {"S", "P"} and d.kind in {"invoice", "credit"} and x["vat"]:
         sign = -1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit")} else 1
-        ctx.vat[x["tg"].account] += sign * x["vat"]
-        ctx.vat_groups[x["tg"].account] = x["tg"].code
+        for account, amount in x["vat_comps"]:
+            ctx.vat[account] += sign * amount
+            ctx.vat_groups[account] = x["tg"].code
 
     if d.side == "S":
         revenue = group.revenues_ac if group else line.acct_code

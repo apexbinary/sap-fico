@@ -19,7 +19,8 @@ const patch = (path, body) => api(path, { method: "PATCH", body: JSON.stringify(
 const opt = (v, label, sel) => `<option value="${esc(v)}"${String(v) === String(sel) ? " selected" : ""}>${esc(label)}</option>`;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
-const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n) => Number(n || 0).toLocaleString(state.company && state.company.main_curncy === "INR" ? "en-IN" : undefined,
+  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
 const query = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function toast(msg, kind = "") {
@@ -739,6 +740,25 @@ views["balance-sheet"] = async (c) => {
         `<tr><td style="padding-left:14px">Profit of previous years</td><td></td><td class="num">${fmt(bs.retained_profit)}</td></tr>
          <tr><td style="padding-left:14px">Profit for the period</td><td></td><td class="num">${fmt(bs.current_profit)}</td></tr>`, bs.total_capital)}</div></div>`;
   bindToolbar("balance-sheet", true);
+};
+
+views["tax-report"] = async (c) => {
+  const from = query().get("from") || yearStart(), to = query().get("to") || yearEnd();
+  const r = await api(`/reports/tax?date_from=${from}&date_to=${to}`);
+  c.innerHTML = `<div class="page-head"><div><h1>Tax Report (GST)</h1><div class="sub">${from} – ${to} · output and input tax by component</div></div></div>
+    ${periodToolbar(from, to)}
+    <div class="tiles"><div class="tile"><div class="label">Output tax</div><div class="value">${fmt(r.total_output)}</div></div>
+      <div class="tile"><div class="label">Input tax credit</div><div class="value">${fmt(r.total_input)}</div></div>
+      <div class="tile"><div class="label">Net tax payable</div><div class="value ${Number(r.net_payable) > 0 ? "bad" : "good"}">${fmt(r.net_payable)}</div></div></div>
+    <div class="card"><div class="card-head">Summary by component</div><table><thead><tr><th>Component</th><th class="num">Output tax</th><th class="num">Input tax credit</th><th class="num">Net payable</th></tr></thead>
+      <tbody>${r.summary.map((x) => `<tr><td>${esc(x.component)}</td><td class="num">${fmt(x.output)}</td><td class="num">${fmt(x.input)}</td><td class="num">${fmt(x.net_payable)}</td></tr>`).join("")
+        || `<tr><td colspan="4" class="empty">No tax postings in this period.</td></tr>`}</tbody>
+      <tfoot><tr><td>Total</td><td class="num">${fmt(r.total_output)}</td><td class="num">${fmt(r.total_input)}</td><td class="num">${fmt(r.net_payable)}</td></tr></tfoot></table></div>
+    <div class="card"><div class="card-head">By tax code</div><table><thead><tr><th>Tax code</th><th>Name</th><th>Component</th><th>G/L account</th><th class="num">Output</th><th class="num">Input</th></tr></thead>
+      <tbody>${r.lines.map((x) => `<tr><td class="mono">${esc(x.tax_code)}</td><td>${esc(x.tax_name)}</td><td>${esc(x.component)}</td><td class="mono">${esc(x.account)}</td>
+        <td class="num">${Number(x.output) ? fmt(x.output) : ""}</td><td class="num">${Number(x.input) ? fmt(x.input) : ""}</td></tr>`).join("")
+        || `<tr><td colspan="6" class="empty">No tax postings in this period.</td></tr>`}</tbody></table></div>`;
+  bindToolbar("tax-report");
 };
 
 views["profit-loss"] = async (c) => {

@@ -44,6 +44,24 @@ def check_country(session: Session, country: str | None, state: str | None = Non
             raise B1Error(f"State {state} does not exist in country {country or '-'}")
 
 
+GSTIN_FORMAT = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
+
+
+def check_gstin(session: Session, gstin: str | None, state: str | None) -> None:
+    """India: a GSTIN has 15 characters and starts with the GST code of the address state."""
+    import re
+
+    from app.models.admin import State
+
+    if not gstin:
+        return
+    if not re.match(GSTIN_FORMAT, gstin):
+        raise B1Error(f"GSTIN {gstin} is not valid (15 characters: state code, PAN, entity, Z, check digit)")
+    st = session.get(State, ("IN", state)) if state else None
+    if st is not None and st.gst_code and gstin[:2] != st.gst_code:
+        raise B1Error(f"GSTIN {gstin} does not belong to {st.name} (state code {st.gst_code})")
+
+
 # ------------------------------------------------------------- business partners
 @dataclass
 class PartnerRequest:
@@ -155,6 +173,7 @@ def save_address(session: Session, card_code: str, adres_type: str, address: str
     if adres_type not in {"B", "S"} or not address.strip():
         raise B1Error("An address needs a type (B bill-to, S ship-to) and an address ID")
     check_country(session, data.get("country"), data.get("state"))
+    check_gstin(session, data.get("gst_regn_no"), data.get("state") if data.get("country") == "IN" else None)
     session.merge(PartnerAddress(card_code=card_code, adres_type=adres_type, address=address.strip(), **data))
     if adres_type == "B" and (make_default or not bp.bill_to_def):
         bp.bill_to_def = address.strip()
@@ -182,6 +201,7 @@ class ItemRequest:
     frgn_name: str | None = None
     item_type: str = "I"  # I items, L labor, T travel
     code_bars: str | None = None
+    chapter_id: str | None = None  # HSN / SAC
     firm_code: int | None = None
     supp_cat_num: str | None = None
     buy_unit_msr: str | None = None
@@ -195,7 +215,7 @@ class ItemRequest:
     user_text: str | None = None
 
 
-ITEM_FIELDS = ["frgn_name", "item_type", "code_bars", "firm_code", "supp_cat_num", "buy_unit_msr", "num_in_buy",
+ITEM_FIELDS = ["frgn_name", "item_type", "code_bars", "chapter_id", "firm_code", "supp_cat_num", "buy_unit_msr", "num_in_buy",
                "sal_unit_msr", "num_in_sale", "max_level", "reorder_qty", "lead_time", "min_ordr_qty", "user_text",
                "invntry_uom", "vat_gourp_sa", "vat_group_pu", "dflt_wh", "card_code", "min_level", "item_name"]
 

@@ -107,3 +107,43 @@ def balance_sheet(session: Session, as_of: date, fiscal_year_start: date) -> dic
 
 def _balance_map(session: Session, date_from: date | None, date_to: date) -> dict[str, Decimal]:
     return {k: d - c for k, (d, c) in _balances(session, date_from, date_to).items()}
+
+
+def tax_report(session: Session, date_from: date, date_to: date) -> dict:
+    """Output and input tax of a period by tax code and component (India: GST summary for GSTR-3B).
+
+    Taken from the tax lines of the journal (JDT1 with a tax group): output tax is the credit
+    balance of the tax authorities' output accounts, input tax the debit balance of their input
+    accounts; net payable = output - input per component.
+    """
+    from app.models.admin import TaxAuthority, TaxGroup
+    from app.models.finance import JournalLine
+
+    authorities = session.scalars(select(TaxAuthority)).all()
+    by_account = {a.sales_tax: (a.code, "output") for a in authorities}
+    by_account.update({a.purch_tax: (a.code, "input") for a in authorities})
+    rows: dict[tuple, dict] = {}
+    for l in session.scalars(select(JournalLine).where(JournalLine.vat_group.is_not(None),
+                                                       JournalLine.ref_date >= date_from, JournalLine.ref_date <= date_to)):
+        tg = session.get(TaxGroup, l.vat_group)
+        component, kind = by_account.get(l.account, (l.vat_group, "output" if tg and tg.category == "O" else "input"))
+        key = (l.vat_group, component)
+        row = rows.setdefault(key, {"tax_code": l.vat_group, "tax_name": tg.name if tg else "", "component": component,
+                                    "account": l.account, "output": Decimal("0"), "input": Decimal("0")})
+        if kind == "output":
+            row["output"] += l.credit - l.debit
+        else:
+            row["input"] += l.debit - l.credit
+    lines = sorted(rows.values(), key=lambda r: (r["tax_code"], r["component"]))
+    totals: dict[str, dict] = {}
+    for r in lines:
+        tot = totals.setdefault(r["component"], {"component": r["component"], "output": Decimal("0"), "input": Decimal("0")})
+        tot["output"] += r["output"]
+        tot["input"] += r["input"]
+    for tot in totals.values():
+        tot["net_payable"] = tot["output"] - tot["input"]
+    summary = sorted(totals.values(), key=lambda r: r["component"])
+    return {"date_from": date_from, "date_to": date_to, "lines": lines, "summary": summary,
+            "total_output": sum((r["output"] for r in summary), Decimal("0")),
+            "total_input": sum((r["input"] for r in summary), Decimal("0")),
+            "net_payable": sum((r["net_payable"] for r in summary), Decimal("0"))}

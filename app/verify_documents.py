@@ -50,7 +50,7 @@ def main() -> None:
         n = (s.scalar(select(func.count()).select_from(Item)) or 0) + 1
         code = f"VDOC{n:04d}"
         masterdata.create_item(s, masterdata.ItemRequest(item_code=code, item_name="Verify printer", itms_grp_cod=100,
-                                                         vat_gourp_sa="O1", vat_group_pu="I1", dflt_wh="01",
+                                                         vat_gourp_sa="OCS18", vat_group_pu="ICS18", dflt_wh="01",
                                                          prices={1: D("400"), 3: D("250")}))
         item = lambda: s.get(Item, code)  # noqa: E731
         inv_acct = lambda: s.get(Account, "115000").curr_total  # noqa: E731
@@ -68,8 +68,8 @@ def main() -> None:
         ap = docs.create_document(s, R(obj="18", doc_date=DAY, card_code="V10000", lines=_copy(grpo, price=D("260"))))
         print(f"1 PO {po.doc_num} -> GRPO {grpo.doc_num} -> A/P invoice {ap.doc_num} total {ap.doc_total}; "
               f"item cost {item().avg_price}")
-        assert ap.doc_total == D("3094.00") and grni() == grni0 and item().avg_price == D("260")
-        assert vendor.balance == vbal0 - D("3094") and grpo.doc_status == "C"
+        assert ap.doc_total == D("3068.00") and grni() == grni0 and item().avg_price == D("260")
+        assert vendor.balance == vbal0 - D("3068") and grpo.doc_status == "C"
 
         # 2) a GRPO without a base: moving average (10 x 260 + 5 x 280) / 15
         docs.create_document(s, R(obj="20", doc_date=DAY, card_code="V10000", lines=[L(item_code=code, quantity=D(5), price=D(280))]))
@@ -82,19 +82,19 @@ def main() -> None:
         assert qt.doc_status == "C" and item().is_commited == 4 and so.lines[0].price == D("400")
         dn = docs.create_document(s, R(obj="15", doc_date=DAY, card_code="C10000", lines=_copy(so, qty=D(3))))
         assert item().is_commited == 1 and so.lines[0].open_qty == 1 and item().on_hand == 12
-        assert dn.lines[0].stock_price == D("266.666667") and customer.dnotes_bal == dnotes0 + D("1428.00")
+        assert dn.lines[0].stock_price == D("266.666667") and customer.dnotes_bal == dnotes0 + D("1416.00")
         inv = docs.create_document(s, R(obj="13", doc_date=DAY, card_code="C10000", lines=_copy(dn) + _copy(so)))
         print(f"3 Quotation {qt.doc_num} -> order {so.doc_num} -> delivery {dn.doc_num} -> A/R invoice {inv.doc_num} "
               f"total {inv.doc_total}; on hand {item().on_hand.normalize()}, committed {item().is_commited.normalize()}")
-        assert inv.doc_total == D("1904.00") and so.doc_status == "C" and dn.doc_status == "C"
+        assert inv.doc_total == D("1888.00") and so.doc_status == "C" and dn.doc_status == "C"
         assert item().on_hand == 11 and item().is_commited == 0 and customer.dnotes_bal == dnotes0
-        assert customer.balance == cbal0 + D("1904")
+        assert customer.balance == cbal0 + D("1888")
 
         # 4) credit memo from the invoice (1 unit): stock back at invoice cost, invoice reconciled
         cm = docs.create_document(s, R(obj="14", doc_date=DAY, card_code="C10000", lines=_copy(inv, qty=D(1))[:1]))
         print(f"4 Credit memo {cm.doc_num} {cm.doc_total}: invoice paid to date {inv.paid_to_date}, BP balance {customer.balance}")
-        assert cm.doc_total == D("476.00") and inv.paid_to_date == D("476.00") and item().on_hand == 12
-        assert customer.balance == cbal0 + D("1428")
+        assert cm.doc_total == D("472.00") and inv.paid_to_date == D("472.00") and item().on_hand == 12
+        assert customer.balance == cbal0 + D("1416")
         _rejects(lambda: docs.cancel_document(s, "13", inv.doc_entry), "invoice has a credit memo")
 
         # 5) delivery 2 -> return 1 at the delivery cost
@@ -108,7 +108,7 @@ def main() -> None:
         gr = docs.create_document(s, R(obj="21", doc_date=DAY, card_code="V10000", lines=_copy(grpo3)))
         apc = docs.create_document(s, R(obj="19", doc_date=DAY, card_code="V10000", lines=_copy(gr)))
         print(f"6 GRPO {grpo3.doc_num} -> goods return {gr.doc_num} -> A/P credit memo {apc.doc_num} {apc.doc_total}")
-        assert apc.doc_total == D("642.60") and gr.doc_status == "C"
+        assert apc.doc_total == D("637.20") and gr.doc_status == "C"
 
         # 7) inventory documents: goods receipt, goods issue, transfer 01 -> 02
         before = item().on_hand
@@ -139,8 +139,8 @@ def main() -> None:
 
         # 10) service document: A/R invoice on a G/L account
         sv = docs.create_document(s, R(obj="13", doc_date=DAY, card_code="C20000", doc_type="S", lines=[
-            L(dscription="Consulting", acct_code="412000", price=D(1000), vat_group="O1")]))
-        assert sv.doc_total == D("1190.00")
+            L(dscription="Consulting", acct_code="412000", price=D(1000), vat_group="OCS18")]))
+        assert sv.doc_total == D("1180.00")  # inter-state: IGST 18 %
 
         # invariants
         s.flush()

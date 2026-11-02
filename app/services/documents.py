@@ -767,6 +767,8 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
         raise B1Error(f"{d.name} {doc.doc_num} is already canceled")
     if d.side != "I" and any(l.open_qty < l.quantity for l in doc.lines):
         raise B1Error(f"{d.name} {doc.doc_num} was copied to a target document; cancel that document first")
+    if doc.trans_id and _paid_by_payment(session, doc.trans_id):
+        raise B1Error(f"{d.name} {doc.doc_num} is used in a payment; cancel the payment first")
     if d.kind == "credit":
         _unreconcile(session, d, doc)
     elif doc.paid_to_date:
@@ -814,6 +816,16 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
         refresh_partner(session, session.get(BusinessPartner, doc.card_code))
     session.flush()
     return doc
+
+
+def _paid_by_payment(session: Session, trans_id: int) -> bool:
+    from app.models.banking import PAYMENT_CLASSES
+
+    for header_cls, _, inv_cls, _ in PAYMENT_CLASSES.values():
+        if session.scalar(select(inv_cls).join(header_cls, header_cls.doc_entry == inv_cls.doc_num).where(
+                inv_cls.doc_trans_id == trans_id, header_cls.canceled == "N").limit(1)) is not None:
+            return True
+    return False
 
 
 def _unreconcile(session: Session, d: DocDef, cm) -> None:

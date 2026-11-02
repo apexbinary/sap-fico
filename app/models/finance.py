@@ -141,3 +141,5 @@ class AccountDetermination(Base):
     exch_gain: Mapped[str] = mapped_column("ExchGainAcct", String(15))  # Realized exchange gain
     exch_loss: Mapped[str] = mapped_column("ExchLossAcct", String(15))  # Realized exchange loss
     opening_bal: Mapped[str] = mapped_column("OpenBalAcct", String(15))  # Opening balances offset
+    bank_charges: Mapped[str] = mapped_column("BankChgAcct", String(15), server_default="613000")  # Bank charges
+    checks_received: Mapped[str] = mapped_column("ChecksRcvdAcct", String(15), server_default="117000")  # Incoming checks

@@ -83,6 +83,7 @@ SERIES = {
     "67": ("Primary", 1),          # inventory transfer (OWTR)
     "24": ("Primary", 1),          # incoming payment (ORCT)
     "46": ("Primary", 1),          # outgoing payment (OVPM)
+    "25": ("Primary", 1),          # deposit (ODPS)
 }
 
 
@@ -176,7 +177,7 @@ def seed() -> None:
                 period_cat=year, ar_control="114000", ap_control="211000", revenue="411000", cogs="511000",
                 inventory="115000", allocation="212000", price_diff="512000", expense="611000",
                 inv_offset_inc="513000", inv_offset_dec="513000", exch_gain="711000", exch_loss="712000",
-                opening_bal="313000"))
+                opening_bal="313000", bank_charges="613000", checks_received="117000"))
         _seed_partners_and_items(s, put)
         s.commit()
         print("Seed complete: Demo Trading Ltd (EUR), chart of accounts, periods 2025-2027, "

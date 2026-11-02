@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib
 import time
 
-CHECKS = ["verify_finance", "verify_masterdata", "verify_documents", "verify_fields"]
+CHECKS = ["verify_finance", "verify_masterdata", "verify_documents", "verify_fields", "verify_banking"]
 
 
 def main() -> None:

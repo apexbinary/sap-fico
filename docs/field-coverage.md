@@ -73,7 +73,7 @@ is built, change its status.
 | Total discount % | VolumDscnt | number | ✅ |
 | Price list | ListNum | dropdown | ✅ |
 | Max. credit / commitment limit | CredLimit / ObligLimit | number | ✅ |
-| No. of installments, open incoming payment, cash discount, interest on arrears | InstNum, OpenRcpt, CdcCode, … | — | ⏸ banking phase (payments) |
+| No. of installments, open incoming payment, cash discount, interest on arrears | InstNum, OpenRcpt, CdcCode, … | — | ⏸ installments, cash discount and dunning not in scope |
 
 ### Sales employees / buyers (OSLP)
 | Field | Column | Type | Status |
@@ -202,7 +202,7 @@ Trial balance, balance sheet, profit and loss: period / as-of selection (date), 
 | Price list | ListNum (OPLN) | dropdown | ✅ default prices |
 | Total discount % | Discount | number | ✅ default document discount |
 | Credit limit / commitment limit | CreditLine / DebtLine | number | ✅ stored; ⏸ credit-limit warning on documents |
-| Interest on arrears, dunning term, priority, effective discount groups, bank details, payment methods | IntrstRate, DunTerm, … | — | ⏸ dunning and banking phase |
+| Interest on arrears, dunning term, priority, effective discount groups, bank details, payment methods | IntrstRate, DunTerm, … | — | ⏸ dunning, BP bank accounts and payment methods not in scope |
 
 ### Accounting tab
 | Field | Column | Type | Status |
@@ -373,14 +373,81 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 ## Inventory audit report (OINM)
 Document, date, item, warehouse, in/out quantity, price, value change, item cost after, BP, journal entry — ✅ (filter by item: dropdown).
 
+## Banking
+
+### Incoming payment (ORCT) / outgoing payment (OVPM) — header
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Type (customer / vendor / account) | DocType | dropdown | ✅ |
+| Code / name | CardCode / CardName | choose | ✅ |
+| Contact person | CntctCode | dropdown | ✅ |
+| Bill-to address | Address | — | 🔒 from the BP |
+| No. / series | DocNum / Series | dropdown | 🔒 |
+| Posting date / due date / document date | DocDate / DocDueDate / TaxDate | date | ✅ |
+| Currency / rate | DocCurr / DocRate | dropdown / — | ✅ (rate from ORTT) |
+| Reference | CounterRef | text | ✅ |
+| Ref. 2 | Ref2 | text | ✅ |
+| Project | PrjCode | dropdown | ✅ |
+| Journal remarks | JrnlMemo | text | ✅ |
+| Remarks | Comments | textarea | ✅ |
+| Payment on account / amount / still open | PayNoDoc / NoDocSum / OpenBal | checkbox / number | ✅ |
+| Overall amount (LC / FC) | DocTotal / DocTotalFC | number | 🔒 |
+| Canceled | Canceled | — | 🔒 |
+| Blanket agreement, payment wizard run, cash flow line items, withholding tax, VAT on payments, address 2 | AgrNo, PayWizard, CfwId, WtCode, … | — | ⏸ not in scope |
+
+### Paid items (RCT2 / VPM2)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Selected | — | checkbox | ✅ |
+| Document type / no. / posting date / due date / remarks | InvType / DocEntry / — | — | 🔒 every open partner line: invoices, credit memos, journal entries, payments on account |
+| Total / balance due | — | number | 🔒 |
+| Total payment (LC) | SumApplied (AppliedFC) | number | ✅ partial payments |
+| Journal entry / line of the item | DocTransId / DocLine | — | 🔒 |
+| Cash discount, overdue days, installment | DcntSum, InstId | — | ⏸ cash discount and installments not built |
+
+### G/L account lines of an account payment (RCT4 / VPM4)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| G/L account | AcctCode | choose | ✅ |
+| Description | Descrip | text | ✅ |
+| Project | PrjCode | dropdown | ✅ |
+| Amount | SumApplied / AppliedFC | number | ✅ |
+| Tax group, distribution rule | VatGroup, OcrCode | — | ⏸ VAT on account payments and cost accounting not built |
+
+### Payment means
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Check G/L account | CheckAcct | choose | ✅ (incoming: checks received 117000) |
+| Check lines: due date, amount, country, bank, branch, account, check no., endorse | RCT1/VPM1 DueDate, CheckSum, CountryCod, BankCode, Branch, AcctNum, CheckNum, Trnsfrable | date / number / dropdown / text / number / checkbox | ✅ |
+| Bank transfer G/L account / date / reference / amount | TrsfrAcct / TrsfrDate / TrsfrRef / TrsfrSum (TrsfrSumFC) | choose / date / text / number | ✅ |
+| Bank charges | BankChrg | number | ✅ posted to the bank charges account |
+| Cash G/L account / amount | CashAcct / CashSum (CashSumFC) | choose / number | ✅ |
+| Credit cards, bills of exchange, house bank selection for checks | RCT3, BoeAcc, … | — | ⏸ credit card and bill-of-exchange setup not in scope |
+
+### Checks for receipt (OCHH) and deposits (ODPS)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Check no. / bank / branch / account / due date / amount / customer / incoming payment / G/L account | CheckNum, BankCode, Branch, AcctNum, CheckDate, CheckSum, CardCode, RcptNum, CheckAct | — | 🔒 created by incoming payments |
+| Deposited / deposit | Deposited / DpstAbs | — | 🔒 |
+| Deposit type (checks / cash) | DeposType | — | ✅ (two sections) |
+| Deposit date | DeposDate | date | ✅ |
+| Bank G/L account | BanckAcct | choose | ✅ |
+| Bank account no. | BankAccNum | text | ✅ |
+| Cash G/L account / amount (cash deposit) | AllocAcct / LocTotal | choose / number | ✅ |
+| Project | Project | dropdown | ✅ |
+| Journal remarks | Memo | text | ✅ |
+| Journal entry / canceled | TransAbs / Canceled | — | 🔒 cancel reverses it |
+| Credit card deposits, postdated checks, bank reconciliation | DeposType V, … | — | ⏸ |
+
 ---
 
 ## Excluded B1 functions (not part of the agreed scope or of a later phase)
 
 | B1 function | Why not (yet) |
 |---|---|
-| Incoming / outgoing payments, payment terms installments, payment methods, dunning | **Phase 4 (banking)** |
-| Foreign-currency documents and journal entries, exchange-rate revaluation | planned with banking (multi-currency payments) |
+| Payment wizard, payment methods, installments, cash discount, credit cards, bills of exchange, dunning | not in the agreed scope |
+| Bank statements and external (bank) reconciliation, house bank accounts | not in the agreed scope |
+| Foreign-currency documents and journal entries, exchange-rate revaluation (payments in foreign currency are built) | not in the agreed scope |
 | Freight / additional expenses (OEXD), document rounding, down payments | not in the agreed scope |
 | Units of measure groups and quantity conversion on documents | not in the agreed scope; UoM names are stored and shown |
 | Serial and batch numbers, bin locations, FIFO / standard costing, inventory counting | not in the agreed scope |

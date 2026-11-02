@@ -123,7 +123,9 @@ const views = {};
 function route() {
   const view = (location.hash.replace("#/", "") || "cockpit").split("?")[0];
   const obj = query().get("obj");
-  $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.obj ? a.dataset.obj === obj && view.startsWith("doc") : a.dataset.view === view));
+  const kind = query().get("kind");
+  $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.obj ? a.dataset.obj === obj && view.startsWith("doc")
+    : a.dataset.kind ? a.dataset.kind === kind && view.startsWith("payment") : a.dataset.view === view));
   const c = $("#content");
   c.innerHTML = '<div class="loading">Loading…</div>';
   Promise.resolve((views[view] || views.cockpit)(c)).catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
@@ -157,12 +159,15 @@ function jeTable(jes) {
       <td>${e.storno_to_tr ? `<span class="status X">${e.is_reversal ? "Reversal" : "Reversed"}</span>` : ""}</td></tr>`).join("")
       || `<tr><td colspan="6" class="empty">No journal entries yet.</td></tr>`}</tbody></table>`;
 }
-const TRANS_TYPES = { "30": "JE", "13": "IN", "14": "CN", "15": "DN", "16": "RE", "18": "PU", "19": "PC", "20": "PD",
+const TRANS_TYPES = { "25": "DP", "30": "JE", "13": "IN", "14": "CN", "15": "DN", "16": "RE", "18": "PU", "19": "PC", "20": "PD",
   "21": "PR", "24": "RC", "46": "PS", "59": "SI", "60": "SO", "67": "IM", "23": "QT", "17": "OR", "22": "PO", "540000006": "PQ" };
 const transTypeName = (t) => TRANS_TYPES[t] || t;
 // origin of a journal entry -> the document that created it
-const docLink = (type, entry, label) => (DOC_NAMES[type] && type !== "30" && entry
-  ? `<a href="#/docs?obj=${type}&entry=${entry}" onclick="event.stopPropagation()">${esc(label)}</a>` : esc(label));
+const docLink = (type, entry, label) => (type === "24" || type === "46") && entry
+  ? `<a href="#/payments?kind=${type === "24" ? "incoming" : "outgoing"}&entry=${entry}" onclick="event.stopPropagation()">${esc(label)}</a>`
+  : type === "25" ? `<a href="#/deposits" onclick="event.stopPropagation()">${esc(label)}</a>`
+  : (DOC_NAMES[type] && type !== "30" && entry
+    ? `<a href="#/docs?obj=${type}&entry=${entry}" onclick="event.stopPropagation()">${esc(label)}</a>` : esc(label));
 const DOC_NAMES = { "23": "Sales Quotation", "17": "Sales Order", "15": "Delivery", "16": "Return", "13": "A/R Invoice",
   "14": "A/R Credit Memo", "540000006": "Purchase Quotation", "22": "Purchase Order", "20": "Goods Receipt PO",
   "21": "Goods Return", "18": "A/P Invoice", "19": "A/P Credit Memo", "59": "Goods Receipt", "60": "Goods Issue",

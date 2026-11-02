@@ -23,7 +23,8 @@ concepts (company codes, posting keys, CO, F110, FSV ...) into it.
 3. Inventory — items, warehouses, price lists, goods receipt/issue/transfer,
    moving-average cost, automatic stock postings. **Done.**
 4. Banking — incoming/outgoing payments (cash, transfer, check), payments on
-   account, BP balances.
+   account, BP balances. **Done** (plus check/cash deposits, account payments,
+   foreign-currency payment means).
 
 ## Stack and running
 
@@ -49,6 +50,7 @@ app/
   models/finance.py   OACT OJDT JDT1 OACP (G/L account determination)
   models/partners.py  OCRG OCRD OCPR CRD1
   models/inventory.py OITB OITM OMRC OWHS OITW OPLN ITM1
+  models/banking.py   ORCT/OVPM (+RCT1/2/4, VPM1/2/4), OCHH checks for receipt, ODPS deposits
   models/documents.py the 15 document header/line pairs (OQUT/QUT1 ... OWTR/WTR1, built from
                       shared DocumentHeader/DocumentLine columns) and OINM warehouse journal
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
@@ -60,12 +62,15 @@ app/
   services/documents.py  document engine: DEFS (object types, copy-from bases), create /
                       cancel / close, stock moves (receive/issue/revalue -> OINM), automatic JEs
   api_documents.py    /api/documents/{obj}*, /api/documents/types, /api/inventory/journal
+  services/banking.py payments (open items, apply / on account / reconcile, FC means, cancel), deposits
+  api_banking.py      /api/payments/{incoming|outgoing}*, /api/payments/open-items, /api/checks, /api/deposits
   api_masterdata.py   /api/partners*, /api/partner-groups, /api/items*, /api/item-groups,
                       /api/warehouses, /api/price-lists
   seed.py             demo company "Demo Trading Ltd" (EUR), chart of accounts, periods 2025-2027
   verify_*.py         end-to-end checks; verify_all runs them all
 web/                  index.html, styles.css, app.js (shell, typed field builder, journal entries,
-                      documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup)
+                      documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup),
+                      banking.js (payments, deposits)
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
 
@@ -121,6 +126,18 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   values and the JE (B1 creates a separate cancellation document; we mark the
   original CANCELED=Y and link the reversal JE).
 - Document currency is the local currency for now (DocCur/DocRate kept).
+
+### Banking (keep invariant)
+- A payment pays open partner lines (JDT1 with BalDue) of its BP in LC; the means are
+  in the payment currency (LC = FC x ORTT rate); a small FC mismatch (<= 0.5 %) is an
+  exchange difference, otherwise the rest must be "payment on account".
+- Applied amounts reduce BalDueDeb/BalDueCred of the item and the payment's own
+  line by the same amount, plus the item document's PaidToDate (closes at 100 %) or
+  the paid payment's OpenBal. Invariant (verify_banking): every BP balance = sum of
+  its open items.
+- A payment with items but no means posts no JE (pure reconciliation).
+- Cancel: refused if a check is deposited or the amount on account was used; items
+  reopen, the JE is reversed. Documents used in an active payment cannot be canceled.
 
 ### Chart of accounts
 Drawers (GroupMask) 1 assets, 2 liabilities, 3 capital and reserves, 4 turnover,

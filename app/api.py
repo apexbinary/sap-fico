@@ -19,9 +19,9 @@ from app.services.posting import DocumentRequest, LineRequest, delete_parked, po
 router = APIRouter()
 
 
-def _request(doc: DocumentIn, mandt: str | None, bstat: str = " ") -> DocumentRequest:
+def _request(doc: DocumentIn, mandt: str | None, bstat: str = " ", belnr: str | None = None) -> DocumentRequest:
     return DocumentRequest(
-        bstat=bstat,
+        bstat=bstat, belnr=belnr,
         mandt=mandt or settings.default_client,
         bukrs=doc.bukrs, blart=doc.blart, bldat=doc.bldat, budat=doc.budat,
         waers=doc.waers, kursf=doc.kursf, xblnr=doc.xblnr, bktxt=doc.bktxt,
@@ -75,6 +75,39 @@ def post_parked_document(
         return post_parked(session, _m(mandt), bukrs, belnr, gjahr)
     except PostingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/documents/{bukrs}/{gjahr}/{belnr}", response_model=DocumentOut, tags=["Postings"],
+            summary="Change a parked document (FBV2)")
+def change_parked_document(
+    bukrs: str, gjahr: int, belnr: str, doc: DocumentIn,
+    mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> AccountingDocumentHeader:
+    if doc.bukrs != bukrs:
+        raise HTTPException(status_code=422, detail="The company code cannot be changed")
+    try:
+        return post_document(session, _request(doc, mandt, bstat="V", belnr=belnr))
+    except PostingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class MassReverseIn(BaseModel):
+    documents: list[str] = Field(..., description="Documents as 'BELNR/GJAHR'")
+    budat: date | None = None
+    stgrd: str = "01"
+
+
+@router.post("/documents/{bukrs}/mass-reverse", tags=["Postings"], summary="Mass reversal (F.80)")
+def mass_reverse(
+    bukrs: str, body: MassReverseIn, mandt: str = Query(default=None), session: Session = Depends(get_session),
+) -> list[dict]:
+    docs = []
+    for ref in body.documents:
+        belnr, _, gjahr = ref.partition("/")
+        if not gjahr.isdigit():
+            raise HTTPException(status_code=422, detail=f"Use BELNR/GJAHR, not {ref!r}")
+        docs.append((belnr, int(gjahr)))
+    return reversal.mass_reverse(session, _m(mandt), bukrs, docs, budat=body.budat, stgrd=body.stgrd)
 
 
 @router.delete("/documents/{bukrs}/{gjahr}/{belnr}", tags=["Postings"], summary="Delete a parked document (FBV0)")

@@ -1,24 +1,27 @@
-"""End-to-end check for the document lifecycle: park, post parked, delete parked,
-reverse (FB08) and reset clearing (FBRA).
+"""End-to-end check for the document lifecycle: park, change parked (FBV2), post
+parked, delete parked, reverse (FB08), reset clearing (FBRA), asset reversal
+(AB08) and mass reversal (F.80).
 
 Run after app.seed:  python -m app.verify_documents
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
 
 from app.database import SessionLocal
 from app.models.controlling import COLineItem
+from app.models.assets import AssetValues
 from app.models.documents import AccountingDocumentHeader
 from app.services import reporting
 from app.services.clearing import PaymentRequest, post_payment
 from app.services.fiscal import PostingError
 from app.services.posting import DocumentRequest, LineRequest, delete_parked, post_document, post_parked
-from app.services.reversal import reset_clearing, reverse_document
+from app.services import asset_accounting as aa
+from app.services.reversal import mass_reverse, reset_clearing, reverse_document
 
 MANDT, BUKRS = "100", "1000"
 CUST, VEND = "0000010000", "0000020000"
@@ -111,6 +114,49 @@ def main() -> None:
         print(f"  Invoice reversed by {inv_rev.belnr} on {inv_rev.budat} (reason {inv_rev.stgrd})")
         assert not _open(s, "D", CUST, inv.belnr)
         assert any(i.hkont == "175000" and i.shkzg == "S" and i.wrbtr == D("190.00") for i in inv_rev.items)
+
+        # 5) change a parked document (FBV2): same number, new lines
+        draft = post_document(s, _vendor_invoice(bstat="V"))
+        changed = _vendor_invoice(bstat="V")
+        changed.belnr = draft.belnr
+        changed.lines[0].wrbtr = D("1190.00")
+        changed.lines[1].wrbtr, changed.lines[1].kostl = D("1000.00"), "0000002000"
+        changed = post_document(s, changed)
+        print(f"5 Changed parked {changed.belnr}: lines {[(i.bschl, str(i.wrbtr), i.kostl) for i in changed.items]}")
+        assert changed.belnr == draft.belnr and changed.bstat == "V" and len(changed.items) == 3
+        assert changed.items[1].wrbtr == D("1000.00") and changed.items[1].kostl == "0000002000"
+        assert changed.items[2].wrbtr == D("190.00"), "auto tax recalculated"
+        expense = _balance(s, "476000")
+        post_parked(s, MANDT, BUKRS, changed.belnr, changed.gjahr)
+        assert _balance(s, "476000") == expense + D("1000.00")
+
+        # 6) asset reversal (AB08): depreciation and acquisition are taken back out of ANLC
+        anln1 = datetime.now().strftime("%m%d%H%M%S").zfill(12)
+        aa.create_asset(s, MANDT, BUKRS, anln1, "00003000", "Test press", useful_life_years=5, kostl="0000001000")
+        acq = aa.post_acquisition(s, MANDT, BUKRS, anln1, D("12000.00"), date(2026, 1, 10),
+                                  offset_account=VEND, offset_is_vendor=True)
+        dep = next(d for d in aa.run_depreciation(s, MANDT, BUKRS, 2026, 1)["posted"] if d["anln1"] == anln1)
+        val = lambda: s.get(AssetValues, (MANDT, BUKRS, anln1, "0000", 2026, "01"))  # noqa: E731
+        print(f"6 Asset {anln1}: APC {val().answl}, depreciation {val().nafag}")
+        assert val().answl == D("12000.00") and val().nafag == D("200.00")
+        reverse_document(s, MANDT, BUKRS, dep["belnr"], 2026)
+        s.expire_all()
+        assert val().nafag == 0, "reversed depreciation leaves the asset"
+        reverse_document(s, MANDT, BUKRS, acq["belnr"], acq["gjahr"])
+        s.expire_all()
+        print(f"  After AB08: APC {val().answl}, retirements {val().abgan}, depreciation {val().nafag}")
+        assert val().answl == 0 and (val().abgan or 0) == 0
+
+        # 7) mass reversal (F.80): failures are reported per document
+        docs = [post_document(s, DocumentRequest(
+            bukrs=BUKRS, blart="SA", bldat=date(2026, 7, 5), budat=date(2026, 7, 5), waers="EUR",
+            bktxt=f"Mass test {n}", lines=[
+                LineRequest(bschl="40", account="476000", wrbtr=D("10.00")),
+                LineRequest(bschl="50", account="113100", wrbtr=D("10.00")),
+            ])) for n in (1, 2)]
+        result = mass_reverse(s, MANDT, BUKRS, [(d.belnr, d.gjahr) for d in docs] + [(orig.belnr, orig.gjahr)])
+        print(f"7 Mass reversal: {[(r['belnr'], r['reversal'] or r['error'][:30]) for r in result]}")
+        assert [bool(r["reversal"]) for r in result] == [True, True, False]
 
         tb = reporting.trial_balance(s, MANDT, BUKRS, 2026)
         print(f"Trial balance: debit {tb['total_debit']}  credit {tb['total_credit']}  balanced={tb['balanced']}")

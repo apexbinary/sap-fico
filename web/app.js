@@ -144,6 +144,8 @@ views.post = async (c) => {
     </div></details>`;
 
   $("#addLine").onclick = () => { addLine(); recalc(); };
+  const editRef = new URLSearchParams(location.hash.split("?")[1] || "").get("edit");
+  if (editRef) return loadParked(editRef);
   $("#postBtn").onclick = () => submitDoc(false);
   $("#parkBtn").onclick = () => submitDoc(true);
   $("#recurBtn").onclick = submitRecurring;
@@ -157,6 +159,38 @@ function docStatus(d) {
   if (d.bstat === "D") return `<span class="chip dr">Recurring original</span>`;
   if (d.stblg) return `<span class="chip cr">${d.tcode === "FB08" ? "Reversal" : "Reversed"}</span>`;
   return "";
+}
+
+// FBV2: load a parked document into the entry form; auto-tax lines are regenerated on save.
+async function loadParked(ref) {
+  const [belnr, gjahr] = ref.split(":");
+  const d = await api(`/documents/${state.bukrs}/${gjahr}/${belnr}`);
+  if (d.bstat !== "V") { toast(`Document ${belnr} is not parked`, "bad"); return; }
+  $(".page-head h1").textContent = `Change Parked Document ${d.belnr}/${d.gjahr}`;
+  Object.entries({ "#f-blart": d.blart, "#f-bldat": d.bldat, "#f-budat": d.budat, "#f-waers": d.waers,
+    "#f-xblnr": d.xblnr || "", "#f-bktxt": d.bktxt || "" }).forEach(([sel, v]) => ($(sel).value = v));
+  $("#lines").innerHTML = "";
+  const taxed = new Set(d.items.filter((i) => i.buzid === "T").map((i) => i.mwskz));
+  d.items.filter((i) => i.buzid !== "T").forEach((i) => {
+    addLine(i.bschl);
+    const row = $("#lines").lastElementChild;
+    $(".l-acct", row).value = i.kunnr || i.lifnr || i.hkont;
+    $(".l-amt", row).value = Number(i.wrbtr).toFixed(2);
+    $(".l-tax", row).value = i.mwskz || "";
+    $(".l-autotax", row).checked = !!(i.mwskz && taxed.has(i.mwskz));
+    $(".l-kostl", row).value = i.kostl || "";
+    $(".l-text", row).value = i.sgtxt || "";
+  });
+  recalc();
+  $("#postBtn").style.display = "none";
+  $("#parkBtn").textContent = "Save parked document";
+  $("#parkBtn").onclick = async () => {
+    try {
+      await api(`/documents/${state.bukrs}/${d.gjahr}/${d.belnr}`, { method: "PUT", body: JSON.stringify(docPayload()) });
+      toast(`Parked document ${d.belnr} changed`, "good");
+      location.hash = `#/documents?doc=${d.belnr}:${d.gjahr}`;
+    } catch (e) { toast(e.message, "bad"); }
+  };
 }
 
 function ccWaers() { const cc = state.companyCodes.find((c) => c.bukrs === state.bukrs); return cc ? cc.waers : "EUR"; }
@@ -265,17 +299,31 @@ views.documents = async (c) => {
   const docs = await api(`/master/documents?bukrs=${state.bukrs}&limit=100`);
   c.innerHTML = `
     <div class="page-head"><div><h1>Documents</h1><div class="sub">Company code ${esc(state.bukrs)}</div></div>
-      <a class="btn" href="#/post">+ Post Document</a></div>
-    <div class="card"><table><thead><tr><th>Document</th><th>Type</th><th>Doc date</th><th>Posting</th><th>Period</th><th>Text</th><th class="num">Amount</th><th>Curr</th><th>Items</th><th>Status</th></tr></thead>
+      <span style="display:flex;gap:8px"><button class="btn secondary" id="massRev" disabled>Reverse selected (F.80)</button>
+      <a class="btn" href="#/post">+ Post Document</a></span></div>
+    <div class="card"><table><thead><tr><th></th><th>Document</th><th>Type</th><th>Doc date</th><th>Posting</th><th>Period</th><th>Text</th><th class="num">Amount</th><th>Curr</th><th>Items</th><th>Status</th></tr></thead>
     <tbody>${docs.map((d) => `<tr style="cursor:pointer" onclick="location.hash='#/documents?doc=${d.belnr}:${d.gjahr}'">
+      <td onclick="event.stopPropagation()">${d.bstat === " " && !d.stblg ? `<input type="checkbox" class="rev-pick" value="${d.belnr}/${d.gjahr}">` : ""}</td>
       <td class="mono">${d.belnr}/${d.gjahr}</td><td>${d.blart}</td><td>${d.bldat}</td><td>${d.budat}</td>
-      <td>${d.monat}</td><td>${esc(d.bktxt)}</td><td class="num">${fmt(d.amount)}</td><td>${d.waers}</td><td>${d.items}</td><td>${docStatus(d)}</td></tr>`).join("") || `<tr><td colspan="10" class="empty">No documents.</td></tr>`}</tbody></table></div>
+      <td>${d.monat}</td><td>${esc(d.bktxt)}</td><td class="num">${fmt(d.amount)}</td><td>${d.waers}</td><td>${d.items}</td><td>${docStatus(d)}</td></tr>`).join("") || `<tr><td colspan="11" class="empty">No documents.</td></tr>`}</tbody></table></div>
     <div id="docDetail"></div>`;
+  const picks = () => [...document.querySelectorAll(".rev-pick:checked")].map((cb) => cb.value);
+  document.querySelectorAll(".rev-pick").forEach((cb) => (cb.onchange = () => ($("#massRev").disabled = !picks().length)));
+  $("#massRev").onclick = async () => {
+    const sel = picks();
+    if (!confirm(`Reverse ${sel.length} document(s)?`)) return;
+    try {
+      const res = await api(`/documents/${state.bukrs}/mass-reverse`, { method: "POST", body: JSON.stringify({ documents: sel }) });
+      const failed = res.filter((r) => r.error);
+      toast(`${res.length - failed.length} reversed${failed.length ? `, ${failed.length} failed: ${failed[0].error}` : ""}`, failed.length ? "bad" : "good");
+      route();
+    } catch (e) { toast(e.message, "bad"); }
+  };
   if (open) {
     const [belnr, gjahr] = open.split(":");
     const d = await api(`/documents/${state.bukrs}/${gjahr}/${belnr}`);
     const actions = d.bstat === "V"
-      ? `<button class="btn small" data-act="post">Post</button><button class="btn small ghost" data-act="delete">Delete</button>`
+      ? `<a class="btn small secondary" href="#/post?edit=${d.belnr}:${d.gjahr}">Change</a><button class="btn small" data-act="post">Post</button><button class="btn small ghost" data-act="delete">Delete</button>`
       : d.bstat === " " ? `${d.stblg ? "" : `<button class="btn small secondary" data-act="reverse">Reverse (FB08)</button>`}
           <button class="btn small ghost" data-act="reset">Reset clearing</button>
           ${d.items.length && !d.stblg ? `<button class="btn small ghost" data-act="reset-reverse">Reset clearing &amp; reverse</button>` : ""}` : "";

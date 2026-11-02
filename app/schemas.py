@@ -56,6 +56,9 @@ class LineOut(BaseModel):
     zterm: str | None = None
     augbl: str | None = None
     rebzg: str | None = None
+    buzid: str | None = None
+    kostl: str | None = None
+    aufnr: str | None = None
 
     class Config:
         from_attributes = True

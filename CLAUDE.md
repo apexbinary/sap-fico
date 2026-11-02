@@ -278,7 +278,8 @@ F.14 run with month-end clamping and no double posting, deletion, UI.
 **Document lifecycle — done:** parking (FV50) with post (FBV0) and delete,
 reversal (FB08) with reasons 01/02, reset clearing with optional reversal
 (FBRA), UI actions on the document view.
-Known gaps: changing a parked document, asset reversal (AB08), mass reversal.
+Also done: changing a parked document (FBV2, keeps its number), asset
+reversal (AB08: ANEP/ANLC and ANLP depreciation are taken back), mass reversal (F.80).
 
 **Controlling — done:** CO documents (COBK) for every CO posting; actual cost
 reports per cost center / internal order; assessment and distribution cycles

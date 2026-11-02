@@ -8,8 +8,12 @@ STGRD), and their open items clear each other.
 
 A document whose open items are already cleared cannot be reversed: reset the
 clearing first (``reset_clearing``), optionally reversing the clearing
-document in the same step, as FBRA does. Asset postings are reversed with the
-asset reversal (AB08), not here.
+document in the same step, as FBRA does.
+
+Asset documents are reversed like AB08: the asset line items (ANEP) get the
+opposite amounts and the reversed movement is reduced in the asset values
+(ANLC). Reversing a depreciation document (AF) takes its ANLP depreciation
+back out of the asset values. ``mass_reverse`` reverses a list (F.80).
 """
 
 from __future__ import annotations
@@ -61,8 +65,6 @@ def _reverse(session, mandt, bukrs, belnr, gjahr, budat, stgrd, usnam, commit):
         raise PostingError(f"Document {ref} is already reversed by / a reversal of {header.stblg}")
     if not header.items:
         raise PostingError(f"Document {ref} has no line items; reset its clearing instead (FBRA)")
-    if any(i.koart == "A" for i in header.items):
-        raise PostingError(f"Document {ref} contains asset lines; use the asset reversal (AB08)")
     for i in header.items:
         if i.augbl:
             raise PostingError(
@@ -84,8 +86,9 @@ def _reverse(session, mandt, bukrs, belnr, gjahr, budat, stgrd, usnam, commit):
         mandt=mandt, bukrs=bukrs, blart=(doc_type.stbla if doc_type and doc_type.stbla else header.blart),
         bldat=header.bldat, budat=budat or header.budat, waers=header.waers, kursf=header.kursf,
         xblnr=header.xblnr, bktxt=f"Reversal of {header.belnr}"[:25], usnam=usnam, tcode="FB08",
-        kokrs=header.kokrs, lines=lines,
+        kokrs=header.kokrs, lines=lines, xstor=True,
     ), commit=False)
+    _reverse_depreciation(session, mandt, bukrs, header)
 
     rev.stblg, rev.stjah, rev.stgrd = header.belnr, header.gjahr, stgrd
     header.stblg, header.stjah, header.stgrd = rev.belnr, rev.gjahr, stgrd
@@ -99,6 +102,35 @@ def _reverse(session, mandt, bukrs, belnr, gjahr, budat, stgrd, usnam, commit):
         session.flush()
     session.refresh(rev)
     return rev
+
+
+def _reverse_depreciation(session: Session, mandt: str, bukrs: str, header: AccountingDocumentHeader) -> None:
+    """Take the depreciation of a reversed depreciation document out of ANLC (ANLP no longer posted)."""
+    from app.models.assets import AssetValues, DepreciationPosting
+
+    for anlp in session.scalars(select(DepreciationPosting).where(
+            DepreciationPosting.mandt == mandt, DepreciationPosting.bukrs == bukrs,
+            DepreciationPosting.belnr == header.belnr, DepreciationPosting.gjahr == header.gjahr,
+            DepreciationPosting.xbuchen.is_(True))):
+        val = session.get(AssetValues, (mandt, bukrs, anlp.anln1, anlp.anln2, anlp.gjahr, anlp.afabe))
+        if val is not None:
+            val.nafag = (val.nafag or 0) - anlp.nafaz
+        anlp.xbuchen = False
+
+
+def mass_reverse(
+    session: Session, mandt: str, bukrs: str, documents: list[tuple[str, int]], *,
+    budat: date | None = None, stgrd: str = "01", usnam: str = "SYSTEM",
+) -> list[dict]:
+    """Reverse several documents (F.80); each one on its own, failures are reported, not raised."""
+    results = []
+    for belnr, gjahr in documents:
+        try:
+            rev = reverse_document(session, mandt, bukrs, belnr, gjahr, budat=budat, stgrd=stgrd, usnam=usnam)
+            results.append({"belnr": belnr.zfill(10), "gjahr": gjahr, "reversal": rev.belnr, "error": None})
+        except PostingError as exc:
+            results.append({"belnr": belnr.zfill(10), "gjahr": gjahr, "reversal": None, "error": str(exc)})
+    return results
 
 
 def reset_clearing(

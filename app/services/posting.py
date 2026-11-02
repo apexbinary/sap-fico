@@ -105,6 +105,8 @@ class DocumentRequest:
     xclear: bool = False  # Clearing document: may have no line items (zero-balance clearing)
     bstat: str = " "  # Document status: ' ' posted, 'V' parked, 'D' recurring entry original
     dbblg: str | None = None  # Recurring entry original this document was posted from
+    belnr: str | None = None  # Number of a parked document to change (FBV2); keeps its number
+    xstor: bool = False  # Reversal document: asset lines reduce the reversed movement
 
 
 def to_local(amount: Decimal, rate: Decimal) -> Decimal:
@@ -318,19 +320,33 @@ def _post(
         for koart in {"+"} | {rl.koart for rl in all_lines}:
             check_period_open(session, mandt, req.bukrs, koart, gjahr, monat)
 
-    # Recurring entry originals are numbered from the dedicated interval X1, as in SAP.
-    numkr = "X1" if req.bstat == "D" else doc_type.numkr
-    belnr = _next_document_number(session, mandt, req.bukrs, numkr, gjahr)
-
-    header = AccountingDocumentHeader(
-        mandt=mandt, bukrs=req.bukrs, belnr=belnr, gjahr=gjahr, blart=req.blart,
-        bldat=req.bldat, budat=req.budat, monat=monat, usnam=req.usnam, tcode=req.tcode,
+    header_fields = dict(
+        blart=req.blart, bldat=req.bldat, budat=req.budat, monat=monat, usnam=req.usnam, tcode=req.tcode,
         xblnr=req.xblnr, bktxt=req.bktxt, waers=req.waers, kursf=kursf,
         wwert=req.budat if req.waers != local_currency else None,
         hwaer=local_currency, bstat=req.bstat, awtyp="BKPF", kokrs=kokrs,
         ppnam=req.usnam if req.bstat == "V" else None, dbblg=req.dbblg,
     )
-    session.add(header)
+    if req.belnr:  # FBV2: change a parked document in place, keeping its number
+        if req.bstat != "V":
+            raise PostingError("Only parked documents can be changed")
+        header = session.get(AccountingDocumentHeader, (mandt, req.bukrs, req.belnr.zfill(10), gjahr))
+        if header is None or header.bstat != "V":
+            raise PostingError(f"Document {req.belnr}/{gjahr} is not a parked document of fiscal year {gjahr}")
+        belnr = header.belnr
+        for old in list(header.items):
+            header.items.remove(old)
+            session.delete(old)
+        session.flush()
+        for name, value in header_fields.items():
+            setattr(header, name, value)
+        header.aedat = date.today()
+    else:
+        # Recurring entry originals are numbered from the dedicated interval X1, as in SAP.
+        numkr = "X1" if req.bstat == "D" else doc_type.numkr
+        belnr = _next_document_number(session, mandt, req.bukrs, numkr, gjahr)
+        header = AccountingDocumentHeader(mandt=mandt, bukrs=req.bukrs, belnr=belnr, gjahr=gjahr, **header_fields)
+        session.add(header)
 
     buzei = 0
     co_docs: dict[str, object] = {}  # one CO document per controlling area
@@ -651,7 +667,12 @@ def _update_asset_values(
         session.add(val)
         session.flush([val])
     # Acquisition (debit asset) increases ANSWL; retirement (credit) increases ABGAN.
-    if rl.shkzg == "S":
+    if req.xstor:  # reversal: undo the original movement instead of booking the opposite one
+        if rl.shkzg == "H":
+            val.answl = (val.answl or Decimal("0")) - rl.dmbtr
+        else:
+            val.abgan = (val.abgan or Decimal("0")) - rl.dmbtr
+    elif rl.shkzg == "S":
         val.answl = (val.answl or Decimal("0")) + rl.dmbtr
     else:
         val.abgan = (val.abgan or Decimal("0")) + rl.dmbtr

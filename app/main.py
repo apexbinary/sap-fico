@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.api import router
 from app.api_assets_bank import router as aa_bank_router
+from app.api_payments import router as payments_router
 from app.config import settings
 from app.database import create_all
 from app.masterdata import router as master_router
@@ -25,6 +26,7 @@ app = FastAPI(
 app.include_router(router, prefix="/api")
 app.include_router(master_router, prefix="/api")
 app.include_router(aa_bank_router, prefix="/api")
+app.include_router(payments_router, prefix="/api")
 
 
 @app.on_event("startup")

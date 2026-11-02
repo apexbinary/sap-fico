@@ -51,6 +51,9 @@ class LineOut(BaseModel):
     dmbtr: Decimal
     mwskz: str | None
     sgtxt: str | None
+    zterm: str | None = None
+    augbl: str | None = None
+    rebzg: str | None = None
 
     class Config:
         from_attributes = True

@@ -230,11 +230,12 @@ views.documents = async (c) => {
     const [belnr, gjahr] = open.split(":");
     const d = await api(`/documents/${state.bukrs}/${gjahr}/${belnr}`);
     $("#docDetail").appendChild(el(`<div class="card"><div class="card-head">Document ${d.belnr}/${d.gjahr} — ${d.blart} · period ${d.monat} · ${d.waers}</div>
-      <table><thead><tr><th>Itm</th><th>PK</th><th>D/C</th><th>Account</th><th>Tax</th><th class="num">Doc amount</th><th class="num">Local amount</th><th>Text</th></tr></thead>
+      <table><thead><tr><th>Itm</th><th>PK</th><th>D/C</th><th>Account</th><th>Tax</th><th>Terms</th><th class="num">Doc amount</th><th class="num">Local amount</th><th>Text</th><th>Clearing</th></tr></thead>
       <tbody>${d.items.map((i) => `<tr><td>${i.buzei}</td><td>${i.bschl}</td>
         <td><span class="chip ${i.shkzg === "S" ? "dr" : "cr"}">${i.shkzg === "S" ? "Debit" : "Credit"}</span></td>
-        <td class="mono">${esc(i.kunnr || i.lifnr || i.hkont)}</td><td>${esc(i.mwskz || "")}</td>
-        <td class="num">${fmt(i.wrbtr)}</td><td class="num">${fmt(i.dmbtr)}</td><td>${esc(i.sgtxt || "")}</td></tr>`).join("")}</tbody></table></div>`));
+        <td class="mono">${esc(i.kunnr || i.lifnr || i.hkont)}</td><td>${esc(i.mwskz || "")}</td><td>${esc(i.zterm || "")}</td>
+        <td class="num">${fmt(i.wrbtr)}</td><td class="num">${fmt(i.dmbtr)}</td><td>${esc(i.sgtxt || "")}</td>
+        <td class="mono">${i.augbl ? `<a href="#/documents?doc=${i.augbl}:${d.gjahr}">${i.augbl}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`));
   }
 };
 
@@ -272,13 +273,125 @@ views["open-items"] = async (c) => {
     const koart = $("#oi-koart").value, acct = $("#oi-acct").value, only = $("#oi-open").checked;
     const items = await api(`/reports/open-items?bukrs=${state.bukrs}&koart=${koart}&account=${acct}&only_open=${only}`);
     const total = items.reduce((s, i) => s + Number(i.amount), 0);
-    $("#oi-result").innerHTML = `<div class="card"><table><thead><tr><th>Document</th><th>Posting date</th><th>Baseline</th><th>Assignment</th><th>Text</th><th class="num">Amount</th><th>Curr</th><th>Status</th></tr></thead>
+    $("#oi-result").innerHTML = `<div class="card"><table><thead><tr><th>Document</th><th>Posting date</th><th>Baseline</th><th>Net due</th><th>Terms</th><th>Assignment</th><th>Text</th><th class="num">Amount</th><th>Curr</th><th>Status</th></tr></thead>
       <tbody>${items.map((i) => `<tr><td class="mono">${i.belnr}/${i.gjahr}</td><td>${i.budat}</td><td>${i.zfbdt || ""}</td>
+        <td style="${!i.cleared && i.faedt < todayISO() ? "color:var(--bad)" : ""}">${i.faedt || ""}</td><td>${esc(i.zterm || "")}</td>
         <td>${esc(i.zuonr || "")}</td><td>${esc(i.sgtxt || "")}</td><td class="num">${fmt(i.amount)}</td><td>${i.waers}</td>
-        <td><span class="chip ${i.cleared ? "ok" : "dr"}">${i.cleared ? "Cleared" : "Open"}</span></td></tr>`).join("") || `<tr><td colspan="8" class="empty">No items.</td></tr>`}</tbody>
-      <tfoot><tr><td colspan="5">Balance</td><td class="num">${fmt(total)}</td><td colspan="2"></td></tr></tfoot></table></div>`;
+        <td><span class="chip ${i.cleared ? "ok" : "dr"}">${i.cleared ? "Cleared " + esc(i.augbl) : "Open"}</span></td></tr>`).join("") || `<tr><td colspan="10" class="empty">No items.</td></tr>`}</tbody>
+      <tfoot><tr><td colspan="7">Balance</td><td class="num">${fmt(total)}</td><td colspan="2"></td></tr></tfoot></table></div>`;
   };
   $("#oi-go").click();
+};
+
+// ---------- Payments & Clearing ----------
+views.payments = async (c) => {
+  const banks = await api(`/master/house-banks?bukrs=${state.bukrs}`);
+  let items = [];
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Payments &amp; Clearing</h1>
+      <div class="sub">Incoming / outgoing payment with clearing (F-28 / F-53) · clear open items against each other (F-32 / F-44)</div></div></div>
+    <div class="card"><div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label>Account type</label><select id="p-koart"><option value="D">Customer — incoming payment</option><option value="K">Vendor — outgoing payment</option></select></div>
+        <div class="field"><label class="req">Account</label><select id="p-acct"></select></div>
+        <div class="field"><label class="req">Posting date</label><input id="p-budat" type="date" value="${todayISO()}"></div>
+        <div class="field"><label>House bank</label><select id="p-bank"><option value="">— none (clearing only) —</option>${banks.map((b) => `<option value="${b.hbkid}:${b.hktid}">${b.hbkid}/${b.hktid} · G/L ${b.hkont}</option>`).join("")}</select></div>
+        <div class="field"><label>Amount paid</label><input id="p-amt" type="number" step="0.01" min="0" value="0.00"></div>
+        <div class="field"><label>Mode</label><select id="p-mode">
+          <option value="clear">Clear in full</option>
+          <option value="residual">Clear and carry a residual item</option>
+          <option value="partial">Partial payment (one item stays open)</option>
+          <option value="on_account">Payment on account (no items)</option></select></div>
+      </div>
+      <label style="display:flex;gap:6px;align-items:center;margin-top:12px"><input type="checkbox" id="p-disc" checked> Take cash discount per terms of payment</label>
+    </div></div>
+    <div class="card"><div class="card-head">Open Items <button class="btn small secondary" id="p-fill">Amount = selected net</button></div><div id="p-items"></div></div>
+    <div class="card"><div class="card-body">
+      <div class="balance-row">
+        <span>Selected: <span class="amt" id="p-sel">0.00</span></span>
+        <span>Cash discount: <span class="amt" id="p-dsum">0.00</span></span>
+        <span>Paid: <span class="amt" id="p-paid">0.00</span></span>
+        <span>Difference: <span class="amt" id="p-diff">0.00</span></span>
+        <span id="p-chip" class="chip no">—</span>
+      </div>
+      <button class="btn" id="p-post" disabled>Post</button>
+    </div></div>`;
+
+  const fillAcct = () => {
+    const list = $("#p-koart").value === "D" ? state.customers : state.vendors;
+    $("#p-acct").innerHTML = list.map((a) => `<option value="${a.kunnr || a.lifnr}">${a.kunnr || a.lifnr} — ${esc(a.name1)}</option>`).join("");
+  };
+  const selected = () => [...document.querySelectorAll(".p-pick:checked")].map((cb) => items[Number(cb.dataset.i)]);
+  const usesDiscount = () => $("#p-disc").checked && ["clear", "residual"].includes($("#p-mode").value);
+
+  const load = async () => {
+    const q = `bukrs=${state.bukrs}&koart=${$("#p-koart").value}&account=${$("#p-acct").value}&budat=${$("#p-budat").value}`;
+    items = await api(`/payments/open-items?${q}`);
+    $("#p-items").innerHTML = `<table><thead><tr><th></th><th>Document</th><th>PK</th><th>Posting date</th><th>Net due</th><th>Terms</th><th>Text</th><th class="num">Open</th><th class="num">Disc. %</th><th class="num">Discount</th><th class="num">Net</th></tr></thead>
+      <tbody>${items.map((i, n) => `<tr><td><input type="checkbox" class="p-pick" data-i="${n}"></td>
+        <td class="mono"><a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a></td><td>${i.bschl}</td><td>${i.budat}</td>
+        <td style="${i.overdue_days ? "color:var(--bad)" : ""}">${i.faedt}${i.overdue_days ? ` (+${i.overdue_days}d)` : ""}</td>
+        <td>${esc(i.zterm || "")}</td><td>${esc(i.sgtxt || "")}${i.rebzg ? ` <span class="help">ref ${i.rebzg}</span>` : ""}</td>
+        <td class="num">${fmt(i.open)}</td><td class="num">${Number(i.discount_pct) ? Number(i.discount_pct) + "%" : ""}</td>
+        <td class="num">${Number(i.discount) ? fmt(i.discount) : ""}</td><td class="num">${fmt(i.net)}</td></tr>`).join("")
+        || `<tr><td colspan="11" class="empty">No open items for this account.</td></tr>`}</tbody></table>`;
+    document.querySelectorAll(".p-pick").forEach((cb) => (cb.onchange = recalc));
+    recalc();
+  };
+
+  const recalc = () => {
+    const sel = selected(), mode = $("#p-mode").value;
+    const open = sel.reduce((s, i) => s + Number(i.open), 0);
+    const disc = usesDiscount() ? sel.reduce((s, i) => s + Number(i.discount), 0) : 0;
+    const paid = Number($("#p-amt").value || 0);
+    const diff = Math.round((open - disc - (open >= 0 ? paid : -paid)) * 100) / 100;
+    $("#p-sel").textContent = fmt(open); $("#p-dsum").textContent = fmt(disc);
+    $("#p-paid").textContent = fmt(paid); $("#p-diff").textContent = fmt(diff);
+    let ok = false, msg;
+    if (paid > 0 && !$("#p-bank").value) msg = "Choose a house bank";
+    else if (mode === "clear") { ok = sel.length > 0 && diff === 0; msg = !sel.length ? "Select items" : ok ? "Balanced — ready to clear" : "Difference must be 0"; }
+    else if (mode === "residual") { ok = sel.length > 0; msg = ok ? (diff ? `Residual item ${fmt(diff)}` : "Balanced — ready to clear") : "Select items"; }
+    else if (mode === "partial") { ok = sel.length === 1 && paid > 0 && paid < Math.abs(open); msg = ok ? "Partial payment" : "Select one item and pay less than its open amount"; }
+    else { ok = sel.length === 0 && paid > 0; msg = ok ? "Payment on account" : "Enter an amount and select no items"; }
+    const chip = $("#p-chip");
+    chip.className = "chip " + (ok ? "ok" : "no"); chip.textContent = msg;
+    $("#p-post").disabled = !ok;
+  };
+
+  const post = async () => {
+    const sel = selected().map((i) => ({ belnr: i.belnr, gjahr: i.gjahr, buzei: i.buzei }));
+    const paid = Number($("#p-amt").value || 0);
+    const base = { bukrs: state.bukrs, koart: $("#p-koart").value, account: $("#p-acct").value, budat: $("#p-budat").value, items: sel, mode: $("#p-mode").value };
+    try {
+      let r;
+      if (paid > 0) {
+        const [hbkid, hktid] = $("#p-bank").value.split(":");
+        r = await api("/payments", { method: "POST", body: JSON.stringify({ ...base, amount: paid, hbkid, hktid, apply_discount: $("#p-disc").checked }) });
+      } else {
+        r = await api("/clearing", { method: "POST", body: JSON.stringify(base) });
+      }
+      toast(`Document ${r.belnr}/${r.gjahr} posted · ${r.cleared.length} item(s) cleared`, "good");
+      location.hash = `#/documents?doc=${r.belnr}:${r.gjahr}`;
+    } catch (e) {
+      toast(e.message, "bad");
+    }
+  };
+
+  $("#p-koart").onchange = () => { fillAcct(); load(); };
+  $("#p-acct").onchange = load;
+  $("#p-budat").onchange = load;
+  ["#p-amt", "#p-mode", "#p-disc", "#p-bank"].forEach((s) => ($(s).oninput = $(s).onchange = recalc));
+  $("#p-fill").onclick = () => {
+    const sel = selected();
+    const net = sel.reduce((s, i) => s + Number(i.open) - (usesDiscount() ? Number(i.discount) : 0), 0);
+    $("#p-amt").value = Math.abs(net).toFixed(2);
+    if (!$("#p-bank").value && banks.length) $("#p-bank").value = `${banks[0].hbkid}:${banks[0].hktid}`;
+    recalc();
+  };
+  $("#p-post").onclick = post;
+  fillAcct();
+  if (banks.length) $("#p-bank").value = `${banks[0].hbkid}:${banks[0].hktid}`;
+  await load();
 };
 
 // ---------- G/L Accounts ----------

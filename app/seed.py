@@ -7,7 +7,8 @@ Creates:
   * Document types, posting keys, document number ranges
   * A small chart of accounts (bank, receivables, payables, tax, revenue, expense)
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
-  * One demo customer and one demo vendor
+  * Terms of payment 0001 / NT30 / ZB01 and cash discount accounts (SKT/SKE)
+  * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
 Run:  python -m app.seed
 Re-running is idempotent (records are merged by primary key).
@@ -46,6 +47,7 @@ from app.models.organizational import (
     PostingPeriodControl,
 )
 from app.models.partners import Customer, CustomerCompanyCode, Vendor, VendorCompanyCode
+from app.models.payments import AutomaticAccountDetermination, PaymentTerms
 from app.models.tax import Country, TaxAccount, TaxCode, TaxRate
 
 MANDT = "100"
@@ -70,6 +72,8 @@ def _gl_accounts():
         ("476000", "Office supplies expense", False, "PL00", None, "V1"),
         ("480000", "Depreciation expense", False, "PL00", None, None),
         ("800000", "Sales revenue - domestic", False, "PL00", None, "A1"),
+        ("880000", "Cash discount granted", False, "PL00", None, None),
+        ("276000", "Cash discount received", False, "GL00", None, None),
         ("011000", "Machinery (acquisition cost)", True, "GL00", None, None),
         ("011010", "Accumulated depreciation - machinery", True, "GL00", None, None),
     ]
@@ -149,6 +153,7 @@ def seed() -> None:
             ("KZ", "Vendor payment", "15", dict(xsach=True, xlief=True)),
             ("AA", "Asset posting", "01", dict(xsach=True, xanlg=True, xlief=True, xkund=True)),
             ("AF", "Depreciation posting", "01", dict(xsach=True)),
+            ("AB", "Accounting document", "01", dict(xsach=True, xkund=True, xlief=True, xanlg=True)),
         ]:
             s.merge(DocumentType(mandt=MANDT, blart=blart, ltext=txt, numkr=numkr, **flags))
 
@@ -169,19 +174,42 @@ def seed() -> None:
             ("01", "Invoice (customer)", "S", "D", dict(xumsw=True)),
             ("11", "Credit memo (customer)", "H", "D", dict(xumsw=True)),
             ("15", "Incoming payment", "H", "D", dict(xzahl=True)),
+            ("05", "Outgoing payment (customer)", "S", "D", dict(xzahl=True)),
+            ("06", "Payment difference (customer)", "S", "D", {}),
+            ("07", "Other clearing (customer)", "S", "D", {}),
+            ("16", "Payment difference (customer)", "H", "D", {}),
+            ("17", "Other clearing (customer)", "H", "D", {}),
             ("21", "Credit memo (vendor)", "S", "K", dict(xumsw=True)),
             ("25", "Outgoing payment", "S", "K", dict(xzahl=True)),
+            ("26", "Payment difference (vendor)", "S", "K", {}),
+            ("27", "Clearing (vendor)", "S", "K", {}),
             ("31", "Invoice (vendor)", "H", "K", dict(xumsw=True)),
+            ("35", "Incoming payment (vendor)", "H", "K", dict(xzahl=True)),
+            ("36", "Payment difference (vendor)", "H", "K", {}),
+            ("37", "Other clearing (vendor)", "H", "K", {}),
             ("70", "Debit asset", "S", "A", {}),
             ("75", "Credit asset", "H", "A", {}),
         ]:
             s.merge(PostingKey(mandt=MANDT, bschl=bschl, ltext=txt, shkzg=shkzg, koart=koart, **extra))
 
+        # --- Terms of payment (T052) & cash discount accounts (T030) ---
+        for zterm, text, t1, p1, t2, p2, t3 in [
+            ("0001", "Payable immediately, due net", 0, "0", 0, "0", 0),
+            ("NT30", "30 days due net", 0, "0", 0, "0", 30),
+            ("ZB01", "14 days 3%, 30 days 2%, 45 days due net", 14, "3", 30, "2", 45),
+        ]:
+            s.merge(PaymentTerms(
+                mandt=MANDT, zterm=zterm, ztagg=0, text1=text, zdart="B",
+                ztag1=t1, zprz1=Decimal(p1), ztag2=t2, zprz2=Decimal(p2), ztag3=t3,
+            ))
+        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKT", konts="880000"))
+        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKE", konts="276000"))
+
         # --- Demo customer & vendor ---
         s.merge(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))
         s.merge(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001"))
         s.merge(Vendor(mandt=MANDT, lifnr="0000020000", ktokk="LIEF", name1="Beta Supplies AG", land1="DE", ort01="Munich", spras="E"))
-        s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="0001", zuawa="001"))
+        s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="ZB01", zuawa="001"))
 
         # --- Asset Accounting ---
         s.merge(DepreciationArea(mandt=MANDT, afaber="01", afbe_txt="Book depreciation", buhbkt="1"))

@@ -193,6 +193,7 @@ class AccountingDocumentItem(Base):
     # --- open item / payment ---
     augdt: Mapped[date | None] = mapped_column()  # Clearing date
     augbl: Mapped[str | None] = mapped_column(String(10))  # Clearing document number
+    auggj: Mapped[int | None] = mapped_column()  # Fiscal year of clearing document
     augcp: Mapped[date | None] = mapped_column()  # Clearing entry date
     zuonr: Mapped[str | None] = mapped_column(String(18))  # Assignment number
     sgtxt: Mapped[str | None] = mapped_column(String(50))  # Item text

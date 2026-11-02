@@ -76,11 +76,20 @@ INT, and all customizing + demo master data.
 ```bash
 python -m app.verify           # posts customer/vendor/GL documents, prints a balanced trial balance
 python -m app.verify_assets    # asset acquisition + depreciation + bank statement + clearing
+python -m app.verify_payments  # payments, cash discount, partial/residual items, F-32 clearing
 ```
 
-Both should end with "OK ... the ledger balances."
+Each should end with "OK ... the ledger balances."
 
 ## 6. Run the app
+
+**With Docker** (needs Docker Desktop, and CPU virtualization enabled in the BIOS):
+
+```bash
+docker compose up -d --build
+```
+
+**Or locally:**
 
 ```bash
 python -m uvicorn app.main:app --reload --port 8000
@@ -108,13 +117,14 @@ CLAUDE.md.
 Enterprise structure · G/L master · double-entry posting engine (BKPF/BSEG) ·
 taxes (input/output VAT) · AR/AP sub-ledgers · Controlling (real-time FI→CO) ·
 Asset Accounting (acquisition + straight-line depreciation) · Bank Accounting
-(electronic statements + auto open-item clearing) · reporting (trial balance,
+(electronic statements + auto open-item clearing) · payments & clearing
+(F-28/F-53/F-32/F-44, cash discount, partial/residual) · reporting (trial balance,
 account balances, open items) · REST API · web UI.
 
 ## Roadmap (what to build next)
 
-1. Payments & clearing: F-32/F-44 manual clearing, F110 automatic payments,
-   cash discount, partial/residual items.
+1. Payments: F110 automatic payment program, F-03 G/L clearing, tolerances,
+   tax adjustment on cash discount.
 2. Financial Statement Version (FSV): balance sheet & P&L hierarchy.
 3. Document reversal (FB08), parked documents, recurring entries, FX valuation,
    dunning.

@@ -3,7 +3,9 @@
 Importing stores FEBKO/FEBEP. Posting walks the statement items: a credit
 matched to a customer becomes an incoming payment (debit bank G/L, credit
 customer); a debit matched to a vendor becomes an outgoing payment (credit bank
-G/L, debit vendor). Matched open items are cleared (AUGBL set on both sides).
+G/L, debit vendor). If the amount settles one open invoice exactly (net of cash
+discount, or gross) that invoice is cleared; otherwise the payment is posted on
+account for manual clearing. Both go through the clearing service.
 """
 
 from __future__ import annotations
@@ -19,10 +21,8 @@ from app.models.bank import (
     BankStatementItem,
     HouseBankAccount,
 )
-from app.models.documents import AccountingDocumentItem
-from app.models.organizational import CompanyCode
+from app.services import clearing
 from app.services.fiscal import PostingError
-from app.services.posting import DocumentRequest, LineRequest, post_document
 
 
 def import_statement(
@@ -66,7 +66,6 @@ def import_statement(
 
 def post_statement(session: Session, mandt: str, bukrs: str, kukey: str) -> dict:
     """Post and reconcile all unposted items of a bank statement."""
-    cc = session.get(CompanyCode, (mandt, bukrs))
     header = session.get(BankStatementHeader, (mandt, kukey))
     if header is None:
         raise PostingError(f"Bank statement {kukey} not found")
@@ -83,31 +82,26 @@ def post_statement(session: Session, mandt: str, bukrs: str, kukey: str) -> dict
     posted = []
     for it in items:
         if it.kunnr:  # incoming customer payment
-            lines = [
-                LineRequest(bschl="40", account=bank_gl, wrbtr=it.kwbtr, sgtxt="Bank incoming"),
-                LineRequest(bschl="15", account=it.kunnr, wrbtr=it.kwbtr, sgtxt="Incoming payment"),
-            ]
             koart, partner = "D", it.kunnr
         elif it.lifnr:  # outgoing vendor payment
-            lines = [
-                LineRequest(bschl="50", account=bank_gl, wrbtr=it.kwbtr, sgtxt="Bank outgoing"),
-                LineRequest(bschl="25", account=it.lifnr, wrbtr=it.kwbtr, sgtxt="Outgoing payment"),
-            ]
             koart, partner = "K", it.lifnr
         else:
             continue  # unmatched item, left for manual processing
 
-        header_doc = post_document(session, DocumentRequest(
-            mandt=mandt, bukrs=bukrs, blart="DZ" if koart == "D" else "KZ",
-            bldat=it.budat, budat=it.budat, waers=header.waers,
-            bktxt=f"Bank statement {kukey}/{it.esnum}", lines=lines,
-        ))
-        it.belnr, it.gjahr, it.xbenr = header_doc.belnr, header_doc.gjahr, True
-
-        cleared = _clear_open_items(session, mandt, bukrs, koart, partner, it.kwbtr, header_doc.belnr, it.budat)
-        it.nbbln = header_doc.belnr if cleared else None
+        match = clearing.match_open_item(session, mandt, bukrs, koart, partner, it.kwbtr, it.budat)
+        res = clearing.post_payment(session, clearing.PaymentRequest(
+            mandt=mandt, bukrs=bukrs, koart=koart, account=partner, budat=it.budat,
+            amount=it.kwbtr, hkont=bank_gl,
+            items=[match[0]] if match else [],
+            apply_discount=match[1] if match else False,
+            mode="clear" if match else "on_account",
+            bktxt=f"Bank stmt {kukey}/{it.esnum}"[:25], sgtxt=it.vwzw1, tcode="FF_5",
+        ), commit=False)
+        it.belnr, it.gjahr, it.xbenr = res["belnr"], res["gjahr"], True
+        it.nbbln = res["belnr"] if match else None
         session.commit()
-        posted.append({"esnum": it.esnum, "belnr": header_doc.belnr, "partner": partner, "cleared": cleared})
+        posted.append({"esnum": it.esnum, "belnr": res["belnr"], "partner": partner,
+                       "cleared": bool(match), "discount": res["discount"]})
 
     if items and all(i.xbenr for i in session.scalars(
         select(BankStatementItem).where(BankStatementItem.mandt == mandt, BankStatementItem.kukey == kukey)
@@ -116,40 +110,3 @@ def post_statement(session: Session, mandt: str, bukrs: str, kukey: str) -> dict
         session.commit()
 
     return {"kukey": kukey, "posted": posted}
-
-
-def _clear_open_items(
-    session: Session, mandt: str, bukrs: str, koart: str, partner: str,
-    amount: Decimal, augbl: str, augdt: date,
-) -> bool:
-    """Clear the open item(s) of a partner matching the payment amount (FIFO)."""
-    field = AccountingDocumentItem.kunnr if koart == "D" else AccountingDocumentItem.lifnr
-    # The payment line posts the opposite side of the invoice; find the open invoice.
-    inv_side = "S" if koart == "D" else "H"
-    items = session.scalars(
-        select(AccountingDocumentItem).where(
-            AccountingDocumentItem.mandt == mandt,
-            AccountingDocumentItem.bukrs == bukrs,
-            AccountingDocumentItem.koart == koart,
-            field == partner,
-            AccountingDocumentItem.shkzg == inv_side,
-            AccountingDocumentItem.augbl.is_(None),
-        ).order_by(AccountingDocumentItem.gjahr, AccountingDocumentItem.belnr)
-    ).all()
-
-    for inv in items:
-        if inv.dmbtr == amount:
-            inv.augbl, inv.augdt = augbl, augdt
-            # also clear the payment line itself
-            pay_items = session.scalars(
-                select(AccountingDocumentItem).where(
-                    AccountingDocumentItem.mandt == mandt,
-                    AccountingDocumentItem.bukrs == bukrs,
-                    AccountingDocumentItem.belnr == augbl,
-                    AccountingDocumentItem.koart == koart,
-                )
-            ).all()
-            for p in pay_items:
-                p.augbl, p.augdt = augbl, augdt
-            return True
-    return False

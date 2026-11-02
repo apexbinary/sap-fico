@@ -35,6 +35,7 @@ from app.models.documents import (
 )
 from app.models.gl_master import GLAccountCompanyCode
 from app.models.partners import CustomerCompanyCode, VendorCompanyCode
+from app.services import payment_terms
 from app.services import tax as tax_svc
 from app.services.fiscal import PostingError, check_period_open, company_code, determine_period
 
@@ -60,6 +61,10 @@ class LineRequest:
     zfbdt: date | None = None  # Baseline date (due date calc)
     zterm: str | None = None  # Payment terms
     umskz: str | None = None  # Special G/L indicator
+    rebzg: str | None = None  # Invoice reference: document number (partial/residual items)
+    rebzj: int | None = None  # Invoice reference: fiscal year
+    rebzz: int | None = None  # Invoice reference: line item
+    wskto: Decimal | None = None  # Cash discount amount taken (document currency)
     anln2: str = "0000"  # Asset sub-number (account type A)
     anbwa: str | None = None  # Asset transaction type (account type A)
     afabe: str = "01"  # Depreciation area (account type A)
@@ -164,21 +169,30 @@ class _ResolvedLine:
     wmwst: Decimal | None = None
     mwsts: Decimal | None = None
     ktosl: str | None = None
+    terms: object | None = None  # T052 terms of payment (sub-ledger invoice lines)
 
 
-def post_document(session: Session, req: DocumentRequest) -> AccountingDocumentHeader:
-    """Validate and post a document. Commits on success, rolls back on error."""
+def post_document(
+    session: Session, req: DocumentRequest, *, commit: bool = True
+) -> AccountingDocumentHeader:
+    """Validate and post a document. Rolls back on error.
+
+    With ``commit=False`` the document is only flushed, so a caller (e.g. the
+    clearing service) can make further changes in the same transaction.
+    """
     from app.config import settings
 
     mandt = req.mandt or settings.default_client
     try:
-        return _post(session, mandt, req)
+        return _post(session, mandt, req, commit)
     except Exception:
         session.rollback()
         raise
 
 
-def _post(session: Session, mandt: str, req: DocumentRequest) -> AccountingDocumentHeader:
+def _post(
+    session: Session, mandt: str, req: DocumentRequest, commit: bool
+) -> AccountingDocumentHeader:
     cc = company_code(session, mandt, req.bukrs)
     ktopl = cc.ktopl
     local_currency = cc.waers
@@ -227,6 +241,10 @@ def _post(session: Session, mandt: str, req: DocumentRequest) -> AccountingDocum
             bschl=ln.bschl, koart=pk.koart, shkzg=pk.shkzg, hkont=hkont, saknr=saknr,
             kunnr=kunnr, lifnr=lifnr, wrbtr=ln.wrbtr, dmbtr=dmbtr, src=ln, mwskz=ln.mwskz,
         )
+        # Invoices / credit memos (sales-related keys) carry terms of payment;
+        # other sub-ledger lines only when terms are entered explicitly.
+        if pk.koart in ("D", "K") and (ln.zterm or pk.xumsw):
+            rl.terms = payment_terms.for_line(session, mandt, req.bukrs, pk.koart, ln.account, ln.zterm)
         resolved.append(rl)
 
         # Auto tax line generation from a base line flagged for tax calculation.
@@ -284,8 +302,16 @@ def _post(session: Session, mandt: str, req: DocumentRequest) -> AccountingDocum
             gsber=(src.gsber if src else None),
             sgtxt=(src.sgtxt if src else None),
             zuonr=(src.zuonr if src else None),
-            zfbdt=(src.zfbdt if src else None) or (req.budat if rl.koart in ("D", "K") else None),
+            zfbdt=(src.zfbdt if src else None) or (
+                payment_terms.baseline_date(rl.terms, req.bldat, req.budat)
+                if rl.koart in ("D", "K") else None
+            ),
             zterm=(src.zterm if src else None),
+            rebzg=(src.rebzg if src else None),
+            rebzj=(src.rebzj if src else None),
+            rebzz=(src.rebzz if src else None),
+            wskto=(src.wskto if src else None),
+            sknto=(_to_local(src.wskto, req.kursf) if src and src.wskto else None),
             kostl=(src.kostl if src else None),
             aufnr=(src.aufnr if src else None),
             prctr=(src.prctr if src else None),
@@ -296,13 +322,18 @@ def _post(session: Session, mandt: str, req: DocumentRequest) -> AccountingDocum
             anbwa=(src.anbwa if src and rl.koart == "A" else None),
             bzdat=(src.bzdat or req.budat if src and rl.koart == "A" else None),
         )
+        for name, value in payment_terms.line_fields(rl.terms, rl.wrbtr).items():
+            setattr(item, name, value)
         session.add(item)
         _update_totals(session, mandt, req.bukrs, gjahr, monat, rl, local_currency)
         _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, cc.kokfi)
         if rl.koart == "A" and src:
             _update_asset_values(session, mandt, req, gjahr, belnr, buzei, rl, monat)
 
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(header)
     return header
 

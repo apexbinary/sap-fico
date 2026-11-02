@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.documents import AccountingDocumentItem, GLAccountTotals
 from app.models.gl_master import GLAccountText
+from app.services.payment_terms import net_due_date
 
 _PERIOD_COLS = [f"tsl{p:02d}" for p in range(1, 17)]
 
@@ -140,9 +141,13 @@ def open_items(
                 "waers": it.header.waers,
                 "budat": it.header.budat,
                 "zfbdt": it.zfbdt,
+                "zterm": it.zterm,
+                "faedt": net_due_date(it),
+                "rebzg": it.rebzg,
                 "zuonr": it.zuonr,
                 "sgtxt": it.sgtxt,
                 "augbl": it.augbl,
+                "augdt": it.augdt,
                 "cleared": it.augbl is not None,
             }
         )

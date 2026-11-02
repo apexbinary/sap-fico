@@ -64,6 +64,7 @@ from app.models.partners import (
     Vendor,
     VendorCompanyCode,
 )
+from app.models.payments import AutomaticAccountDetermination, PaymentTerms
 from app.models.tax import (
     Country,
     TaxAccount,
@@ -90,6 +91,8 @@ __all__ = [
     "WithholdingTaxCode",
     # partners
     "Customer", "CustomerCompanyCode", "Vendor", "VendorCompanyCode",
+    # payments
+    "PaymentTerms", "AutomaticAccountDetermination",
     # controlling
     "CostCenter", "CostElement", "CostElementCO", "InternalOrder",
     "ProfitCenter", "COLineItem",

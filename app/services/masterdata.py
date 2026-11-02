@@ -147,7 +147,7 @@ def create_item(session: Session, req: ItemRequest, *, commit: bool = True) -> I
         sell_item=yn(req.sell_item), prchse_item=yn(req.prchse_item), eval_system="A", gl_method="C",
         invntry_uom=req.invntry_uom, vat_gourp_sa=req.vat_gourp_sa, vat_group_pu=req.vat_group_pu,
         dflt_wh=req.dflt_wh, card_code=req.card_code, min_level=req.min_level, on_hand=Decimal("0"),
-        is_commited=Decimal("0"), on_order=Decimal("0"), avg_price=Decimal("0"), last_pur_prc=Decimal("0"),
+        is_commited=Decimal("0"), on_order=Decimal("0"), avg_price=Decimal("0"), stock_value=Decimal("0"), last_pur_prc=Decimal("0"),
         frozen_for="N",
     )
     session.add(item)

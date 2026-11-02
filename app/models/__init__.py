@@ -10,6 +10,7 @@ from app.models.admin import (
     TaxGroup,
 )
 from app.models.finance import Account, AccountDetermination, JournalEntry, JournalLine
+from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerGroup
 
@@ -22,4 +23,6 @@ __all__ = [
     "PartnerGroup", "BusinessPartner", "ContactPerson",
     # inventory
     "ItemGroup", "Item", "Warehouse", "ItemWarehouse", "PriceList", "ItemPrice",
+    # marketing and inventory documents (classes by object type), warehouse journal
+    "DOCUMENT_CLASSES", "DOCUMENT_TABLES", "WarehouseJournal",
 ]

@@ -11,9 +11,9 @@ trademarks of SAP SE.
 | Administration — company, currencies, exchange rates, posting periods, numbering series, tax groups, payment terms | ✅ |
 | Financials — chart of accounts (tree), journal entries, reversal, trial balance, balance sheet, P&L | ✅ |
 | Business partners — master data, groups, contact persons, control accounts, balances and open items | ✅ |
-| Sales A/R and purchasing A/P documents | planned |
+| Sales A/R and purchasing A/P documents — quotation, order, delivery, return, invoice, credit memo (and purchasing equivalents), copy-from / copy-to, automatic journal entries, cancel / close | ✅ |
 | Inventory — master data: items, item groups (G/L accounts), warehouses, stock per warehouse, price lists | ✅ |
-| Inventory — goods receipt / issue / transfer, moving-average cost | planned |
+| Inventory — goods receipt / issue / transfer, moving-average cost, inventory audit report (OINM) | ✅ |
 | Banking | planned |
 
 ## Run

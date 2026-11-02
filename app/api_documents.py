@@ -1,0 +1,151 @@
+"""REST endpoints: sales, purchasing and inventory documents; warehouse journal."""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api_finance import run
+from app.database import get_session
+from app.models.documents import DOCUMENT_CLASSES, WarehouseJournal
+from app.services import documents
+from app.services.admin import B1Error
+
+router = APIRouter()
+
+
+def _doc_out(doc, detail: bool = False) -> dict:
+    d = documents.DEFS[doc.obj_type]
+    out = {"obj": doc.obj_type, "name": d.name, "doc_entry": doc.doc_entry, "doc_num": doc.doc_num,
+           "doc_type": doc.doc_type, "doc_status": doc.doc_status, "canceled": doc.canceled == "Y",
+           "doc_date": doc.doc_date, "doc_due_date": doc.doc_due_date, "tax_date": doc.tax_date,
+           "card_code": doc.card_code, "card_name": doc.card_name, "num_at_card": doc.num_at_card,
+           "doc_cur": doc.doc_cur, "disc_prcnt": doc.disc_prcnt, "disc_sum": doc.disc_sum, "vat_sum": doc.vat_sum,
+           "doc_total": doc.doc_total, "paid_to_date": doc.paid_to_date, "trans_id": doc.trans_id,
+           "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code}
+    if detail:
+        out["address"] = doc.address
+        out["lines"] = [{"line_num": l.line_num, "line_status": l.line_status, "item_code": l.item_code,
+                         "dscription": l.dscription, "quantity": l.quantity, "open_qty": l.open_qty,
+                         "price_bef_di": l.price_bef_di, "disc_prcnt": l.disc_prcnt, "price": l.price,
+                         "line_total": l.line_total, "vat_group": l.vat_group, "vat_prcnt": l.vat_prcnt,
+                         "vat_sum": l.vat_sum, "gtotal": l.gtotal, "whs_code": l.whs_code,
+                         "from_whs_cod": l.from_whs_cod, "acct_code": l.acct_code, "unit_msr": l.unit_msr,
+                         "stock_price": l.stock_price, "grss_profit": l.grss_profit, "base_type": l.base_type,
+                         "base_entry": l.base_entry, "base_line": l.base_line, "base_ref": l.base_ref,
+                         "target_type": l.target_type, "trget_entry": l.trget_entry} for l in doc.lines]
+    return out
+
+
+def _check(obj: str) -> None:
+    if obj not in documents.DEFS:
+        raise HTTPException(status_code=404, detail=f"Unknown document type {obj}")
+
+
+@router.get("/documents/types", tags=["Documents"], summary="Document types and their copy-from bases")
+def types() -> list[dict]:
+    return [{"obj": d.obj, "name": d.name, "side": d.side, "kind": d.kind, "bases": list(d.bases),
+             "targets": [t.obj for t in documents.DEFS.values() if d.obj in t.bases]}
+            for d in documents.DEFS.values()]
+
+
+@router.get("/documents/{obj}", tags=["Documents"], summary="Documents of a type (newest first)")
+def list_documents(obj: str, card_code: str | None = None, status: str | None = None, limit: int = 100,
+                   s: Session = Depends(get_session)) -> list[dict]:
+    _check(obj)
+    header_cls, _ = DOCUMENT_CLASSES[obj]
+    q = select(header_cls).order_by(header_cls.doc_entry.desc()).limit(limit)
+    if card_code:
+        q = q.where(header_cls.card_code == card_code)
+    if status:
+        q = q.where(header_cls.doc_status == status.upper())
+    return [_doc_out(doc) for doc in s.scalars(q)]
+
+
+class DocLineIn(BaseModel):
+    item_code: str | None = None
+    quantity: Decimal = Field(Decimal("1"), gt=0)
+    price: Decimal | None = Field(None, ge=0)
+    disc_prcnt: Decimal | None = Field(None, ge=0, le=100)
+    vat_group: str | None = None
+    whs_code: str | None = None
+    from_whs_cod: str | None = None
+    acct_code: str | None = None
+    dscription: str | None = Field(None, max_length=100)
+    base_type: str | None = None
+    base_entry: int | None = None
+    base_line: int | None = None
+
+
+class DocumentIn(BaseModel):
+    doc_date: date
+    card_code: str | None = None
+    doc_type: str = Field("I", pattern="^[IS]$")
+    doc_due_date: date | None = None
+    tax_date: date | None = None
+    disc_prcnt: Decimal = Field(Decimal("0"), ge=0, lt=100)
+    num_at_card: str | None = Field(None, max_length=100)
+    comments: str | None = Field(None, max_length=254)
+    from_whs: str | None = None
+    to_whs: str | None = None
+    lines: list[DocLineIn]
+
+
+@router.post("/documents/{obj}", tags=["Documents"], summary="Add a document (posts stock and journal entry)")
+def create_document(obj: str, body: DocumentIn, s: Session = Depends(get_session)) -> dict:
+    _check(obj)
+    data = body.model_dump()
+    lines = [documents.DocLineRequest(**l) for l in data.pop("lines")]
+    doc = run(lambda: documents.create_document(s, documents.DocumentRequest(obj=obj, lines=lines, **data)))
+    return _doc_out(doc, detail=True)
+
+
+@router.get("/documents/{obj}/copy-sources", tags=["Documents"], summary="Open base documents to copy from")
+def copy_sources(obj: str, card_code: str, s: Session = Depends(get_session)) -> list[dict]:
+    _check(obj)
+    return documents.copy_sources(s, obj, card_code)
+
+
+@router.get("/documents/{obj}/{doc_entry}", tags=["Documents"])
+def get_document(obj: str, doc_entry: int, s: Session = Depends(get_session)) -> dict:
+    _check(obj)
+    try:
+        return _doc_out(documents.get_document(s, obj, doc_entry), detail=True)
+    except B1Error as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+class CancelIn(BaseModel):
+    cancel_date: date | None = None
+
+
+@router.post("/documents/{obj}/{doc_entry}/cancel", tags=["Documents"], summary="Cancel a document")
+def cancel_document(obj: str, doc_entry: int, body: CancelIn, s: Session = Depends(get_session)) -> dict:
+    _check(obj)
+    return _doc_out(run(lambda: documents.cancel_document(s, obj, doc_entry, body.cancel_date)), detail=True)
+
+
+@router.post("/documents/{obj}/{doc_entry}/close", tags=["Documents"], summary="Close a quotation or order")
+def close_document(obj: str, doc_entry: int, s: Session = Depends(get_session)) -> dict:
+    _check(obj)
+    return _doc_out(run(lambda: documents.close_document(s, obj, doc_entry)), detail=True)
+
+
+@router.get("/inventory/journal", tags=["Inventory"], summary="Warehouse journal / inventory audit (OINM)")
+def warehouse_journal(item_code: str | None = None, warehouse: str | None = None, limit: int = 200,
+                      s: Session = Depends(get_session)) -> list[dict]:
+    q = select(WarehouseJournal).order_by(WarehouseJournal.trans_num.desc()).limit(limit)
+    if item_code:
+        q = q.where(WarehouseJournal.item_code == item_code)
+    if warehouse:
+        q = q.where(WarehouseJournal.warehouse == warehouse)
+    return [{"trans_num": r.trans_num, "doc_date": r.doc_date, "trans_type": r.trans_type,
+             "name": documents.DEFS[r.trans_type].name, "doc_entry": r.created_by, "doc_num": r.base_ref,
+             "line": r.doc_line_num, "item_code": r.item_code, "warehouse": r.warehouse, "in_qty": r.in_qty,
+             "out_qty": r.out_qty, "price": r.price, "trans_value": r.trans_value, "calc_price": r.calc_price,
+             "card_code": r.card_code, "jrnl_memo": r.jrnl_memo, "trans_id": r.trans_id} for r in s.scalars(q)]

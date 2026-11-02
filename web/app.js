@@ -55,7 +55,8 @@ async function reloadMasterData() {
 const views = {};
 function route() {
   const view = (location.hash.replace("#/", "") || "cockpit").split("?")[0];
-  $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
+  const obj = query().get("obj");
+  $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.obj ? a.dataset.obj === obj && view.startsWith("doc") : a.dataset.view === view));
   const c = $("#content");
   c.innerHTML = '<div class="loading">Loading…</div>';
   Promise.resolve((views[view] || views.cockpit)(c)).catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
@@ -84,14 +85,21 @@ views.cockpit = async (c) => {
 function jeTable(jes) {
   return `<table><thead><tr><th>No.</th><th>Posting date</th><th>Origin</th><th>Remarks</th><th class="num">Amount</th><th>Status</th></tr></thead>
     <tbody>${jes.map((e) => `<tr style="cursor:pointer" onclick="location.hash='#/journal?id=${e.trans_id}'">
-      <td class="mono">${e.number}</td><td>${e.ref_date}</td><td>${esc(transTypeName(e.trans_type))}${e.base_ref ? ` ${esc(e.base_ref)}` : ""}</td>
+      <td class="mono">${e.number}</td><td>${e.ref_date}</td><td>${docLink(e.trans_type, e.created_by, transTypeName(e.trans_type) + (e.base_ref ? ` ${e.base_ref}` : ""))}</td>
       <td>${esc(e.memo || "")}</td><td class="num">${fmt(e.loc_total)}</td>
       <td>${e.storno_to_tr ? `<span class="status X">${e.auto_storno ? "Reversal" : "Reversed"}</span>` : ""}</td></tr>`).join("")
       || `<tr><td colspan="6" class="empty">No journal entries yet.</td></tr>`}</tbody></table>`;
 }
 const TRANS_TYPES = { "30": "JE", "13": "IN", "14": "CN", "15": "DN", "16": "RE", "18": "PU", "19": "PC", "20": "PD",
-  "21": "PR", "24": "RC", "46": "PS", "59": "SI", "60": "SO", "67": "IM" };
+  "21": "PR", "24": "RC", "46": "PS", "59": "SI", "60": "SO", "67": "IM", "23": "QT", "17": "OR", "22": "PO", "540000006": "PQ" };
 const transTypeName = (t) => TRANS_TYPES[t] || t;
+// origin of a journal entry -> the document that created it
+const docLink = (type, entry, label) => (DOC_NAMES[type] && type !== "30" && entry
+  ? `<a href="#/docs?obj=${type}&entry=${entry}" onclick="event.stopPropagation()">${esc(label)}</a>` : esc(label));
+const DOC_NAMES = { "23": "Sales Quotation", "17": "Sales Order", "15": "Delivery", "16": "Return", "13": "A/R Invoice",
+  "14": "A/R Credit Memo", "540000006": "Purchase Quotation", "22": "Purchase Order", "20": "Goods Receipt PO",
+  "21": "Goods Return", "18": "A/P Invoice", "19": "A/P Credit Memo", "59": "Goods Receipt", "60": "Goods Issue",
+  "67": "Inventory Transfer" };
 
 // ---------- Chart of Accounts ----------
 views.accounts = async (c) => {
@@ -138,6 +146,9 @@ views["journal-entry"] = async (c) => {
       <div class="field"><label>Document date</label><input id="je-tax" type="date" value="${today()}"></div>
       <div class="field"><label>Remarks</label><input id="je-memo" maxlength="50"></div>
       <div class="field"><label>Ref. 1</label><input id="je-ref1"></div>
+      <div class="field"><label>Origin</label><input value="JE" readonly title="TransType — JE for manual entries"></div>
+      <div class="field"><label>Origin No.</label><input readonly title="BaseRef — filled when the entry is added"></div>
+      <div class="field"><label>Trans. No.</label><input readonly title="TransId — assigned when the entry is added"></div>
     </div></div></div>
     <div class="card"><div class="card-body">
       <table class="lines"><thead><tr><th>G/L account / BP code</th><th class="num w-amt">Debit</th><th class="num w-amt">Credit</th><th>Line remarks</th><th></th></tr></thead><tbody id="je-lines"></tbody></table>
@@ -190,6 +201,11 @@ views.journal = async (c) => {
   $("#je-detail").innerHTML = `<div class="card"><div class="card-head"><span>Journal entry ${e.number} · ${e.ref_date} · ${esc(transTypeName(e.trans_type))}
       ${e.storno_to_tr ? ` · ${e.auto_storno ? "reversal of" : "reversed by"} TransId ${e.storno_to_tr}` : ""}</span>
       ${e.storno_to_tr ? "" : `<button class="btn small secondary" id="je-rev">Reverse</button>`}</div>
+    <div class="card-body"><div class="form-grid">
+      ${[["Trans. No.", e.trans_id], ["Number", e.number], ["Origin", transTypeName(e.trans_type)], ["Origin No.", e.base_ref || e.number], ["Origin document", DOC_NAMES[e.trans_type] ? `${DOC_NAMES[e.trans_type]} ${e.base_ref}` : "Manual journal entry"],
+         ["Posting date", e.ref_date], ["Due date", e.due_date], ["Document date", e.tax_date], ["Remarks", e.memo], ["Ref. 1", e.ref1], ["Ref. 2", e.ref2]]
+        .map(([k, v]) => `<div class="field"><label>${k}</label><input value="${esc(v ?? "")}" readonly></div>`).join("")}
+    </div></div>
     <table><thead><tr><th>#</th><th>G/L account / BP</th><th>Name</th><th>Contra account</th><th class="num">Debit</th><th class="num">Credit</th><th>Remarks</th></tr></thead>
     <tbody>${e.lines.map((l) => `<tr><td>${l.line_id + 1}</td><td class="mono">${esc(l.short_name)}${l.short_name !== l.account ? ` <span class="help">(${esc(l.account)})</span>` : ""}</td>
       <td>${esc(name(l.account))}</td><td class="mono help">${esc(l.contra_act || "")}</td>
@@ -382,6 +398,254 @@ views.warehouses = async (c) => {
   $("#wh-add").onclick = async () => {
     if (await act(() => post("/warehouses", { whs_code: $("#wh-code").value, whs_name: $("#wh-name").value, city: $("#wh-city").value || null }), "Warehouse added")) route();
   };
+};
+
+// ---------- Marketing and inventory documents ----------
+let DOC_TYPES = null;
+async function docTypes() {
+  if (!DOC_TYPES) DOC_TYPES = Object.fromEntries((await api("/documents/types")).map((t) => [t.obj, t]));
+  return DOC_TYPES;
+}
+const STATUS = (d) => (d.canceled ? '<span class="status X">Canceled</span>'
+  : d.doc_status === "O" ? '<span class="status O">Open</span>' : '<span class="status C">Closed</span>');
+const qtyFmt = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 3 });
+
+views.docs = async (c) => {
+  const obj = query().get("obj") || "13", entry = query().get("entry");
+  const t = (await docTypes())[obj];
+  const list = await api(`/documents/${obj}?limit=100`);
+  const bp = t.side !== "I";
+  c.innerHTML = `<div class="page-head"><div><h1>${esc(t.name)}</h1><div class="sub">${t.side === "S" ? "Sales — A/R" : t.side === "P" ? "Purchasing — A/P" : "Inventory"}
+      ${t.bases.length ? ` · copy from ${t.bases.map((b) => esc(DOC_NAMES[b])).join(", ")}` : ""}</div></div>
+      <a class="btn" href="#/doc?obj=${obj}">+ New ${esc(t.name)}</a></div>
+    <div class="card"><table><thead><tr><th>No.</th><th>Posting date</th>${bp ? "<th>BP code</th><th>BP name</th>" : "<th>Remarks</th>"}
+      ${t.side === "I" ? "" : "<th>Due date</th>"}<th class="num">Total</th>${t.kind === "invoice" || t.kind === "credit" ? '<th class="num">Paid / applied</th>' : ""}<th>Status</th></tr></thead>
+      <tbody>${list.map((d) => `<tr style="cursor:pointer" onclick="location.hash='#/docs?obj=${obj}&entry=${d.doc_entry}'">
+        <td class="mono">${d.doc_num}</td><td>${d.doc_date}</td>${bp ? `<td class="mono">${esc(d.card_code)}</td><td>${esc(d.card_name)}</td>` : `<td>${esc(d.comments || "")}</td>`}
+        ${t.side === "I" ? "" : `<td>${d.doc_due_date}</td>`}<td class="num">${fmt(d.doc_total)}</td>
+        ${t.kind === "invoice" || t.kind === "credit" ? `<td class="num">${fmt(d.paid_to_date)}</td>` : ""}<td>${STATUS(d)}</td></tr>`).join("")
+        || `<tr><td colspan="8" class="empty">No documents yet.</td></tr>`}</tbody></table></div><div id="doc-detail"></div>`;
+  if (entry) await docDetail($("#doc-detail"), t, entry);
+};
+
+async function docDetail(el, t, entry) {
+  const d = await api(`/documents/${t.obj}/${entry}`);
+  const types = await docTypes();
+  const open = d.doc_status === "O" && !d.canceled;
+  const targets = open || t.kind === "invoice" ? t.targets.filter((x) => !d.canceled && d.lines.some((l) => Number(l.open_qty) > 0)) : [];
+  const item = t.side !== "I" && d.doc_type === "I";
+  el.innerHTML = `<div class="card"><div class="card-head"><span>${esc(t.name)} ${d.doc_num} ${STATUS(d)}</span><span style="display:flex;gap:6px">
+      ${targets.map((x) => `<a class="btn small" href="#/doc?obj=${x}&from=${t.obj}:${d.doc_entry}">Copy to ${esc(types[x].name)}</a>`).join("")}
+      ${open && ["quotation", "order"].includes(t.kind) ? '<button class="btn small secondary" id="doc-close">Close</button>' : ""}
+      ${!d.canceled ? '<button class="btn small secondary" id="doc-cancel">Cancel</button>' : ""}</span></div>
+    <div class="card-body"><div class="form-grid">
+      ${[...(t.side !== "I" ? [["Business partner", `${d.card_code} — ${d.card_name}`], ["BP ref. no.", d.num_at_card]] : []),
+         ["Posting date", d.doc_date], [t.side === "I" ? "Document date" : t.kind === "invoice" || t.kind === "credit" ? "Due date" : "Delivery date", t.side === "I" ? d.tax_date : d.doc_due_date],
+         ...(t.side !== "I" ? [["Document date", d.tax_date], ["Type", d.doc_type === "S" ? "Service" : "Item"]] : []),
+         ...(t.kind === "transfer" ? [["From warehouse", d.filler], ["To warehouse", d.to_whs_code]] : []), ["Remarks", d.comments]]
+        .map(([k, v]) => `<div class="field"><label>${k}</label><input value="${esc(v ?? "")}" readonly></div>`).join("")}
+      ${d.trans_id ? `<div class="field"><label>Journal entry</label><a class="btn small ghost" href="#/journal?id=${d.trans_id}">Trans. No. ${d.trans_id} &#8599;</a></div>` : ""}
+    </div></div>
+    <table><thead><tr><th>#</th><th>${d.doc_type === "S" ? "Description" : "Item"}</th>${d.doc_type === "S" ? "<th>G/L account</th>" : "<th>Description</th><th class=\"num\">Qty</th>"}
+      ${t.side !== "I" && d.doc_type === "I" ? '<th class="num">Open</th>' : ""}${t.kind === "transfer" ? "<th>From</th>" : ""}${d.doc_type === "I" ? "<th>Whs</th>" : ""}
+      <th class="num">Price</th>${t.side !== "I" ? '<th class="num">Disc. %</th><th>Tax</th>' : ""}<th class="num">Total</th>${item || t.side === "I" ? '<th class="num">Item cost</th>' : ""}<th>Base</th><th></th></tr></thead>
+    <tbody>${d.lines.map((l) => `<tr><td>${l.line_num + 1}</td>
+      ${d.doc_type === "S" ? `<td>${esc(l.dscription)}</td><td class="mono">${esc(l.acct_code)}</td>` : `<td class="mono">${esc(l.item_code)}</td><td>${esc(l.dscription)}</td><td class="num">${qtyFmt(l.quantity)}</td>`}
+      ${t.side !== "I" && d.doc_type === "I" ? `<td class="num">${qtyFmt(l.open_qty)}</td>` : ""}${t.kind === "transfer" ? `<td>${esc(l.from_whs_cod)}</td>` : ""}${d.doc_type === "I" ? `<td>${esc(l.whs_code || "")}</td>` : ""}
+      <td class="num">${fmt(t.side === "I" ? l.stock_price : l.price_bef_di)}</td>${t.side !== "I" ? `<td class="num">${Number(l.disc_prcnt) ? Number(l.disc_prcnt) : ""}</td><td>${esc(l.vat_group || "")}</td>` : ""}
+      <td class="num">${fmt(l.line_total)}</td>${item || t.side === "I" ? `<td class="num">${Number(l.stock_price) ? fmt(l.stock_price) : ""}</td>` : ""}
+      <td>${l.base_type ? `<a href="#/docs?obj=${l.base_type}&entry=${l.base_entry}">${esc(transTypeName(l.base_type))} ${esc(l.base_ref)}</a>` : ""}</td>
+      <td>${l.line_status === "C" && !d.canceled && t.side !== "I" ? '<span class="help">closed</span>' : ""}</td></tr>`).join("")}</tbody></table>
+    ${t.side !== "I" ? `<div class="card-body"><div class="totals">
+      <div><span>Total before discount</span><b>${fmt(d.lines.reduce((s, l) => s + Number(l.line_total), 0))}</b></div>
+      <div><span>Discount ${Number(d.disc_prcnt) ? `${Number(d.disc_prcnt)} %` : ""}</span><b>${fmt(d.disc_sum)}</b></div>
+      <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div><div class="grand"><span>Total</span><b>${fmt(d.doc_total)} ${esc(d.doc_cur)}</b></div>
+      ${t.kind === "invoice" || t.kind === "credit" ? `<div><span>Paid / applied</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Balance due</span><b>${fmt(d.doc_total - d.paid_to_date)}</b></div>` : ""}
+    </div></div>` : `<div class="card-body"><div class="totals"><div class="grand"><span>Total value</span><b>${fmt(d.doc_total)}</b></div></div></div>`}</div>`;
+  const reload = () => { location.hash = `#/docs?obj=${t.obj}&entry=${d.doc_entry}&r=${Date.now()}`; };
+  const cl = $("#doc-close");
+  if (cl) cl.onclick = async () => { if (await act(() => post(`/documents/${t.obj}/${d.doc_entry}/close`, {}), "Document closed")) reload(); };
+  const cn = $("#doc-cancel");
+  if (cn) cn.onclick = async () => {
+    if (!confirm(`Cancel ${t.name} ${d.doc_num}? Stock and journal entry are reversed.`)) return;
+    if (await act(() => post(`/documents/${t.obj}/${d.doc_entry}/cancel`, {}), "Document canceled")) { state.partners = await api("/partners"); reload(); }
+  };
+}
+
+views.doc = async (c) => {
+  const obj = query().get("obj") || "13", from = query().get("from");
+  const t = (await docTypes())[obj];
+  const [items, whs] = await Promise.all([api("/items"), api("/warehouses")]);
+  const L = state.lookups, side = t.side;
+  const taxes = L.tax_groups.filter((x) => x.category === (side === "S" ? "O" : "I"));
+  const rate = (code) => Number((L.tax_groups.find((x) => x.code === code) || {}).rate || 0);
+  const partners = state.partners.filter((b) => !b.frozen && (side === "S" ? (b.card_type === "C" || (b.card_type === "L" && t.kind === "quotation")) : b.card_type === "S"));
+  const serviceOk = side !== "I" && !["delivery", "return"].includes(t.kind);
+  const sellable = items.filter((i) => !i.frozen && (side === "S" ? i.sell_item : side === "P" ? i.prchse_item : i.invnt_item) && (["delivery", "return"].includes(t.kind) ? i.invnt_item : true));
+  const whsOpts = (sel) => whs.map((w) => opt(w.whs_code, w.whs_code, sel)).join("");
+  c.innerHTML = `<div class="page-head"><div><h1>${esc(t.name)}</h1><div class="sub">New document${t.bases.length ? ` · copy from ${t.bases.map((b) => esc(DOC_NAMES[b])).join(", ")}` : ""}</div></div>
+      <a class="btn secondary" href="#/docs?obj=${obj}">Back to list</a></div>
+    <div class="card"><div class="card-body"><div class="form-grid">
+      ${side !== "I" ? `<div class="field"><label class="req">${side === "S" ? "Customer" : "Vendor"}</label><select id="d-bp">${opt("", "— select —")}${partners.map((b) => opt(b.card_code, `${b.card_code} — ${b.card_name}`)).join("")}</select></div>
+        <div class="field"><label>BP ref. no.</label><input id="d-ref" maxlength="100"></div>` : ""}
+      <div class="field"><label class="req">Posting date</label><input id="d-date" type="date" value="${today()}"></div>
+      ${side !== "I" ? `<div class="field"><label>${t.kind === "invoice" || t.kind === "credit" ? "Due date" : "Delivery date"}</label><input id="d-due" type="date"></div>
+        <div class="field"><label>Document date</label><input id="d-tax" type="date" value="${today()}"></div>` : ""}
+      ${serviceOk ? `<div class="field"><label>Item / service type</label><select id="d-type">${opt("I", "Item")}${opt("S", "Service")}</select></div>` : ""}
+      ${t.kind === "transfer" ? `<div class="field"><label class="req">From warehouse</label><select id="d-from">${whsOpts("01")}</select></div>
+        <div class="field"><label class="req">To warehouse</label><select id="d-to">${whsOpts("02")}</select></div>` : ""}
+      <div class="field" style="grid-column:span 2"><label>Remarks</label><input id="d-comments" maxlength="254"></div>
+    </div></div></div>
+    <div class="card"><div class="card-body">
+      <table class="lines"><thead id="d-head"></thead><tbody id="d-lines"></tbody></table>
+      <div style="display:flex;gap:8px;margin-top:8px"><button class="btn secondary small" id="d-add">+ Line</button>
+        ${t.bases.length ? '<button class="btn secondary small" id="d-copy">Copy From…</button>' : ""}</div>
+      <div id="d-sources"></div>
+      ${side !== "I" ? `<div class="totals" style="margin-top:12px">
+        <div><span>Total before discount</span><b id="t-before">0.00</b></div>
+        <div><span>Discount %</span><input id="d-disc" type="number" min="0" max="99.99" step="0.01" value="0" style="width:80px;text-align:right"></div>
+        <div><span>Tax</span><b id="t-vat">0.00</b></div><div class="grand"><span>Total</span><b id="t-total">0.00</b></div></div>` : ""}
+      <button class="btn" id="d-post" style="margin-top:12px">Add</button>
+    </div></div>`;
+
+  const type = () => ($("#d-type") ? $("#d-type").value : "I");
+  const head = () => {
+    $("#d-head").innerHTML = type() === "S"
+      ? `<tr><th>Description</th><th>G/L account</th><th>Tax</th><th class="num w-amt">Amount</th><th class="num">Total</th><th>Base</th><th></th></tr>`
+      : `<tr><th>Item</th><th class="num">Qty</th>${t.kind === "transfer" ? "<th>From</th><th>To</th>" : "<th>Whs</th>"}
+         ${t.kind === "issue" || t.kind === "transfer" ? "" : `<th class="num w-amt">${t.kind === "receipt" ? "Unit cost" : "Unit price"}</th>`}
+         ${side !== "I" ? '<th class="num">Disc. %</th><th>Tax</th><th class="num">Total</th>' : ""}<th>Base</th><th></th></tr>`;
+  };
+  const addLine = (v = {}) => {
+    const tr = document.createElement("tr");
+    // tax group default: base line, else the business partner's (items override it with their own)
+    v = { ...v, vat_group: v.vat_group || ((state.partners.find((b) => b.card_code === ($("#d-bp") || {}).value) || {}).vat_group) };
+    tr.base = v.base_type ? { base_type: v.base_type, base_entry: v.base_entry, base_line: v.base_line } : null;
+    const lock = tr.base ? "disabled" : "";
+    const baseCell = `<td class="help">${tr.base ? `${esc(transTypeName(v.base_type))} ${esc(v.base_ref)}` : ""}</td><td><button class="btn ghost small l-del">✕</button></td>`;
+    if (type() === "S") {
+      tr.innerHTML = `<td><input class="l-desc" maxlength="100" value="${esc(v.dscription || "")}"></td>
+        <td><select class="l-acct" ${lock}>${accountOptions((a) => !a.control).replace(`value="${esc(v.acct_code)}"`, `value="${esc(v.acct_code)}" selected`)}</select></td>
+        <td><select class="l-vat">${taxes.map((x) => opt(x.code, x.code, v.vat_group)).join("")}</select></td>
+        <td class="num"><input class="l-price" type="number" step="0.01" min="0" value="${v.price ?? ""}"></td><td class="num l-total">0.00</td>${baseCell}`;
+    } else {
+      const it = items.find((i) => i.item_code === v.item_code);
+      tr.innerHTML = `<td><select class="l-item" ${lock}>${opt("", "— item —")}${sellable.map((i) => opt(i.item_code, `${i.item_code} — ${i.item_name}`, v.item_code)).join("")}</select></td>
+        <td class="num"><input class="l-qty" type="number" step="1" min="0" value="${v.quantity ?? 1}" style="width:80px">${tr.base ? `<div class="help">open ${qtyFmt(v.quantity)}</div>` : ""}</td>
+        ${t.kind === "transfer" ? `<td><select class="l-from">${whsOpts($("#d-from").value)}</select></td><td><select class="l-whs">${whsOpts($("#d-to").value)}</select></td>`
+          : `<td><select class="l-whs">${whsOpts(v.whs_code || (it && it.dflt_wh) || "01")}</select></td>`}
+        ${t.kind === "issue" || t.kind === "transfer" ? "" : `<td class="num"><input class="l-price" type="number" step="0.01" min="0" value="${v.price ?? ""}"></td>`}
+        ${side !== "I" ? `<td class="num"><input class="l-disc" type="number" step="0.01" min="0" max="100" value="${Number(v.disc_prcnt || 0)}" style="width:70px"></td>
+          <td><select class="l-vat">${taxes.map((x) => opt(x.code, x.code, v.vat_group)).join("")}</select></td><td class="num l-total">0.00</td>` : ""}${baseCell}`;
+      const sel = $(".l-item", tr);
+      sel.onchange = async () => {
+        const i = items.find((x) => x.item_code === sel.value);
+        if (!i) return;
+        if ($(".l-vat", tr)) $(".l-vat", tr).value = (side === "S" ? i.vat_gourp_sa : i.vat_group_pu) || $(".l-vat", tr).value;
+        if (i.dflt_wh && t.kind !== "transfer") $(".l-whs", tr).value = i.dflt_wh;
+        const price = $(".l-price", tr);
+        if (price) {
+          if (side === "I") price.value = Number(i.avg_price || i.last_pur_prc).toFixed(2);
+          else if ($("#d-bp").value) price.value = Number((await api(`/items/${encodeURIComponent(i.item_code)}/price?card_code=${encodeURIComponent($("#d-bp").value)}`)).price).toFixed(2);
+        }
+        recalc();
+      };
+    }
+    $("#d-lines").appendChild(tr);
+    $$("input,select", tr).forEach((i) => (i.oninput = recalc));
+    $(".l-del", tr).onclick = () => { tr.remove(); recalc(); };
+    recalc();
+  };
+  const recalc = () => {
+    if (side === "I") return;
+    let before = 0, vat = 0;
+    const disc = Number($("#d-disc").value || 0) / 100;
+    $$("#d-lines tr").forEach((tr) => {
+      const qty = type() === "S" ? 1 : Number(($(".l-qty", tr) || {}).value || 0);
+      const total = Math.round(qty * Number(($(".l-price", tr) || {}).value || 0) * (1 - Number(($(".l-disc", tr) || {}).value || 0) / 100) * 100) / 100;
+      $(".l-total", tr).textContent = fmt(total);
+      before += total;
+      const net = Math.round(total * (1 - disc) * 100) / 100;
+      vat += Math.round(net * rate($(".l-vat", tr).value)) / 100;
+    });
+    $("#t-before").textContent = fmt(before); $("#t-vat").textContent = fmt(vat);
+    $("#t-total").textContent = fmt(before * (1 - disc) + vat);
+  };
+  const reset = () => { head(); $("#d-lines").innerHTML = ""; addLine(); };
+  if ($("#d-type")) $("#d-type").onchange = reset;
+  if ($("#d-disc")) $("#d-disc").oninput = recalc;
+  $("#d-add").onclick = () => addLine();
+  head();
+
+  const addFromSource = (src, lineNums) => {
+    if ($("#d-type") && $("#d-type").value !== src.doc_type) { $("#d-type").value = src.doc_type; head(); $("#d-lines").innerHTML = ""; }
+    $$("#d-lines tr").forEach((tr) => { if (!tr.base && !(($(".l-item", tr) || {}).value || ($(".l-desc", tr) || {}).value)) tr.remove(); });
+    if ($("#d-disc") && Number(src.disc_prcnt)) $("#d-disc").value = Number(src.disc_prcnt);
+    src.lines.filter((l) => !lineNums || lineNums.includes(l.line_num)).forEach((l) => addLine({
+      ...l, quantity: Number(l.open_qty), price: Number(l.price).toFixed(2), base_type: src.obj, base_entry: src.doc_entry,
+      base_line: l.line_num, base_ref: src.doc_num }));
+  };
+  if ($("#d-copy")) $("#d-copy").onclick = async () => {
+    const bp = $("#d-bp").value;
+    if (!bp) return toast("Select the business partner first", "bad");
+    const sources = await api(`/documents/${obj}/copy-sources?card_code=${encodeURIComponent(bp)}`);
+    $("#d-sources").innerHTML = `<div class="card" style="margin-top:10px"><div class="card-head">Open documents of ${esc(bp)}</div>
+      <table><thead><tr><th></th><th>Document</th><th>Date</th><th>Open lines</th><th class="num">Total</th></tr></thead><tbody>
+      ${sources.map((src, k) => `<tr><td><input type="checkbox" class="src-pick" data-k="${k}"></td><td>${esc(src.name)} ${src.doc_num}</td><td>${src.doc_date}</td>
+        <td>${src.lines.map((l) => `${esc(l.item_code || l.dscription)} × ${qtyFmt(l.open_qty)}`).join(", ")}</td><td class="num">${fmt(src.doc_total)}</td></tr>`).join("")
+        || `<tr><td colspan="5" class="empty">No open documents to copy from.</td></tr>`}</tbody></table>
+      ${sources.length ? '<div class="card-body"><button class="btn small" id="src-ok">Copy selected</button></div>' : ""}</div>`;
+    const ok = $("#src-ok");
+    if (ok) ok.onclick = () => { $$(".src-pick:checked").forEach((cb) => addFromSource(sources[cb.dataset.k])); $("#d-sources").innerHTML = ""; };
+  };
+  if ($("#d-bp")) $("#d-bp").onchange = () => {
+    const vat = (state.partners.find((b) => b.card_code === $("#d-bp").value) || {}).vat_group;
+    $$("#d-lines tr").forEach((tr) => {
+      const s = $(".l-item", tr);
+      if (tr.base) return;
+      if (s && s.value) s.onchange();
+      else if (vat && $(".l-vat", tr)) { $(".l-vat", tr).value = vat; recalc(); }
+    });
+  };
+
+  if (from) {  // "Copy to" from a base document
+    const [bobj, bentry] = from.split(":");
+    const base = await api(`/documents/${bobj}/${bentry}`);
+    $("#d-bp").value = base.card_code;
+    addFromSource({ obj: bobj, doc_entry: base.doc_entry, doc_num: base.doc_num, doc_type: base.doc_type, disc_prcnt: base.disc_prcnt,
+      lines: base.lines.filter((l) => l.line_status === "O" && Number(l.open_qty) > 0).map((l) => ({ ...l, price: l.price_bef_di })) });
+  } else addLine();
+
+  $("#d-post").onclick = async () => {
+    const body = { doc_date: $("#d-date").value, doc_type: type(), comments: $("#d-comments").value || null, lines: [] };
+    if (side !== "I") Object.assign(body, { card_code: $("#d-bp").value || null, num_at_card: $("#d-ref").value || null,
+      doc_due_date: $("#d-due").value || null, tax_date: $("#d-tax").value || null, disc_prcnt: $("#d-disc").value || 0 });
+    if (t.kind === "transfer") Object.assign(body, { from_whs: $("#d-from").value, to_whs: $("#d-to").value });
+    $$("#d-lines tr").forEach((tr) => {
+      const val = (cls) => { const e = $(cls, tr); return e && e.value !== "" ? e.value : null; };
+      const line = { ...(tr.base || {}), vat_group: val(".l-vat"), disc_prcnt: val(".l-disc"), price: val(".l-price") };
+      if (type() === "S") Object.assign(line, { dscription: val(".l-desc"), acct_code: val(".l-acct"), quantity: 1 });
+      else Object.assign(line, { item_code: val(".l-item"), quantity: val(".l-qty") || 0, whs_code: val(".l-whs"), from_whs_cod: val(".l-from") });
+      if (line.item_code || line.acct_code) body.lines.push(line);
+    });
+    const r = await act(() => post(`/documents/${obj}`, body), (d) => `${t.name} ${d.doc_num} added`);
+    if (r) { state.partners = await api("/partners"); location.hash = `#/docs?obj=${obj}&entry=${r.doc_entry}`; }
+  };
+};
+
+// ---------- Inventory audit report (OINM) ----------
+views["inventory-audit"] = async (c) => {
+  const code = query().get("item") || "";
+  const [items, rows] = await Promise.all([api("/items"), api(`/inventory/journal?limit=300${code ? `&item_code=${encodeURIComponent(code)}` : ""}`)]);
+  c.innerHTML = `<div class="page-head"><div><h1>Inventory Audit Report</h1><div class="sub">Warehouse journal (OINM): every stock movement and revaluation with its value</div></div></div>
+    <div class="toolbar"><div class="field"><label>Item</label><select id="ia-item">${opt("", "All items", code)}${items.filter((i) => i.invnt_item).map((i) => opt(i.item_code, `${i.item_code} — ${i.item_name}`, code)).join("")}</select></div></div>
+    <div class="card"><table><thead><tr><th>#</th><th>Date</th><th>Document</th><th>Item</th><th>Whs</th><th class="num">In</th><th class="num">Out</th>
+      <th class="num">Price</th><th class="num">Value change</th><th class="num">Item cost after</th><th>BP</th><th>JE</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td class="mono">${r.trans_num}</td><td>${r.doc_date}</td><td><a href="#/docs?obj=${r.trans_type}&entry=${r.doc_entry}">${esc(r.name)} ${esc(r.doc_num)}</a></td>
+        <td class="mono">${esc(r.item_code)}</td><td>${esc(r.warehouse)}</td><td class="num">${Number(r.in_qty) ? qtyFmt(r.in_qty) : ""}</td><td class="num">${Number(r.out_qty) ? qtyFmt(r.out_qty) : ""}</td>
+        <td class="num">${fmt(r.price)}</td><td class="num">${fmt(r.trans_value)}</td><td class="num">${fmt(r.calc_price)}</td><td class="mono">${esc(r.card_code || "")}</td>
+        <td>${r.trans_id ? `<a href="#/journal?id=${r.trans_id}">${r.trans_id}</a>` : ""}</td></tr>`).join("") || `<tr><td colspan="12" class="empty">No stock movements yet.</td></tr>`}</tbody></table></div>`;
+  $("#ia-item").onchange = (e) => (location.hash = `#/inventory-audit${e.target.value ? `?item=${encodeURIComponent(e.target.value)}` : ""}`);
 };
 
 // ---------- Financial reports ----------

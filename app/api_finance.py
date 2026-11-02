@@ -141,7 +141,7 @@ class JournalEntryIn(BaseModel):
 def _je_out(e: JournalEntry) -> dict:
     return {"trans_id": e.trans_id, "number": e.number, "ref_date": e.ref_date, "tax_date": e.tax_date,
             "due_date": e.due_date, "memo": e.memo, "ref1": e.ref1, "ref2": e.ref2, "trans_type": e.trans_type,
-            "base_ref": e.base_ref, "loc_total": e.loc_total, "storno_to_tr": e.storno_to_tr,
+            "base_ref": e.base_ref, "created_by": e.created_by, "loc_total": e.loc_total, "storno_to_tr": e.storno_to_tr,
             "auto_storno": e.auto_storno == "Y",
             "lines": [{"line_id": l.line_id, "account": l.account, "short_name": l.short_name, "debit": l.debit,
                        "credit": l.credit, "bal_due_deb": l.bal_due_deb, "bal_due_cred": l.bal_due_cred,

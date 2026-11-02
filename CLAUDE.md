@@ -18,11 +18,10 @@ concepts (company codes, posting keys, CO, F110, FSV ...) into it.
 
 1. Core financials — chart of accounts, journal entries, financial reports. **Done.**
 2. Business partners + sales (A/R) and purchasing (A/P) document chains with
-   copy-from. BP master data (OCRG/OCRD/OCPR) **done**; documents next (quotation → order → delivery → invoice → credit memo, and the
+   copy-from. **Done** (BP master data and all 12 marketing documents). (quotation → order → delivery → invoice → credit memo, and the
    purchasing equivalents).
 3. Inventory — items, warehouses, price lists, goods receipt/issue/transfer,
-   moving-average cost, automatic stock postings. Master data (OITB/OITM/OWHS/
-   OITW/OPLN/ITM1) **done**; stock documents and postings next.
+   moving-average cost, automatic stock postings. **Done.**
 4. Banking — incoming/outgoing payments (cash, transfer, check), payments on
    account, BP balances.
 
@@ -50,12 +49,17 @@ app/
   models/finance.py   OACT OJDT JDT1 OACP (G/L account determination)
   models/partners.py  OCRG OCRD OCPR
   models/inventory.py OITB OITM OWHS OITW OPLN ITM1
+  models/documents.py the 15 document header/line pairs (OQUT/QUT1 ... OWTR/WTR1, built from
+                      shared DocumentHeader/DocumentLine columns) and OINM warehouse journal
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
   services/reports.py trial balance, balance sheet, P&L (account tree)
   services/masterdata.py  create BP / item / warehouse (validation, OITW rows), price lookup
                       (own ITM1 price, else base list x factor; BP price = its price list)
   api_finance.py      /api/admin/*, /api/accounts, /api/journal-entries, /api/reports/*
+  services/documents.py  document engine: DEFS (object types, copy-from bases), create /
+                      cancel / close, stock moves (receive/issue/revalue -> OINM), automatic JEs
+  api_documents.py    /api/documents/{obj}*, /api/documents/types, /api/inventory/journal
   api_masterdata.py   /api/partners*, /api/partner-groups, /api/items*, /api/item-groups,
                       /api/warehouses, /api/price-lists
   seed.py             demo company "Demo Trading Ltd" (EUR), chart of accounts, periods 2025-2027
@@ -80,6 +84,21 @@ web/                  index.html, styles.css, app.js
 - An inventory item has an OITW row in every warehouse (created with the item
   or the warehouse). G/L accounts for item postings come from the item group
   (OITB, GLMethod C); valuation is moving average (OITM-AvgPrice).
+
+### Documents (keep invariant)
+- Copy-from: a line references BaseType/BaseEntry/BaseLine; the base line's OpenQty
+  drops, LineStatus C at zero, DocStatus C when all lines are closed (invoices close
+  when paid instead). Orders commit stock (IsCommited), purchase orders OnOrder.
+- Moving average: OITM-StockValue is the exact value, AvgPrice = StockValue/OnHand;
+  issues at average (the last unit takes the remaining value); every change writes
+  an OINM row. Invariant (checked in verify_documents): inventory account balance =
+  sum of StockValue; OITW quantities = OITM; OINM net quantity = OnHand.
+- A/P invoice price differences revalue stock still on hand, else price differences.
+- A credit memo copied from one invoice is reconciled with it (PaidToDate, BalDue).
+- Cancel: only without target documents / payments; reverses stock at original
+  values and the JE (B1 creates a separate cancellation document; we mark the
+  original CANCELED=Y and link the reversal JE).
+- Document currency is the local currency for now (DocCur/DocRate kept).
 
 ### Chart of accounts
 Drawers (GroupMask) 1 assets, 2 liabilities, 3 capital and reserves, 4 turnover,

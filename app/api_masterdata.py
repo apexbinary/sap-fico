@@ -180,7 +180,7 @@ def _item_out(i: Item, s: Session, detail: bool = False) -> dict:
            "invntry_uom": i.invntry_uom, "vat_gourp_sa": i.vat_gourp_sa, "vat_group_pu": i.vat_group_pu,
            "dflt_wh": i.dflt_wh, "card_code": i.card_code, "min_level": i.min_level, "on_hand": i.on_hand,
            "is_commited": i.is_commited, "on_order": i.on_order,
-           "available": i.on_hand - i.is_commited + i.on_order, "avg_price": i.avg_price,
+           "available": i.on_hand - i.is_commited + i.on_order, "avg_price": i.avg_price, "stock_value": i.stock_value,
            "last_pur_prc": i.last_pur_prc, "frozen": i.frozen_for == "Y"}
     if detail:
         out["warehouses"] = [{"whs_code": w.whs_code, "on_hand": w.on_hand, "is_commited": w.is_commited,

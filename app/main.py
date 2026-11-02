@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.api_documents import router as documents_router
 from app.api_finance import router as finance_router
 from app.api_masterdata import router as masterdata_router
 from app.config import settings
@@ -20,6 +21,7 @@ app = FastAPI(title=settings.app_name, version=__version__,
                           "inventory and banking, with B1 table and field names.")
 app.include_router(finance_router, prefix="/api")
 app.include_router(masterdata_router, prefix="/api")
+app.include_router(documents_router, prefix="/api")
 
 
 @app.on_event("startup")

@@ -8,8 +8,8 @@ Tables modelled here (SAP Business One names):
     OPLN   Price lists (a list can derive from a base list by a factor)
     ITM1   Item prices per price list
 
-Items are valued at a company-wide moving average price (OITM-EvalSystem A,
-AvgPrice). G/L accounts for stock postings come from the item group (GLMethod C,
+Items are valued at a company-wide moving average price (OITM-EvalSystem A):
+StockValue is the exact inventory value and AvgPrice = StockValue / OnHand. G/L accounts for stock postings come from the item group (GLMethod C,
 B1's "set G/L accounts by item group"); OnHand / IsCommited / OnOrder are kept
 per item and per warehouse by the documents.
 """
@@ -64,6 +64,7 @@ class Item(Base):
     is_commited: Mapped[Decimal] = mapped_column("IsCommited", QTY, default=Decimal("0"))  # Committed (open sales orders)
     on_order: Mapped[Decimal] = mapped_column("OnOrder", QTY, default=Decimal("0"))  # Ordered (open purchase orders)
     avg_price: Mapped[Decimal] = mapped_column("AvgPrice", AMOUNT, default=Decimal("0"))  # Moving average price
+    stock_value: Mapped[Decimal] = mapped_column("StockValue", AMOUNT, default=Decimal("0"))  # Inventory value (LC)
     last_pur_prc: Mapped[Decimal] = mapped_column("LastPurPrc", AMOUNT, default=Decimal("0"))  # Last purchase price
     frozen_for: Mapped[str] = mapped_column("frozenFor", String(1), default="N")  # Inactive (B1 spelling)
 

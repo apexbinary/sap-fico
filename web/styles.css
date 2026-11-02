@@ -159,3 +159,10 @@ input[readonly] { background: #f3f3f3; }
 .status.X { background: #fce8e8; color: var(--bad); }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+/* document totals (bottom right, as in B1 marketing documents) */
+.totals { margin-left: auto; max-width: 340px; display: flex; flex-direction: column; gap: 4px; }
+.totals > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.totals > div span { color: var(--muted); }
+.totals > div.grand { border-top: 1px solid #ddd; padding-top: 6px; font-size: 1.05em; }
+.totals > div.grand span { color: inherit; font-weight: 600; }
+table.lines select, table.lines input { min-width: 0; }

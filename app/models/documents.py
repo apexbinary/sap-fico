@@ -1,0 +1,162 @@
+"""Marketing and inventory documents, and the warehouse journal.
+
+B1 stores every document type in its own header / lines table pair with the same
+structure. Tables modelled here (SAP Business One names):
+
+    Sales A/R        OQUT/QUT1 quotation (23)    ORDR/RDR1 order (17)
+                     ODLN/DLN1 delivery (15)     ORDN/RDN1 return (16)
+                     OINV/INV1 A/R invoice (13)  ORIN/RIN1 A/R credit memo (14)
+    Purchasing A/P   OPQT/PQT1 purchase quotation (540000006)
+                     OPOR/POR1 purchase order (22)   OPDN/PDN1 goods receipt PO (20)
+                     ORPD/RPD1 goods return (21)     OPCH/PCH1 A/P invoice (18)
+                     ORPC/RPC1 A/P credit memo (19)
+    Inventory        OIGN/IGN1 goods receipt (59)    OIGE/IGE1 goods issue (60)
+                     OWTR/WTR1 inventory transfer (67)
+    OINM             warehouse journal: one row per stock movement or revaluation
+
+Copy-from links a line to its base line (BaseType / BaseEntry / BaseLine); the
+base line keeps the not yet copied quantity in OpenQty and closes (LineStatus C)
+when nothing is open; the document closes (DocStatus C) when all lines are closed.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import Date, ForeignKey, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+from app.models.admin import AMOUNT
+from app.models.inventory import QTY
+
+RATE = AMOUNT
+
+
+class DocumentHeader:
+    """Columns shared by every document header table (OINV, ORDR, OPDN, OIGN, ...)."""
+
+    doc_entry: Mapped[int] = mapped_column("DocEntry", primary_key=True)  # Internal key
+    doc_num: Mapped[int] = mapped_column("DocNum")  # Document number (NNM1)
+    doc_type: Mapped[str] = mapped_column("DocType", String(1), default="I")  # I items, S service
+    canceled: Mapped[str] = mapped_column("CANCELED", String(1), default="N")  # Y canceled
+    doc_status: Mapped[str] = mapped_column("DocStatus", String(1), default="O")  # O open, C closed
+    obj_type: Mapped[str] = mapped_column("ObjType", String(20))
+    doc_date: Mapped[date] = mapped_column("DocDate", Date)  # Posting date
+    doc_due_date: Mapped[date] = mapped_column("DocDueDate", Date)  # Due / delivery date
+    tax_date: Mapped[date] = mapped_column("TaxDate", Date)  # Document date
+    card_code: Mapped[str | None] = mapped_column("CardCode", String(15))
+    card_name: Mapped[str | None] = mapped_column("CardName", String(100))
+    num_at_card: Mapped[str | None] = mapped_column("NumAtCard", String(100))  # BP reference no.
+    address: Mapped[str | None] = mapped_column("Address", String(254))
+    doc_cur: Mapped[str] = mapped_column("DocCur", String(3))
+    doc_rate: Mapped[Decimal] = mapped_column("DocRate", RATE, default=Decimal("1"))
+    group_num: Mapped[int | None] = mapped_column("GroupNum")  # Payment terms
+    disc_prcnt: Mapped[Decimal] = mapped_column("DiscPrcnt", RATE, default=Decimal("0"))  # Header discount %
+    disc_sum: Mapped[Decimal] = mapped_column("DiscSum", AMOUNT, default=Decimal("0"))
+    vat_sum: Mapped[Decimal] = mapped_column("VatSum", AMOUNT, default=Decimal("0"))
+    doc_total: Mapped[Decimal] = mapped_column("DocTotal", AMOUNT, default=Decimal("0"))  # Gross total
+    paid_to_date: Mapped[Decimal] = mapped_column("PaidToDate", AMOUNT, default=Decimal("0"))
+    filler: Mapped[str | None] = mapped_column("Filler", String(8))  # From warehouse (transfer)
+    to_whs_code: Mapped[str | None] = mapped_column("ToWhsCode", String(8))  # To warehouse (transfer)
+    comments: Mapped[str | None] = mapped_column("Comments", String(254))
+    jrnl_memo: Mapped[str | None] = mapped_column("JrnlMemo", String(50))
+    trans_id: Mapped[int | None] = mapped_column("TransId")  # Journal entry (OJDT)
+    user_sign: Mapped[int | None] = mapped_column("UserSign")
+
+
+class DocumentLine:
+    """Columns shared by every document line table (INV1, RDR1, PDN1, IGN1, ...)."""
+
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    line_status: Mapped[str] = mapped_column("LineStatus", String(1), default="O")
+    item_code: Mapped[str | None] = mapped_column("ItemCode", String(50))
+    dscription: Mapped[str | None] = mapped_column("Dscription", String(100))  # B1 spelling
+    quantity: Mapped[Decimal] = mapped_column("Quantity", QTY)
+    open_qty: Mapped[Decimal] = mapped_column("OpenQty", QTY)  # Not yet copied to a target document
+    price_bef_di: Mapped[Decimal] = mapped_column("PriceBefDi", AMOUNT)  # Unit price before discount
+    disc_prcnt: Mapped[Decimal] = mapped_column("DiscPrcnt", RATE, default=Decimal("0"))
+    price: Mapped[Decimal] = mapped_column("Price", AMOUNT)  # Unit price after discount
+    line_total: Mapped[Decimal] = mapped_column("LineTotal", AMOUNT)  # Net, before header discount
+    vat_group: Mapped[str | None] = mapped_column("VatGroup", String(8))
+    vat_prcnt: Mapped[Decimal] = mapped_column("VatPrcnt", RATE, default=Decimal("0"))
+    vat_sum: Mapped[Decimal] = mapped_column("VatSum", AMOUNT, default=Decimal("0"))
+    gtotal: Mapped[Decimal] = mapped_column("GTotal", AMOUNT, default=Decimal("0"))  # Gross line total
+    whs_code: Mapped[str | None] = mapped_column("WhsCode", String(8))
+    from_whs_cod: Mapped[str | None] = mapped_column("FromWhsCod", String(8))  # Transfer: from warehouse
+    acct_code: Mapped[str | None] = mapped_column("AcctCode", String(15))  # G/L account (service lines, offsets)
+    unit_msr: Mapped[str | None] = mapped_column("unitMsr", String(100))
+    stock_price: Mapped[Decimal] = mapped_column("StockPrice", AMOUNT, default=Decimal("0"))  # Item cost per unit
+    grss_profit: Mapped[Decimal] = mapped_column("GrssProfit", AMOUNT, default=Decimal("0"))
+    base_type: Mapped[str | None] = mapped_column("BaseType", String(20))  # Copied from: object type
+    base_entry: Mapped[int | None] = mapped_column("BaseEntry")
+    base_line: Mapped[int | None] = mapped_column("BaseLine")
+    base_ref: Mapped[str | None] = mapped_column("BaseRef", String(16))  # Base document number
+    target_type: Mapped[str | None] = mapped_column("TargetType", String(20))  # Last copied to
+    trget_entry: Mapped[int | None] = mapped_column("TrgetEntry")  # B1 spelling
+
+
+# (class prefix, object type, header table, line table)
+DOCUMENT_TABLES = [
+    ("SalesQuotation", "23", "oqut", "qut1"),
+    ("SalesOrder", "17", "ordr", "rdr1"),
+    ("Delivery", "15", "odln", "dln1"),
+    ("SalesReturn", "16", "ordn", "rdn1"),
+    ("ARInvoice", "13", "oinv", "inv1"),
+    ("ARCreditMemo", "14", "orin", "rin1"),
+    ("PurchaseQuotation", "540000006", "opqt", "pqt1"),
+    ("PurchaseOrder", "22", "opor", "por1"),
+    ("GoodsReceiptPO", "20", "opdn", "pdn1"),
+    ("GoodsReturn", "21", "orpd", "rpd1"),
+    ("APInvoice", "18", "opch", "pch1"),
+    ("APCreditMemo", "19", "orpc", "rpc1"),
+    ("GoodsReceipt", "59", "oign", "ign1"),
+    ("GoodsIssue", "60", "oige", "ige1"),
+    ("InventoryTransfer", "67", "owtr", "wtr1"),
+]
+
+# object type -> (header class, line class)
+DOCUMENT_CLASSES: dict[str, tuple[type, type]] = {}
+
+
+def _define(prefix: str, obj: str, header: str, lines: str) -> tuple[type, type]:
+    line_cls = type(f"{prefix}Line", (DocumentLine, Base), {
+        "__tablename__": lines,
+        "__doc__": f"{lines.upper()} - lines of {header.upper()}.",
+        "doc_entry": mapped_column("DocEntry", Integer, ForeignKey(f"{header}.DocEntry"), primary_key=True),
+    })
+    header_cls = type(prefix, (DocumentHeader, Base), {
+        "__tablename__": header,
+        "__doc__": f"{header.upper()} - document header (object {obj}).",
+        "lines": relationship(line_cls, order_by=line_cls.line_num, cascade="all, delete-orphan"),
+    })
+    return header_cls, line_cls
+
+
+for _prefix, _obj, _header, _lines in DOCUMENT_TABLES:
+    DOCUMENT_CLASSES[_obj] = _define(_prefix, _obj, _header, _lines)
+    globals()[_prefix], globals()[f"{_prefix}Line"] = DOCUMENT_CLASSES[_obj]
+
+
+class WarehouseJournal(Base):
+    """OINM — Warehouse journal: every stock movement and revaluation with its value."""
+
+    __tablename__ = "oinm"
+
+    trans_num: Mapped[int] = mapped_column("TransNum", primary_key=True)
+    doc_date: Mapped[date] = mapped_column("DocDate", Date)
+    trans_type: Mapped[str] = mapped_column("TransType", String(20))  # Object type of the document
+    created_by: Mapped[int] = mapped_column("CreatedBy")  # DocEntry of the document
+    base_ref: Mapped[str] = mapped_column("BASE_REF", String(16))  # DocNum of the document
+    doc_line_num: Mapped[int] = mapped_column("DocLineNum")
+    item_code: Mapped[str] = mapped_column("ItemCode", String(50))
+    warehouse: Mapped[str] = mapped_column("Warehouse", String(8))
+    in_qty: Mapped[Decimal] = mapped_column("InQty", QTY, default=Decimal("0"))
+    out_qty: Mapped[Decimal] = mapped_column("OutQty", QTY, default=Decimal("0"))
+    price: Mapped[Decimal] = mapped_column("Price", AMOUNT, default=Decimal("0"))  # Unit value of the movement
+    trans_value: Mapped[Decimal] = mapped_column("TransValue", AMOUNT, default=Decimal("0"))  # Change of stock value
+    calc_price: Mapped[Decimal] = mapped_column("CalcPrice", AMOUNT, default=Decimal("0"))  # Item cost afterwards
+    card_code: Mapped[str | None] = mapped_column("CardCode", String(15))
+    jrnl_memo: Mapped[str | None] = mapped_column("JrnlMemo", String(50))
+    trans_id: Mapped[int | None] = mapped_column("TransId")  # Journal entry of the document

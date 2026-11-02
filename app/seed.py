@@ -208,7 +208,7 @@ def _seed_partners_and_items(s, put) -> None:
                      sell_item="Y", prchse_item="Y" if inv else "N", eval_system="A", gl_method="C", invntry_uom=uom,
                      vat_gourp_sa=vat_sa, vat_group_pu=vat_pu, dflt_wh="01" if inv else None, card_code=vendor,
                      min_level=Decimal("5") if inv else Decimal("0"), on_hand=Decimal("0"), is_commited=Decimal("0"),
-                     on_order=Decimal("0"), avg_price=Decimal("0"), last_pur_prc=Decimal("0"), frozen_for="N"))
+                     on_order=Decimal("0"), avg_price=Decimal("0"), stock_value=Decimal("0"), last_pur_prc=Decimal("0"), frozen_for="N"))
         if inv:
             for whs in ("01", "02"):
                 if s.get(ItemWarehouse, (code, whs)) is None:

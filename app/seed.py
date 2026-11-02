@@ -3,7 +3,8 @@
 Creates:
   * Client 100, Company code 1000 (Germany, EUR), Chart of accounts INT
   * Fiscal year variant K4 (calendar year) + open posting periods (T001B)
-  * Controlling area 1000 with cost center 1000 and primary cost elements
+  * Controlling area 1000 with cost centers 1000/2000/3000, internal order 400001,
+    primary cost elements and the CO document number range (RK_BELEG)
   * Document types, posting keys, document number ranges
   * A small chart of accounts (bank, receivables, payables, tax, revenue, expense)
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
@@ -33,7 +34,7 @@ from app.models.assets import (
     DepreciationArea,
 )
 from app.models.bank import Bank, HouseBank, HouseBankAccount
-from app.models.controlling import CostCenter, CostElement, CostElementCO
+from app.models.controlling import CostCenter, CostElement, CostElementCO, InternalOrder
 from app.models.documents import DocumentType, NumberRange, PostingKey
 from app.models.dunning import DunningCharge, DunningLevel, DunningProcedure
 from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
@@ -203,7 +204,15 @@ def seed() -> None:
         # --- Controlling area 1000 ---
         put(ControllingArea(mandt=MANDT, kokrs=KOKRS, bezei="Controlling area 1000", waers="EUR", ctyp="10", ktopl=KTOPL, lmona=PERIV, bukrs=BUKRS, khinr="H1000"))
         put(ControllingAreaAssignment(mandt=MANDT, kokrs=KOKRS, bukrs=BUKRS))
-        put(CostCenter(mandt=MANDT, kokrs=KOKRS, kostl="0000001000", datbi=HIGH, datab=LOW, ktext="Admin", ltext="Administration cost center", bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar="1"))
+        for kostl, ktext, ltext, kosar in [
+            ("0000001000", "Admin", "Administration cost center", "1"),
+            ("0000002000", "Sales", "Sales cost center", "3"),
+            ("0000003000", "Production", "Production cost center", "4"),
+        ]:
+            put(CostCenter(mandt=MANDT, kokrs=KOKRS, kostl=kostl, datbi=HIGH, datab=LOW, ktext=ktext, ltext=ltext,
+                           bukrs=BUKRS, prctr="0000001000", waers="EUR", kosar=kosar))
+        put(InternalOrder(mandt=MANDT, aufnr="000000400001", auart="0100", autyp="01", ktext="Trade fair 2026",
+                          bukrs=BUKRS, kokrs=KOKRS, kostv="0000002000", waers="EUR", phas0=True, phas1=True))
 
         # --- G/L accounts ---
         for saknr, name, is_bs, grp, recon, taxcat in _gl_accounts():
@@ -254,6 +263,11 @@ def seed() -> None:
             # Only create missing intervals: NRLEVEL is the live counter and must survive re-seeding.
             if s.get(NumberRange, (MANDT, "RF_BELEG", BUKRS, numkr, 0)) is None:
                 put(NumberRange(mandt=MANDT, object="RF_BELEG", subobject=BUKRS, nrrangenr=numkr, toyear=0, fromnumber=str(lo), tonumber=str(hi), nrlevel=str(lo - 1)))
+
+        # CO document numbers (object RK_BELEG per controlling area); live counter: create only
+        if s.get(NumberRange, (MANDT, "RK_BELEG", KOKRS, "01", 0)) is None:
+            put(NumberRange(mandt=MANDT, object="RK_BELEG", subobject=KOKRS, nrrangenr="01", toyear=0,
+                            fromnumber="2000000000", tonumber="2999999999", nrlevel="1999999999"))
 
         # --- Posting keys (standard SAP) ---
         for bschl, txt, shkzg, koart, extra in [

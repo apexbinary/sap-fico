@@ -688,6 +688,42 @@ views.fx = async (c) => {
   };
 };
 
+// ---------- Controlling: actual costs and CO documents ----------
+const KOKRS = "1000";
+views.controlling = async (c) => {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const gjahr = Number(q.get("gjahr") || state.gjahr), pf = Number(q.get("pf") || 1), pt = Number(q.get("pt") || 16);
+  const params = `kokrs=${KOKRS}&gjahr=${gjahr}&perio_from=${pf}&perio_to=${pt}`;
+  const [ks, or, docs] = await Promise.all([
+    api(`/co/actuals?${params}&kind=KS`), api(`/co/actuals?${params}&kind=OR`), api(`/co/documents?kokrs=${KOKRS}&limit=15`),
+  ]);
+  const table = (title, rows, label) => `<div class="card"><div class="card-head">${title}</div>
+    <table><thead><tr><th>${label}</th><th>Description</th><th>Cost element</th><th class="num">Actual</th></tr></thead>
+    <tbody>${rows.map((o) => `<tr style="font-weight:600"><td class="mono">${esc(o.object)}</td><td>${esc(o.text || "")}</td><td></td><td class="num">${fmt(o.total)}</td></tr>
+      ${o.elements.map((e) => `<tr class="sub-row"><td></td><td></td><td class="help"><span class="mono">${esc(e.kstar)}</span> ${esc(e.text || "")}${e.katyp ? ` · cat. ${esc(e.katyp)}` : ""}</td>
+        <td class="num help">${fmt(e.amount)}</td></tr>`).join("")}`).join("")
+      || `<tr><td colspan="4" class="empty">No objects.</td></tr>`}</tbody></table></div>`;
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Cost Centers &amp; Internal Orders</h1>
+      <div class="sub">Controlling area ${KOKRS} · actual costs (value type 04) from CO documents</div></div></div>
+    <div class="toolbar">
+      <div class="field"><label>Fiscal year</label><input id="co-gjahr" type="number" value="${gjahr}"></div>
+      <div class="field"><label>From period</label><input id="co-pf" type="number" min="1" max="16" value="${pf}"></div>
+      <div class="field"><label>To period</label><input id="co-pt" type="number" min="1" max="16" value="${pt}"></div>
+      <button class="btn" id="co-go">Show</button>
+    </div>
+    ${table("Cost Centers", ks, "Cost center")}
+    ${table("Internal Orders", or, "Order")}
+    <div class="card"><div class="card-head">Recent CO Documents</div>
+      <table><thead><tr><th>CO document</th><th>Transaction</th><th>Posting date</th><th>Text</th><th>FI reference</th><th>Lines</th></tr></thead>
+      <tbody>${docs.map((d) => `<tr><td class="mono">${d.belnr}</td><td>${esc(d.vrgng)}${d.kscyc ? ` · ${esc(d.kscyc)}` : ""}${d.stokz ? ` <span class="chip cr">Reversed</span>` : ""}${d.stflg ? ` <span class="chip cr">Reversal</span>` : ""}</td>
+        <td>${d.budat}</td><td>${esc(d.bltxt || "")}</td>
+        <td class="mono">${d.refbn ? `<a href="#/documents?doc=${d.refbn}:${d.refgj}">${d.refbn}</a>` : ""}</td>
+        <td class="help">${d.lines.map((l) => `${esc(l.objnr)} ${esc(l.kstar)} ${fmt(l.amount)}`).join("<br>")}</td></tr>`).join("")
+        || `<tr><td colspan="6" class="empty">No CO documents yet.</td></tr>`}</tbody></table></div>`;
+  $("#co-go").onclick = () => { location.hash = `#/controlling?gjahr=${$("#co-gjahr").value}&pf=${$("#co-pf").value}&pt=${$("#co-pt").value}`; };
+};
+
 // ---------- Automatic Payment Program (F110) ----------
 const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 

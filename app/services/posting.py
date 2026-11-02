@@ -27,7 +27,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models.controlling import COLineItem, CostElement, CostElementCO
+from app.models.controlling import CostElement, CostElementCO
 from app.models.documents import (
     AccountingDocumentHeader,
     AccountingDocumentItem,
@@ -332,6 +332,7 @@ def _post(
     session.add(header)
 
     buzei = 0
+    co_docs: dict[str, object] = {}  # one CO document per controlling area
     for rl in all_lines:
         buzei += 1
         src = rl.src
@@ -372,7 +373,7 @@ def _post(
         session.add(item)
         if posted:
             _update_totals(session, mandt, req.bukrs, gjahr, monat, rl, local_currency)
-            _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, kokrs)
+            _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, kokrs, co_docs)
             if rl.koart == "A" and src:
                 _update_asset_values(session, mandt, req, gjahr, belnr, buzei, rl, monat)
 
@@ -402,6 +403,7 @@ def post_parked(
             mandt=mandt, bukrs=bukrs, blart=header.blart, bldat=header.bldat, budat=header.budat,
             waers=header.waers, kursf=header.kursf, kokrs=header.kokrs, lines=[],
         )
+        co_docs: dict[str, object] = {}
         for item in header.items:
             rl = _ResolvedLine(
                 bschl=item.bschl, koart=item.koart, shkzg=item.shkzg, hkont=item.hkont,
@@ -410,7 +412,7 @@ def post_parked(
             )
             _update_totals(session, mandt, bukrs, header.gjahr, header.monat, rl, cc.waers)
             _mirror_co(session, mandt, req, header.gjahr, header.monat, header.belnr, item.buzei, rl,
-                       header.kokrs or controlling_area(session, mandt, bukrs))
+                       header.kokrs or controlling_area(session, mandt, bukrs), co_docs)
             if item.koart == "A":
                 _update_asset_values(session, mandt, req, header.gjahr, header.belnr, item.buzei, rl, header.monat)
             item.bstat = None
@@ -518,9 +520,15 @@ def _update_totals(
 
 def _mirror_co(
     session: Session, mandt: str, req: DocumentRequest, gjahr: int, monat: int,
-    belnr: str, buzei: int, rl: _ResolvedLine, default_kokrs: str | None,
+    belnr: str, buzei: int, rl: _ResolvedLine, default_kokrs: str | None, co_docs: dict,
 ) -> None:
-    """Real-time FI->CO: mirror cost-element postings onto their CO object."""
+    """Real-time FI->CO: mirror cost-element postings onto their CO object.
+
+    The first CO-relevant line of an FI document opens its CO document (COBK,
+    business transaction COIN) with a reference back to the FI document.
+    """
+    from app.services import controlling
+
     src = rl.src
     if src is None:
         return
@@ -547,17 +555,16 @@ def _mirror_co(
     else:
         objnr = f"OR{src.aufnr}"
     signed = rl.dmbtr if rl.shkzg == "S" else -rl.dmbtr
-    co_buzei = (
-        session.query(COLineItem).filter_by(mandt=mandt, kokrs=kokrs, belnr=belnr).count()
-    ) + 1
-    session.add(
-        COLineItem(
-            mandt=mandt, kokrs=kokrs, belnr=belnr, buzei=co_buzei, perio=monat,
-            gjahr=gjahr, wrttp="04", versn="000", kstar=rl.hkont, objnr=objnr,
-            bukrs=req.bukrs, kostl=src.kostl, aufnr=src.aufnr, prctr=src.prctr,
-            wkgbtr=signed, owaer=cc.waers, twaer=req.waers, vrgng="COIN",
-            refbn=belnr, refbz=buzei, refgj=gjahr,
+    if kokrs not in co_docs:
+        co_docs[kokrs] = controlling.open_document(
+            session, mandt, kokrs, gjahr=gjahr, perab=monat, vrgng="COIN", budat=req.budat,
+            bldat=req.bldat, bltxt=req.bktxt, usnam=req.usnam, awtyp="BKPF", refbk=req.bukrs,
+            refbn=belnr, refgj=gjahr,
         )
+    controlling.add_line(
+        session, co_docs[kokrs], kstar=rl.hkont, objnr=objnr, amount=signed, bukrs=req.bukrs,
+        kostl=src.kostl, aufnr=src.aufnr, prctr=src.prctr, owaer=cc.waers, twaer=req.waers,
+        refbz=buzei,
     )
 
 

@@ -11,7 +11,7 @@ import time
 
 CHECKS = [
     "verify", "verify_assets", "verify_payments", "verify_payment_run", "verify_fsv",
-    "verify_documents", "verify_recurring", "verify_dunning", "verify_fx",
+    "verify_documents", "verify_recurring", "verify_dunning", "verify_fx", "verify_controlling",
 ]
 
 

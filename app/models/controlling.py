@@ -6,11 +6,14 @@ Tables modelled here:
     CSKB   Cost elements — controlling area dependent
     AUFK   Order master data (internal orders)
     CEPC   Profit center master (+ CEPCT text)
+    COBK   CO document header (number range RK_BELEG per controlling area)
     COEP   CO object line items (actual postings)
 
 When an FI line item carries a CO account assignment (cost center, order or WBS)
 and the G/L account is a primary cost element, the posting engine mirrors the
 amount into COEP in real time, as SAP does with real-time FI->CO integration.
+Every CO posting has its own CO document (COBK); one that comes from FI points
+back to it through AWTYP/REFBN/REFGJ.
 """
 
 from __future__ import annotations
@@ -172,3 +175,31 @@ class COLineItem(Base):
     refbn: Mapped[str | None] = mapped_column(String(10))  # Reference document (FI BELNR)
     refbz: Mapped[int | None] = mapped_column()  # Reference line item (FI BUZEI)
     refgj: Mapped[int | None] = mapped_column()  # Reference fiscal year
+
+
+class CODocumentHeader(Base):
+    """COBK — CO document header."""
+
+    __tablename__ = "cobk"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    kokrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Controlling area
+    belnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # CO document number
+    gjahr: Mapped[int] = mapped_column()  # Fiscal year
+    versn: Mapped[str] = mapped_column(String(3), default="000")  # Version
+    vrgng: Mapped[str] = mapped_column(String(4))  # CO business transaction (COIN, RKIU, RKIV, KOAO)
+    perab: Mapped[int] = mapped_column()  # Period
+    bldat: Mapped[date] = mapped_column()  # Document date
+    budat: Mapped[date] = mapped_column()  # Posting date
+    cpudt: Mapped[date] = mapped_column(default=date.today)  # Entry date
+    usnam: Mapped[str] = mapped_column(String(12), default="SYSTEM")  # User
+    bltxt: Mapped[str | None] = mapped_column(String(50))  # Document header text
+    awtyp: Mapped[str | None] = mapped_column(String(5))  # Reference transaction (BKPF = from FI)
+    refbk: Mapped[str | None] = mapped_column(String(4))  # Reference company code
+    refbn: Mapped[str | None] = mapped_column(String(10))  # Reference document number (FI BELNR)
+    refgj: Mapped[int | None] = mapped_column()  # Reference fiscal year
+    stflg: Mapped[bool] = mapped_column(default=False)  # Document is a reversal
+    stokz: Mapped[bool] = mapped_column(default=False)  # Document has been reversed
+    # Allocation cycle that posted this document (assessment / distribution).
+    # Not an SAP COBK column: SAP keeps the cycle reference in the allocation tables.
+    kscyc: Mapped[str | None] = mapped_column(String(10))

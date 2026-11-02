@@ -21,6 +21,7 @@ from app.models.bank import (
     HouseBankAccount,
 )
 from app.models.controlling import (
+    CODocumentHeader,
     COLineItem,
     CostCenter,
     CostElement,
@@ -128,7 +129,7 @@ __all__ = [
     "PaymentRunControl", "PaymentRunPayee", "PaymentRunItem",
     # controlling
     "CostCenter", "CostElement", "CostElementCO", "InternalOrder",
-    "ProfitCenter", "COLineItem",
+    "ProfitCenter", "COLineItem", "CODocumentHeader",
     # assets
     "AssetClass", "DepreciationArea", "AssetAccountDetermination",
     "AssetTransactionType", "Asset", "AssetDepreciationTerms", "AssetAllocation",

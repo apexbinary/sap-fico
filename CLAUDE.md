@@ -44,6 +44,7 @@ python -m app.verify_documents         # park / post parked / delete, reversal, 
 python -m app.verify_recurring         # recurring entry original + F.14 runs
 python -m app.verify_dunning           # dunning levels, interval, charges, notices
 python -m app.verify_fx                # FX translation, rounding, valuation, realized differences
+python -m app.verify_controlling       # CO documents, reports, allocations, settlement, CO-PA
 python -m app.verify_all               # all of the above in order
 
 python -m uvicorn app.main:app --reload --port 8000
@@ -97,7 +98,8 @@ app/
     tax.py             T005 T007A TAXRATE T030K T059P/Z
     partners.py        KNA1 KNB1 LFA1 LFB1 LFBK KNBK SEPA_MANDATE KNB5
     dunning.py         T047A T047B T047C (procedure, levels, charges) MAHNV MHNK MHND
-    controlling.py     CSKS CSKA CSKB AUFK CEPC COEP
+    controlling.py     CSKS CSKA CSKB AUFK CEPC COEP COBK, T811C/S/K (cycles),
+                       COBRA/COBRB (settlement rules), TKEB CE4IDEA (CO-PA)
     assets.py          ANKA T093 T095 TABW ANLA ANLB ANLZ ANLC ANEK ANEP ANLP
     bank.py            BNKA T012 T012K FEBKO FEBEP
     payments.py        T052 (terms of payment) T030 (automatic accounts: SKT/SKE)
@@ -127,6 +129,10 @@ app/
     bank.py            import_statement, post_statement (partner items: auto-match +
                        clear; partner-less items: clear the T042I clearing account)
     reporting.py       trial_balance, account_balance, open_items
+    controlling.py     CO documents (COBK, RK_BELEG numbers), object balances, actuals
+    allocation.py      assessment (KSU5, RKIU) / distribution (KSV5, RKIV), reverse_run
+    settlement.py      internal order settlement (KO88, KOAO; KS in CO, SK via FI)
+    copa.py            CO-PA segment derivation from the customer, contribution report
     fsv.py             financial_statement (balance sheet / P&L by FSV),
                        carry_forward (FAGLGVTR: GLT0-HSLVT, P&L -> retained earnings)
   api.py             /api/documents (+ park, post, delete, reverse, reset-clearing),
@@ -136,6 +142,7 @@ app/
   api_assets_bank.py /api/assets*, /api/bank*, /api/master/house-banks
   api_payments.py    /api/payments/open-items, /api/payments, /api/clearing
   api_payment_run.py /api/payment-runs (proposal, execute, sepa, sepa-dd, delete)
+  api_controlling.py /api/co/actuals, documents, cycles, orders/{aufnr}/settle, pa/contribution
   api_periodic.py    /api/recurring (+ run), /api/dunning-runs (+ execute, notice),
                      /api/exchange-rates, /api/fx-valuation
   main.py            FastAPI app; mounts routers under /api and the web UI at /
@@ -143,7 +150,8 @@ app/
   verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV,
                      document lifecycle)
 web/                 index.html, styles.css, app.js (SPA)
-migrations/          Alembic env + revisions (0001 = baseline schema)
+migrations/          Alembic env + revisions (0001 baseline, 0002 COBK, 0003 cycles,
+                     0004 settlement rules, 0005 CO-PA)
 scripts/             setup_postgres.sql, check_lengths.py
 ```
 
@@ -157,7 +165,10 @@ scripts/             setup_postgres.sql, check_lengths.py
   (`AKONT` from KNB1/LFB1) in the G/L; asset lines (A) post to the **APC account**
   from account determination (T095).
 - Document numbers come from the **number range (NRIV)** of the document type.
-- Primary cost-element lines with a CO object mirror into **COEP** (real-time FI→CO).
+- Primary cost-element lines with a CO object mirror into **COEP** (real-time FI→CO),
+  in a CO document of their own (COBK, RK_BELEG) that references the FI document.
+  Revenue / sales deduction lines (categories 11/12) without a CO object go to the
+  CO-PA segment derived from the document's customer (BSEG-PAOBJNR, object EO).
 - Errors use `PostingError` and surface as HTTP 422 with SAP-style messages.
 - Invoice lines (sales-related keys, TBSL-XUMSW) copy their terms of payment
   (entered ZTERM, else KNB1/LFB1) into BSEG ZTERM/ZBD*T/ZBD*P/SKFBT; discount
@@ -198,7 +209,8 @@ scripts/             setup_postgres.sql, check_lengths.py
 
 Client **100**, company code **1000** (Germany, EUR), chart of accounts **INT**,
 fiscal year variant **K4** (calendar, 12+4 periods), controlling area **1000**,
-cost center 0000001000. Tax procedure TAXD: **A1** output VAT 19%, **V1** input VAT
+cost centers 0000001000 (admin) / 0000002000 (sales) / 0000003000
+(production), internal order 000000400001 (trade fair). Tax procedure TAXD: **A1** output VAT 19%, **V1** input VAT
 19%. Customer 0000010000, vendor 0000020000. Asset class 00003000 (machinery).
 House bank DB / account GIRO → G/L 113100. Posting keys 40/50 (G/L), 01/11/15
 (customer), 21/25/31 (vendor), 70/75 (asset), plus clearing keys 05/06/07/16/17
@@ -268,6 +280,15 @@ reversal (FB08) with reasons 01/02, reset clearing with optional reversal
 (FBRA), UI actions on the document view.
 Known gaps: changing a parked document, asset reversal (AB08), mass reversal.
 
+**Controlling — done:** CO documents (COBK) for every CO posting; actual cost
+reports per cost center / internal order; assessment and distribution cycles
+(ADMIN-ASM, SALES-DST) with test run, one run per period and reversal;
+internal order settlement to cost centers (CO) and G/L accounts (FI); account-
+based CO-PA (operating concern IDEA) with a contribution report; UI screens.
+Known gaps: plan data, activity types and internal activity allocation,
+settlement reversal, CO-PA assessment, costing-based CO-PA; cycle tables are
+an explicit version of SAP's generic T811* storage.
+
 **PostgreSQL + Alembic — done:** baseline revision 0001, upgrade on startup,
 legacy databases stamped, PostgreSQL compose override; the full verify suite
 passes on SQLite and PostgreSQL 16. Fixed on the way: length overflows and
@@ -279,7 +300,12 @@ KOKFI misuse, seed FK order, duplicate GLT0 rows for repeated accounts.
 2. ~~Financial Statement Version~~ — done (see Status).
 3. ~~Dunning, FX valuation, recurring entries, reversal, parking~~ — done.
 4. ~~PostgreSQL cutover and Alembic migrations~~ — done.
-5. More CO: assessments/distributions, internal order settlement, CO-PA.
+5. ~~Assessments/distributions, internal order settlement, CO-PA~~ — done.
+
+All five original roadmap items are complete. Candidates next: CO planning
+(plan versions, plan/actual comparison), activity allocation (KB21N), asset
+retirement and AB08, customer/vendor clearing (KNB1-XVERR), user management
+and authorizations, PDF output for notices and payment advices.
 
 ## Conventions when extending
 

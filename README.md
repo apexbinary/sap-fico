@@ -25,7 +25,7 @@ so the model is recognizable to anyone who knows SAP FICO.
 | Taxes | Tax codes (T007A), account determination (T030K) | 🚧 |
 | Accounts Receivable | Customer master (KNA1/KNB1), open items | 🚧 |
 | Accounts Payable | Vendor master (LFA1/LFB1), open items | 🚧 |
-| Controlling | Cost centers, cost elements, internal orders, profit centers (real-time FI→CO) | ✅ |
+| Controlling | Cost centers, internal orders, CO documents (COBK), actual cost reports, assessment/distribution cycles, order settlement, account-based CO-PA | ✅ |
 | Asset Accounting | Asset master (ANLA/ANLB/ANLC), acquisition, straight-line depreciation run | ✅ |
 | Bank Accounting | House banks (T012/T012K), electronic statements (FEBKO/FEBEP), auto-reconcile | ✅ |
 | Payments & clearing | Terms of payment (T052), F-28/F-53 payments, F-32/F-44/F-03 clearing, cash discount with tax adjustment, tolerances (T043G), partial/residual items | ✅ |
@@ -40,7 +40,7 @@ so the model is recognizable to anyone who knows SAP FICO.
 
 A SAP Fiori-style single-page app (`web/`, vanilla JS, no build step) is served by
 the same FastAPI process at `/`: Dashboard, Post Document (live balance + auto-tax),
-Documents, Payments & Clearing, Payment Run (F110), Recurring Entries, Dunning, Exchange Rates & FX Valuation, Trial Balance, Balance Sheet / P&L, Open Items, Fixed Assets, Bank Statements, and master-data
+Documents, Payments & Clearing, Payment Run (F110), Recurring Entries, Dunning, Exchange Rates & FX Valuation, Trial Balance, Cost Centers & Orders, Profitability (CO-PA), Balance Sheet / P&L, Open Items, Fixed Assets, Bank Statements, and master-data
 browsers. Open http://localhost:8000/ after starting the server.
 
 ## Run

@@ -7,6 +7,7 @@ Creates:
     primary cost elements and the CO document number range (RK_BELEG)
   * Allocation cycles ADMIN-ASM (assessment) and SALES-DST (distribution)
   * Settlement rule of order 400001 (60% cost center 2000, 40% G/L 477000)
+  * Operating concern IDEA (account-based CO-PA) assigned to controlling area 1000
   * Document types, posting keys, document number ranges
   * A small chart of accounts (bank, receivables, payables, tax, revenue, expense)
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
@@ -44,6 +45,7 @@ from app.models.controlling import (
     CostElement,
     CostElementCO,
     InternalOrder,
+    OperatingConcern,
     SettlementDistribution,
     SettlementRule,
 )
@@ -217,7 +219,8 @@ def seed() -> None:
         ))
 
         # --- Controlling area 1000 ---
-        put(ControllingArea(mandt=MANDT, kokrs=KOKRS, bezei="Controlling area 1000", waers="EUR", ctyp="10", ktopl=KTOPL, lmona=PERIV, bukrs=BUKRS, khinr="H1000"))
+        put(OperatingConcern(mandt=MANDT, erkrs="IDEA", erkrs_txt="Demo operating concern", waers="EUR", xkontb=True))
+        put(ControllingArea(mandt=MANDT, kokrs=KOKRS, bezei="Controlling area 1000", waers="EUR", ctyp="10", ktopl=KTOPL, lmona=PERIV, bukrs=BUKRS, khinr="H1000", erkrs="IDEA"))
         put(ControllingAreaAssignment(mandt=MANDT, kokrs=KOKRS, bukrs=BUKRS))
         for kostl, ktext, ltext, kosar in [
             ("0000001000", "Admin", "Administration cost center", "1"),
@@ -275,7 +278,7 @@ def seed() -> None:
             ))
 
         # --- Cost elements for P&L accounts ---
-        for kstar, katyp in [("400000", "1"), ("476000", "1"), ("480000", "1"), ("800000", "11")]:
+        for kstar, katyp in [("400000", "1"), ("476000", "1"), ("480000", "1"), ("800000", "11"), ("880000", "12")]:
             put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar=kstar, erdat="20260101"))
             put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar=kstar, datbi=HIGH, datab=LOW, katyp=katyp, ktext=kstar))
 
@@ -395,7 +398,7 @@ def seed() -> None:
         put(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
 
         # --- Demo customer & vendor ---
-        put(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))
+        put(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E", brsch="RETL", kukla="01"))
         put(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E"))
         put(CustomerBankDetails(mandt=MANDT, kunnr="0000010000", banks="DE", bankl="30000000", bankn="0555666777", koinh="Alpha Retail GmbH", iban="DE81300000000555666777"))
         # KNB5 holds runtime state (last dunning level/date): create only, never re-merge.

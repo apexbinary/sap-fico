@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_session
 from app.models.controlling import CODocumentHeader, COLineItem
-from app.services import allocation, controlling, settlement
+from app.services import allocation, controlling, copa, settlement
 from app.services.fiscal import PostingError
 
 router = APIRouter(prefix="/co", tags=["Controlling"])
@@ -99,3 +99,12 @@ def settlement_rule(aufnr: str, mandt: str = Query(default=None), s: Session = D
 def settle(aufnr: str, body: SettleIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
     return _run_or_422(lambda: settlement.settle_order(s, _m(mandt), body.kokrs, aufnr, body.gjahr, body.perio,
                                                        test=body.test))
+
+
+@router.get("/pa/contribution", summary="CO-PA contribution report by characteristic (KE30)")
+def contribution(
+    kokrs: str, gjahr: int, by: Literal["kndnr", "land1", "brsch", "kukla"] = "kndnr",
+    perio_from: int = 1, perio_to: int = 16, mandt: str = Query(default=None), s: Session = Depends(get_session),
+) -> dict:
+    return _run_or_422(lambda: copa.contribution(s, _m(mandt), kokrs, gjahr, by=by,
+                                                 perio_from=perio_from, perio_to=perio_to))

@@ -30,6 +30,8 @@ from app.models.controlling import (
     CostElement,
     CostElementCO,
     InternalOrder,
+    OperatingConcern,
+    ProfitabilitySegment,
     ProfitCenter,
     SettlementDistribution,
     SettlementRule,
@@ -136,7 +138,7 @@ __all__ = [
     "CostCenter", "CostElement", "CostElementCO", "InternalOrder",
     "ProfitCenter", "COLineItem", "CODocumentHeader",
     "AllocationCycle", "AllocationSegment", "AllocationReceiver",
-    "SettlementRule", "SettlementDistribution",
+    "SettlementRule", "SettlementDistribution", "OperatingConcern", "ProfitabilitySegment",
     # assets
     "AssetClass", "DepreciationArea", "AssetAccountDetermination",
     "AssetTransactionType", "Asset", "AssetDepreciationTerms", "AssetAllocation",

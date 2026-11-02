@@ -50,6 +50,7 @@ from app.services.fiscal import (
 
 _CENT = Decimal("0.01")
 _PRIMARY_CO_CATEGORIES = {"1", "01", "3", "03", "11", "12"}  # primary cost/revenue
+_PA_CATEGORIES = {"11", "12"}  # revenues and sales deductions flow to CO-PA
 
 
 @dataclass
@@ -333,6 +334,7 @@ def _post(
 
     buzei = 0
     co_docs: dict[str, object] = {}  # one CO document per controlling area
+    pa_customer = next((rl.kunnr for rl in all_lines if rl.koart == "D"), None)  # CO-PA derivation
     for rl in all_lines:
         buzei += 1
         src = rl.src
@@ -373,7 +375,8 @@ def _post(
         session.add(item)
         if posted:
             _update_totals(session, mandt, req.bukrs, gjahr, monat, rl, local_currency)
-            _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, kokrs, co_docs)
+            item.paobjnr = _mirror_co(session, mandt, req, gjahr, monat, belnr, buzei, rl, kokrs, co_docs,
+                                      pa_customer)
             if rl.koart == "A" and src:
                 _update_asset_values(session, mandt, req, gjahr, belnr, buzei, rl, monat)
 
@@ -404,6 +407,7 @@ def post_parked(
             waers=header.waers, kursf=header.kursf, kokrs=header.kokrs, lines=[],
         )
         co_docs: dict[str, object] = {}
+        pa_customer = next((i.kunnr for i in header.items if i.koart == "D"), None)
         for item in header.items:
             rl = _ResolvedLine(
                 bschl=item.bschl, koart=item.koart, shkzg=item.shkzg, hkont=item.hkont,
@@ -411,8 +415,9 @@ def post_parked(
                 dmbtr=item.dmbtr, src=line_from_item(item), buzid=item.buzid, mwskz=item.mwskz,
             )
             _update_totals(session, mandt, bukrs, header.gjahr, header.monat, rl, cc.waers)
-            _mirror_co(session, mandt, req, header.gjahr, header.monat, header.belnr, item.buzei, rl,
-                       header.kokrs or controlling_area(session, mandt, bukrs), co_docs)
+            item.paobjnr = _mirror_co(session, mandt, req, header.gjahr, header.monat, header.belnr, item.buzei,
+                                      rl, header.kokrs or controlling_area(session, mandt, bukrs), co_docs,
+                                      pa_customer)
             if item.koart == "A":
                 _update_asset_values(session, mandt, req, header.gjahr, header.belnr, item.buzei, rl, header.monat)
             item.bstat = None
@@ -521,39 +526,50 @@ def _update_totals(
 def _mirror_co(
     session: Session, mandt: str, req: DocumentRequest, gjahr: int, monat: int,
     belnr: str, buzei: int, rl: _ResolvedLine, default_kokrs: str | None, co_docs: dict,
-) -> None:
+    pa_customer: str | None = None,
+) -> int | None:
     """Real-time FI->CO: mirror cost-element postings onto their CO object.
 
-    The first CO-relevant line of an FI document opens its CO document (COBK,
-    business transaction COIN) with a reference back to the FI document.
+    The CO object is the line's cost center or order. A revenue or sales
+    deduction line (categories 11/12) without one goes to the profitability
+    segment derived from the document's customer (account-based CO-PA); its
+    segment number is returned for BSEG-PAOBJNR. The first CO-relevant line
+    of an FI document opens its CO document (COBK, business transaction COIN)
+    with a reference back to the FI document.
     """
-    from app.services import controlling
+    from app.services import controlling, copa
 
     src = rl.src
-    if src is None:
-        return
-    if not (src.kostl or src.aufnr):
-        return
+    if src is None or rl.koart != "S":
+        return None
     kokrs = req.kokrs or default_kokrs
     if not kokrs:
-        return
+        return None
     cc = company_code(session, mandt, req.bukrs)
     # Only primary cost elements flow to CO.
     cska = session.get(CostElement, (mandt, cc.ktopl, rl.hkont))
     if cska is None:
-        return
+        return None
     cskb = (
         session.query(CostElementCO)
         .filter_by(mandt=mandt, kokrs=kokrs, kstar=rl.hkont)
         .first()
     )
     if cskb is None or cskb.katyp not in _PRIMARY_CO_CATEGORIES:
-        return
+        return None
 
+    paobjnr = None
     if src.kostl:
         objnr = f"KS{kokrs}{src.kostl}"
-    else:
+    elif src.aufnr:
         objnr = f"OR{src.aufnr}"
+    elif cskb.katyp in _PA_CATEGORIES and pa_customer:
+        paobjnr = copa.derive_segment(session, mandt, kokrs, req.bukrs, pa_customer)
+        if paobjnr is None:
+            return None  # no operating concern
+        objnr = copa.segment_objnr(paobjnr)
+    else:
+        return None
     signed = rl.dmbtr if rl.shkzg == "S" else -rl.dmbtr
     if kokrs not in co_docs:
         co_docs[kokrs] = controlling.open_document(
@@ -566,6 +582,7 @@ def _mirror_co(
         kostl=src.kostl, aufnr=src.aufnr, prctr=src.prctr, owaer=cc.waers, twaer=req.waers,
         refbz=buzei,
     )
+    return paobjnr
 
 
 # --- tax procedure helpers -------------------------------------------------

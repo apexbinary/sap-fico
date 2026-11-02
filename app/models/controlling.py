@@ -12,6 +12,8 @@ Tables modelled here:
     T811K  Allocation segment receivers (tracing factors)
     COBRA  Settlement rule header of a CO object (internal order)
     COBRB  Settlement rule distribution rules (receiver, percentage, validity)
+    TKEB   Operating concern (CO-PA)
+    CE4IDEA  Profitability segments of operating concern IDEA (characteristics)
     COEP   CO object line items (actual postings)
 
 When an FI line item carries a CO account assignment (cost center, order or WBS)
@@ -299,3 +301,35 @@ class SettlementDistribution(Base):
     perbz: Mapped[str] = mapped_column(String(3), default="PER")  # Settlement type (PER periodic, GES full)
     gabja: Mapped[int | None] = mapped_column()  # Valid from fiscal year
     gabpe: Mapped[int | None] = mapped_column()  # Valid from period
+
+
+class OperatingConcern(Base):
+    """TKEB — Operating concern (profitability analysis)."""
+
+    __tablename__ = "tkeb"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    erkrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Operating concern
+    erkrs_txt: Mapped[str | None] = mapped_column(String(25))  # Name
+    waers: Mapped[str] = mapped_column(String(5))  # Operating concern currency
+    xkontb: Mapped[bool] = mapped_column(default=True)  # Account-based CO-PA active
+    xkalkb: Mapped[bool] = mapped_column(default=False)  # Costing-based CO-PA active
+
+
+class ProfitabilitySegment(Base):
+    """CE4IDEA — Profitability segments of operating concern IDEA.
+
+    SAP generates one CE4<operating concern> table per operating concern from
+    its characteristics; this is the fixed table of the demo concern IDEA.
+    """
+
+    __tablename__ = "ce4idea"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    paobjnr: Mapped[int] = mapped_column(primary_key=True)  # Profitability segment number
+    kokrs: Mapped[str] = mapped_column(String(4))  # Controlling area
+    bukrs: Mapped[str] = mapped_column(String(4))  # Company code
+    kndnr: Mapped[str | None] = mapped_column(String(10))  # Customer
+    land1: Mapped[str | None] = mapped_column(String(3))  # Country of the customer
+    brsch: Mapped[str | None] = mapped_column(String(4))  # Industry
+    kukla: Mapped[str | None] = mapped_column(String(2))  # Customer classification

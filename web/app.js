@@ -778,6 +778,33 @@ views.controlling = async (c) => {
   }));
 };
 
+// ---------- Profitability analysis (CO-PA) ----------
+views.copa = async (c) => {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const by = q.get("by") || "kndnr", gjahr = Number(q.get("gjahr") || state.gjahr);
+  const r = await api(`/co/pa/contribution?kokrs=${KOKRS}&gjahr=${gjahr}&by=${by}`);
+  const opts = { kndnr: "Customer", land1: "Country", brsch: "Industry", kukla: "Customer class" };
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Profitability Analysis</h1>
+      <div class="sub">Account-based CO-PA · operating concern IDEA · revenue and sales deductions by profitability segment</div></div></div>
+    <div class="toolbar">
+      <div class="field"><label>Characteristic</label><select id="pa-by">${Object.entries(opts).map(([k, v]) => `<option value="${k}" ${k === by ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+      <div class="field"><label>Fiscal year</label><input id="pa-gjahr" type="number" value="${gjahr}"></div>
+      <button class="btn" id="pa-go">Show</button>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="label">Revenue</div><div class="value">${fmt(r.revenue)}</div></div>
+      <div class="tile"><div class="label">Sales deductions</div><div class="value">${fmt(r.deductions)}</div></div>
+      <div class="tile"><div class="label">Net revenue</div><div class="value good">${fmt(r.net)}</div></div>
+    </div>
+    <div class="card"><table><thead><tr><th>${esc(r.label)}</th><th class="num">Revenue</th><th class="num">Sales deductions</th><th class="num">Net revenue</th><th class="num">Share</th></tr></thead>
+      <tbody>${r.lines.map((l) => `<tr><td><span class="mono">${esc(l.value ?? "—")}</span> ${esc(l.name || "")}</td>
+        <td class="num">${fmt(l.revenue)}</td><td class="num">${Number(l.deductions) ? fmt(l.deductions) : ""}</td><td class="num">${fmt(l.net)}</td>
+        <td class="num">${Number(r.net) ? (Number(l.net) / Number(r.net) * 100).toFixed(1) + "%" : ""}</td></tr>`).join("")
+        || `<tr><td colspan="5" class="empty">No revenue in profitability segments yet.</td></tr>`}</tbody></table></div>`;
+  $("#pa-go").onclick = () => { location.hash = `#/copa?by=${$("#pa-by").value}&gjahr=${$("#pa-gjahr").value}`; };
+};
+
 // ---------- Automatic Payment Program (F110) ----------
 const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 

@@ -160,6 +160,7 @@ class ControllingArea(Base):
     bukrs: Mapped[str | None] = mapped_column(String(4))  # Company code (if 1:1 assignment)
     xwbuk: Mapped[bool] = mapped_column(default=True)  # Cross-company-code cost accounting
     pcrec: Mapped[str | None] = mapped_column(String(1))  # Profit center accounting active
+    erkrs: Mapped[str | None] = mapped_column(String(4))  # Operating concern (CO-PA)
 
 
 class ControllingAreaAssignment(Base):

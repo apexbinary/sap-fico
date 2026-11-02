@@ -1,19 +1,20 @@
 """End-to-end check for Controlling: CO documents from FI, actual cost reports,
-assessment and distribution cycles, internal order settlement.
+assessment and distribution cycles, internal order settlement, CO-PA.
 
 Run after app.seed (rerunnable):  python -m app.verify_controlling
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.models.controlling import CODocumentHeader, COLineItem
-from app.services import allocation, controlling, reporting, settlement
+from app.models.partners import Customer, CustomerCompanyCode
+from app.services import allocation, controlling, copa, reporting, settlement
 from app.services.fiscal import PostingError
 from app.services.posting import DocumentRequest, LineRequest, post_document
 from app.services.reversal import reverse_document
@@ -138,7 +139,37 @@ def main() -> None:
         again = settlement.settle_order(s, MANDT, KOKRS, ORDER, 2026, 11)
         assert again["co_document"] is None and again["settled"] == 0, "nothing is settled twice"
         assert reporting.trial_balance(s, MANDT, BUKRS, 2026)["balanced"]
-        print("\nOK - CO documents, cost reports, allocations and order settlement are consistent.")
+
+        # 5) CO-PA: revenue of a French retail customer lands in its profitability segment
+        kunnr = "9" + datetime.now().strftime("%d%H%M%S").zfill(9)
+        s.merge(Customer(mandt=MANDT, kunnr=kunnr, ktokd="KUNA", name1="Epsilon SARL", land1="FR",
+                         ort01="Lyon", spras="E", brsch="RETL", kukla="02"))
+        s.merge(CustomerCompanyCode(mandt=MANDT, kunnr=kunnr, bukrs=BUKRS, akont="140000", zterm="0001"))
+        s.commit()
+        fr_before = {l["value"]: l for l in copa.contribution(s, MANDT, KOKRS, 2026, by="land1")["lines"]}
+        fr_net = fr_before.get("FR", {"net": D("0")})["net"]
+        inv = post_document(s, DocumentRequest(
+            bukrs=BUKRS, blart="DR", bldat=date(2026, 11, 14), budat=date(2026, 11, 14), waers="EUR",
+            bktxt="Export sale", lines=[
+                LineRequest(bschl="01", account=kunnr, wrbtr=D("1190.00")),
+                LineRequest(bschl="50", account="800000", wrbtr=D("1000.00"), mwskz="A1", calculate_tax=True),
+            ]))
+        memo = post_document(s, DocumentRequest(
+            bukrs=BUKRS, blart="DR", bldat=date(2026, 11, 20), budat=date(2026, 11, 20), waers="EUR",
+            bktxt="Price reduction", lines=[
+                LineRequest(bschl="11", account=kunnr, wrbtr=D("119.00")),
+                LineRequest(bschl="40", account="800000", wrbtr=D("100.00"), mwskz="A1", calculate_tax=True),
+            ]))
+        revenue_line = next(i for i in inv.items if i.hkont == "800000")
+        assert revenue_line.paobjnr, "the revenue line carries its profitability segment"
+        assert next(i for i in memo.items if i.hkont == "800000").paobjnr == revenue_line.paobjnr, "segment reused"
+        by_customer = {l["value"]: l for l in copa.contribution(s, MANDT, KOKRS, 2026, by="kndnr")["lines"]}
+        by_country = {l["value"]: l for l in copa.contribution(s, MANDT, KOKRS, 2026, by="land1")["lines"]}
+        print(f"5 CO-PA segment {revenue_line.paobjnr}: customer {kunnr} net revenue {by_customer[kunnr]['net']}, "
+              f"country FR {by_country['FR']['net']}")
+        assert by_customer[kunnr]["revenue"] == D("900.00")
+        assert by_country["FR"]["net"] == fr_net + D("900.00")
+        print("\nOK - CO documents, cost reports, allocations, order settlement and CO-PA are consistent.")
     finally:
         s.close()
 

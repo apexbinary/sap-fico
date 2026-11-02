@@ -9,6 +9,7 @@ Tables modelled here:
     KNBK   Customer master — bank details
     SEPA_MANDATE  SEPA direct debit mandates (customer -> our creditor ID)
     KNB5   Customer master — dunning data per company code and dunning area
+    LFB5   Vendor master — dunning data per company code and dunning area
     KNC1   Customer transaction figures per company code and fiscal year
     LFC1   Vendor transaction figures per company code and fiscal year
 
@@ -145,6 +146,7 @@ class VendorCompanyCode(Base):
     lnrzb: Mapped[str | None] = mapped_column(String(10))  # Alternative payee
     togru: Mapped[str | None] = mapped_column(String(4))  # Tolerance group
     reprf: Mapped[bool] = mapped_column(default=False)  # Check for double invoices
+    vzskz: Mapped[str | None] = mapped_column(String(2))  # Interest indicator
     zgrup: Mapped[str | None] = mapped_column(String(2))  # Payment grouping key
     xpore: Mapped[bool] = mapped_column(default=False)  # Pay all items separately
     sperr: Mapped[bool] = mapped_column(default=False)  # Posting block for this company code
@@ -327,3 +329,21 @@ class VendorTotals(Base):
     um14h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 14
     um15h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 15
     um16h: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))  # Credit period 16
+
+
+class VendorDunningData(Base):
+    """LFB5 — Vendor master, dunning data (vendors with debit balances)."""
+
+    __tablename__ = "lfb5"
+    __table_args__ = (
+        ForeignKeyConstraint(["mandt", "lifnr", "bukrs"], ["lfb1.mandt", "lfb1.lifnr", "lfb1.bukrs"]),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    lifnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Vendor number
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    maber: Mapped[str] = mapped_column(String(2), primary_key=True, default="")  # Dunning area
+    mahna: Mapped[str] = mapped_column(String(4))  # Dunning procedure
+    mansp: Mapped[str | None] = mapped_column(String(1))  # Dunning block
+    madat: Mapped[date | None] = mapped_column()  # Last dunned on
+    mahns: Mapped[int] = mapped_column(default=0)  # Dunning level

@@ -48,11 +48,14 @@ from app.models.documents import (
 )
 from app.models.dunning import (
     DunningAccount,
+    DunningArea,
     DunningCharge,
     DunningItem,
     DunningLevel,
     DunningProcedure,
     DunningRunControl,
+    InterestIndicator,
+    InterestRate,
 )
 from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
 from app.models.gl_master import (
@@ -88,6 +91,7 @@ from app.models.partners import (
     Vendor,
     VendorBankDetails,
     VendorCompanyCode,
+    VendorDunningData,
     VendorTotals,
 )
 from app.models.payment_run import PaymentRunControl, PaymentRunItem, PaymentRunPayee
@@ -136,7 +140,8 @@ __all__ = [
     "CustomerBankDetails", "SepaMandate", "CustomerDunningData", "CustomerTotals", "VendorTotals",
     # dunning
     "DunningProcedure", "DunningLevel", "DunningCharge", "DunningRunControl",
-    "DunningAccount", "DunningItem",
+    "DunningAccount", "DunningItem", "DunningArea", "InterestIndicator", "InterestRate",
+    "VendorDunningData",
     # payments
     "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
     "CompanyCodePaymentMethod", "BankDetermination", "CustomerVendorTolerance",

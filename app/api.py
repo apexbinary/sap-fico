@@ -31,7 +31,7 @@ def _request(doc: DocumentIn, mandt: str | None, bstat: str = " ", belnr: str | 
                 bschl=l.bschl, account=l.account, wrbtr=l.wrbtr, mwskz=l.mwskz,
                 calculate_tax=l.calculate_tax, sgtxt=l.sgtxt, zuonr=l.zuonr,
                 gsber=l.gsber, kostl=l.kostl, aufnr=l.aufnr, prctr=l.prctr,
-                zterm=l.zterm, umskz=l.umskz, zlsch=l.zlsch, zlspr=l.zlspr,
+                zterm=l.zterm, umskz=l.umskz, zlsch=l.zlsch, zlspr=l.zlspr, maber=l.maber,
             )
             for l in doc.lines
         ],

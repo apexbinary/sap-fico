@@ -85,6 +85,7 @@ class LineRequest:
     buzid: str | None = None  # Line item ID (T = tax line, e.g. copied by a reversal)
     dmbtr: Decimal | None = None  # Fixed local amount (clearing at the item's historical rate)
     rstgr: str | None = None  # Reason code for a payment difference (T053R)
+    maber: str | None = None  # Dunning area of a customer/vendor item
 
 
 @dataclass
@@ -389,6 +390,7 @@ def _post(
             zlsch=(src.zlsch if src else None),
             zlspr=(src.zlspr if src else None),
             rstgr=(src.rstgr if src else None),
+            maber=(src.maber if src and rl.koart in ("D", "K") else None),
             sknto=(to_local(src.wskto, kursf) if src and src.wskto else None),
             kostl=(src.kostl if src else None),
             aufnr=(src.aufnr if src else None),
@@ -485,7 +487,7 @@ def line_from_item(item: AccountingDocumentItem) -> LineRequest:
         wrbtr=item.wrbtr, mwskz=item.mwskz, sgtxt=item.sgtxt, zuonr=item.zuonr, gsber=item.gsber,
         kostl=item.kostl, aufnr=item.aufnr, prctr=item.prctr, zfbdt=item.zfbdt, zterm=item.zterm,
         umskz=item.umskz, rebzg=item.rebzg, rebzj=item.rebzj, rebzz=item.rebzz, zlsch=item.zlsch,
-        zlspr=item.zlspr, anln2=item.anln2 or "0000", anbwa=item.anbwa, bzdat=item.bzdat, buzid=item.buzid,
+        zlspr=item.zlspr, maber=item.maber, anln2=item.anln2 or "0000", anbwa=item.anbwa, bzdat=item.bzdat, buzid=item.buzid,
     )
 
 

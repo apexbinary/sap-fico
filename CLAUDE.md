@@ -279,9 +279,11 @@ column names are to be checked in SAP.
 **Dunning — done:** procedure 0001 (4 levels, 14-day interval, 3 grace days,
 charges from level 2), proposal with level rise of at most one per run,
 credit offset, interval/block/minimum checks, run updating BSEG-MANST/MADAT
-and KNB5, printable HTML notices, UI. Known gaps: dunning interest, dunning
-areas, vendors with debit balances; T047A/B/C and MAHNV/MHNK/MHND non-key
-column names need checking against the SAP DDIC.
+and KNB5, printable HTML notices, UI. Also done: dunning interest (KNB1/LFB1-
+VZSKZ, T056/T056P rates, levels flagged T047B-XZINS), dunning areas (T047M,
+BSEG-MABER, one notice per area), vendors with debit balances (LFB5).
+Still to verify in SAP: the non-key column names of T047A/B/C, T056/T056P and
+MAHNV/MHNK/MHND.
 
 **Recurring entries — done:** originals (BSTAT 'D', interval X1) with BKDF schedule,
 F.14 run with month-end clamping and no double posting, deletion, UI.

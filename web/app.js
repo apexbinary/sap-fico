@@ -725,6 +725,8 @@ views.dunning = async (c) => {
         <div class="field"><label class="req">Dunning date</label><input id="d-ausdt" type="date" value="${todayISO()}"></div>
         <div class="field"><label>Customer from</label><input id="d-low" placeholder="all"></div>
         <div class="field"><label>Customer to</label><input id="d-high" placeholder="all"></div>
+        <div class="field"><label>Vendor from</label><input id="d-vlow" placeholder="all"></div>
+        <div class="field"><label>Vendor to</label><input id="d-vhigh" placeholder="all"></div>
       </div>
       <button class="btn" id="d-propose" style="margin-top:12px">Create Proposal</button>
       <div class="help">Customers with dunning data (procedure 0001 for the demo customer). A level rises by at most one per run; the dunning interval is 14 days.</div>
@@ -733,7 +735,8 @@ views.dunning = async (c) => {
 
   $("#d-propose").onclick = async () => {
     const body = { laufd: $("#d-laufd").value, laufi: $("#d-laufi").value, ausdt: $("#d-ausdt").value, bukrs: state.bukrs,
-      kunnr_low: $("#d-low").value || null, kunnr_high: $("#d-high").value || null };
+      kunnr_low: $("#d-low").value || null, kunnr_high: $("#d-high").value || null,
+      lifnr_low: $("#d-vlow").value || null, lifnr_high: $("#d-vhigh").value || null };
     try {
       const r = await api("/dunning-runs/proposal", { method: "POST", body: JSON.stringify(body) });
       toast(`Proposal ${r.laufi}: ${r.notices} notice(s), ${r.listed} listed only`, "good");
@@ -746,20 +749,23 @@ views.dunning = async (c) => {
   const [laufd, laufi] = sel.split(":");
   const path = `/dunning-runs/${laufd}/${encodeURIComponent(laufi)}`;
   const r = await api(path);
-  const name = (k) => (state.customers.find((x) => x.kunnr === k) || {}).name1 || "";
+  const name = (a) => ((a.koart === "D" ? state.customers.find((x) => x.kunnr === a.partner)
+    : state.vendors.find((x) => x.lifnr === a.partner)) || {}).name1 || "";
   $("#d-detail").innerHTML = `<div class="card"><div class="card-head">
       <span>Run ${r.laufd} / ${esc(r.laufi)} · dunning date ${r.ausdt} · <span class="chip ${r.xecht ? "ok" : "dr"}">${esc(r.status)}</span></span>
       <span style="display:flex;gap:8px">${r.xecht ? "" : `<button class="btn small secondary" id="d-del">Delete proposal</button>
         <button class="btn small" id="d-exec" ${r.notices ? "" : "disabled"}>Execute dunning run</button>`}</span></div>
-    <table><thead><tr><th>Customer</th><th>Name</th><th>Level</th><th class="num">Overdue</th><th class="num">Charge</th><th>Notice</th></tr></thead>
+    <table><thead><tr><th>Partner</th><th>Name</th><th>Area</th><th>Level</th><th class="num">Overdue</th><th class="num">Charge</th><th class="num">Interest</th><th>Notice</th></tr></thead>
     <tbody>${r.accounts.map((a) => `<tr>
-        <td class="mono">${a.kunnr}</td><td>${esc(name(a.kunnr))}</td><td>${a.mahnv} → <strong>${a.mahns}</strong></td>
-        <td class="num">${fmt(a.salhw)}</td><td class="num">${Number(a.mahng) ? fmt(a.mahng) : ""}</td>
-        <td>${a.xmflg ? `<a class="btn small ghost" target="_blank" href="/api${path}/notice/${a.kunnr}">Open notice</a>` : `<span class="help">${esc(a.reason || "")}</span>`}</td></tr>
+        <td class="mono"><span class="chip ${a.koart === "D" ? "dr" : "cr"}">${a.koart === "D" ? "Customer" : "Vendor"}</span> ${a.partner}</td>
+        <td>${esc(name(a))}</td><td>${esc(a.maber || "—")}</td><td>${a.mahnv} → <strong>${a.mahns}</strong></td>
+        <td class="num">${fmt(a.salhw)}</td><td class="num">${Number(a.mahng) ? fmt(a.mahng) : ""}</td><td class="num">${Number(a.zinsb) ? fmt(a.zinsb) : ""}</td>
+        <td>${a.xmflg ? `<a class="btn small ghost" target="_blank" href="/api${path}/notice/${a.partner}?koart=${a.koart}&maber=${encodeURIComponent(a.maber)}">Open notice</a>` : `<span class="help">${esc(a.reason || "")}</span>`}</td></tr>
       ${a.items.map((i) => `<tr class="sub-row"><td></td><td class="mono help">↳ <a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a> ${esc(i.xblnr || "")}</td>
-        <td class="help">${i.shkzg === "S" ? `${i.manst} → ${i.mahnn}` : "credit"}${i.mansp ? ` · block ${esc(i.mansp)}` : ""}</td>
-        <td class="num help">${fmt(i.dmshb)}</td><td class="help">${i.shkzg === "S" ? `due ${i.faedt} · ${i.verzn} days` : ""}</td><td></td></tr>`).join("")}`).join("")
-      || `<tr><td colspan="6" class="empty">No overdue items.</td></tr>`}</tbody></table></div>`;
+        <td></td><td class="help">${i.mahnn ? `${i.manst} → ${i.mahnn}` : "offset"}${i.mansp ? ` · block ${esc(i.mansp)}` : ""}</td>
+        <td class="num help">${fmt(i.dmshb)}</td><td class="help">${i.mahnn ? `due ${i.faedt} · ${i.verzn} d` : ""}</td>
+        <td class="num help">${Number(i.zinsb) ? fmt(i.zinsb) : ""}</td><td></td></tr>`).join("")}`).join("")
+      || `<tr><td colspan="8" class="empty">No overdue items.</td></tr>`}</tbody></table></div>`;
 
   if (!r.xecht) {
     $("#d-del").onclick = async () => {

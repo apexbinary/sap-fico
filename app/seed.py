@@ -19,7 +19,8 @@ Creates:
     check payment method C with check lot 100001-100500, T042Y available amount
   * Financial statement version INT and retained earnings 109000 (T030 BIL)
   * Functional areas 0100/0300/0400/0500 on cost centers and P&L accounts
-  * Dunning procedure 0001 (four levels) and dunning data for the demo customer
+  * Dunning procedure 0001 (four levels, interest from level 2), dunning areas 01/02,
+    interest indicator 01 (8%), dunning data for the demo customer and vendor
   * USD exchange rates M/G/B (TCURR), valuation methods (T044A), exchange rate
     difference accounts (T030H), group currency USD (T001A), USD bank account 113200
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
@@ -55,7 +56,14 @@ from app.models.controlling import (
     SettlementRule,
 )
 from app.models.documents import DocumentType, NumberRange, PostingKey
-from app.models.dunning import DunningCharge, DunningLevel, DunningProcedure
+from app.models.dunning import (
+    DunningArea,
+    DunningCharge,
+    DunningLevel,
+    DunningProcedure,
+    InterestIndicator,
+    InterestRate,
+)
 from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
 from app.models.gl_master import (
     GLAccountCOA,
@@ -85,6 +93,7 @@ from app.models.partners import (
     Vendor,
     VendorBankDetails,
     VendorCompanyCode,
+    VendorDunningData,
 )
 from app.models.payments import (
     AutomaticAccountDetermination,
@@ -426,7 +435,8 @@ def seed() -> None:
             (3, 29, "Final reminder", False, "10.00"),
             (4, 43, "Notice before legal action", True, "25.00"),
         ]:
-            put(DunningLevel(mandt=MANDT, mahna="0001", mahns=mahns, verzn=verzn, text1=text, xalwy=always))
+            put(DunningLevel(mandt=MANDT, mahna="0001", mahns=mahns, verzn=verzn, text1=text, xalwy=always,
+                             xzins=mahns >= 2))
             put(DunningCharge(mandt=MANDT, mahna="0001", mahns=mahns, waers="EUR", mahng=Decimal(charge)))
 
         # Exchange rate differences per open-item / reconciliation account (T030H)
@@ -448,14 +458,22 @@ def seed() -> None:
         put(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="ZDI", bwmod="", komok="01", bklas="",
                                           konts="479000", konth="479000"))
 
+        # Dunning areas and dunning interest (8% p.a., 360 days) for interest indicator 01
+        for maber, text in [("01", "Domestic"), ("02", "Export")]:
+            put(DunningArea(mandt=MANDT, bukrs=BUKRS, maber=maber, text1=text))
+        put(InterestIndicator(mandt=MANDT, vzskz="01", text1="Dunning interest 8%", zbase=360))
+        put(InterestRate(mandt=MANDT, vzskz="01", waers="EUR", datab=date(2020, 1, 1), zsoll=Decimal("8.0000")))
+
         # Default tolerance group: differences up to 2.00 EUR and 1% are posted automatically.
         put(CustomerVendorTolerance(mandt=MANDT, bukrs=BUKRS, togru="", betrh=Decimal("2.00"), prozh=Decimal("1.00"), betrs=Decimal("2.00"), prozs=Decimal("1.00")))
 
         # --- Demo customer & vendor ---
         put(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E", brsch="RETL", kukla="01"))
-        put(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E"))
+        put(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001", zwels="E", vzskz="01"))
         put(CustomerBankDetails(mandt=MANDT, kunnr="0000010000", banks="DE", bankl="30000000", bankn="0555666777", koinh="Alpha Retail GmbH", iban="DE81300000000555666777"))
-        # KNB5 holds runtime state (last dunning level/date): create only, never re-merge.
+        # KNB5/LFB5 hold runtime state (last dunning level/date): create only, never re-merge.
+        if s.get(VendorDunningData, (MANDT, "0000020000", BUKRS, "")) is None:
+            put(VendorDunningData(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, maber="", mahna="0001"))
         if s.get(CustomerDunningData, (MANDT, "0000010000", BUKRS, "")) is None:
             put(CustomerDunningData(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, maber="", mahna="0001"))
         put(SepaMandate(mandt=MANDT, mndid="MND-0000010000-001", snd_type="BUS3007", snd_id="0000010000",

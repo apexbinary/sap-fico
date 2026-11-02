@@ -79,6 +79,8 @@ class DunningProposalIn(BaseModel):
     bukrs: str
     kunnr_low: str | None = None
     kunnr_high: str | None = None
+    lifnr_low: str | None = None
+    lifnr_high: str | None = None
 
 
 @router.get("/dunning-runs", summary="Dunning runs")
@@ -98,6 +100,8 @@ def dunning_proposal(body: DunningProposalIn, mandt: str = Query(default=None),
         s, _m(mandt), laufd=body.laufd, laufi=body.laufi.upper(), ausdt=body.ausdt, bukrs=body.bukrs,
         kunnr_low=body.kunnr_low.zfill(10) if body.kunnr_low else None,
         kunnr_high=body.kunnr_high.zfill(10) if body.kunnr_high else None,
+        lifnr_low=body.lifnr_low.zfill(10) if body.lifnr_low else None,
+        lifnr_high=body.lifnr_high.zfill(10) if body.lifnr_high else None,
     ))
     return dunning.run_summary(run)
 
@@ -121,11 +125,11 @@ def execute_dunning_run(laufd: date, laufi: str, mandt: str = Query(default=None
     return dunning.run_summary(_run_or_422(lambda: dunning.execute(s, _m(mandt), laufd, laufi)))
 
 
-@router.get("/dunning-runs/{laufd}/{laufi}/notice/{kunnr}", response_class=HTMLResponse,
+@router.get("/dunning-runs/{laufd}/{laufi}/notice/{partner}", response_class=HTMLResponse,
             summary="Printable dunning notice")
-def dunning_notice(laufd: date, laufi: str, kunnr: str, mandt: str = Query(default=None),
-                   s: Session = Depends(get_session)) -> str:
-    return _run_or_422(lambda: dunning.notice_html(s, _m(mandt), laufd, laufi, kunnr))
+def dunning_notice(laufd: date, laufi: str, partner: str, koart: str = "D", maber: str = "",
+                   mandt: str = Query(default=None), s: Session = Depends(get_session)) -> str:
+    return _run_or_422(lambda: dunning.notice_html(s, _m(mandt), laufd, laufi, partner, koart=koart, maber=maber))
 
 
 class ExchangeRateIn(BaseModel):

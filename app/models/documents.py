@@ -214,6 +214,7 @@ class AccountingDocumentItem(Base):
     manst: Mapped[int | None] = mapped_column()  # Dunning level
     madat: Mapped[date | None] = mapped_column()  # Last dunned on
     mansp: Mapped[str | None] = mapped_column(String(1))  # Dunning block
+    maber: Mapped[str | None] = mapped_column(String(2))  # Dunning area
     rstgr: Mapped[str | None] = mapped_column(String(3))  # Reason code for payment differences
     rebzg: Mapped[str | None] = mapped_column(String(10))  # Invoice ref (document number)
     rebzj: Mapped[int | None] = mapped_column()  # Invoice ref fiscal year

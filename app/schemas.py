@@ -24,6 +24,7 @@ class LineIn(BaseModel):
     umskz: str | None = None
     zlsch: str | None = Field(None, description="Payment method (e.g. T bank transfer)")
     zlspr: str | None = Field(None, description="Payment block (e.g. A blocked for payment)")
+    maber: str | None = Field(None, description="Dunning area")
 
 
 class DocumentIn(BaseModel):

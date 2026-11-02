@@ -729,6 +729,12 @@ views.controlling = async (c) => {
         || `<tr><td colspan="5" class="empty">No cycles.</td></tr>`}</tbody></table>
       <div id="cy-result"></div></div>
     ${table("Internal Orders", or, "Order")}
+    <div class="card"><div class="card-head">Settle Internal Orders (KO88)</div><div class="card-body">
+      <div class="toolbar" style="margin:0">
+        <div class="field"><label>Order</label><select id="st-order">${or.map((o) => `<option value="${esc(o.object)}">${esc(o.object)} — ${esc(o.text || "")}</option>`).join("")}</select></div>
+        <div class="field"><label>Period</label><input id="st-per" type="number" min="1" max="16" value="${new Date().getMonth() + 1}"></div>
+        <button class="btn secondary" id="st-test">Test</button><button class="btn" id="st-run">Settle</button>
+      </div><div id="st-result"></div></div></div>
     <div class="card"><div class="card-head">Recent CO Documents</div>
       <table><thead><tr><th>CO document</th><th>Transaction</th><th>Posting date</th><th>Text</th><th>FI reference</th><th>Lines</th></tr></thead>
       <tbody>${docs.map((d) => `<tr><td class="mono">${d.belnr}</td><td>${esc(d.vrgng)}${d.kscyc ? ` · ${esc(d.kscyc)}` : ""}${d.stokz ? ` <span class="chip cr">Reversed</span>` : ""}${d.stflg ? ` <span class="chip cr">Reversal</span>` : ""}</td>
@@ -737,6 +743,24 @@ views.controlling = async (c) => {
         <td class="help">${d.lines.map((l) => `${esc(l.objnr)} ${esc(l.kstar)} ${fmt(l.amount)}`).join("<br>")}</td></tr>`).join("")
         || `<tr><td colspan="6" class="empty">No CO documents yet.</td></tr>`}</tbody></table></div>`;
   $("#co-go").onclick = () => { location.hash = `#/controlling?gjahr=${$("#co-gjahr").value}&pf=${$("#co-pf").value}&pt=${$("#co-pt").value}`; };
+  const settle = async (test) => {
+    const aufnr = $("#st-order").value, perio = Number($("#st-per").value);
+    if (!aufnr) return;
+    if (!test && !confirm(`Settle order ${aufnr} up to period ${perio}/${gjahr}?`)) return;
+    try {
+      const [rules, r] = await Promise.all([
+        api(`/co/orders/${aufnr}/settlement-rule`),
+        api(`/co/orders/${aufnr}/settle`, { method: "POST", body: JSON.stringify({ kokrs: KOKRS, gjahr, perio, test }) }),
+      ]);
+      if (!test) { toast(r.co_document ? `Settled ${fmt(r.settled)} (CO ${r.co_document}${r.fi_document ? `, FI ${r.fi_document}` : ""})` : "Nothing to settle", "good"); return route(); }
+      $("#st-result").innerHTML = `<p class="help">Rule: ${rules.map((x) => `${x.konty} ${esc(x.receiver)} ${Number(x.prozs)}%`).join(" · ")} — order balance ${fmt(r.balance)}</p>
+        <table><thead><tr><th>Receiver</th><th>Type</th><th class="num">%</th><th>Cost element</th><th class="num">Amount</th></tr></thead>
+        <tbody>${r.lines.map((l) => `<tr><td class="mono">${esc(l.receiver)}</td><td>${l.konty === "KS" ? "Cost center" : "G/L account"}</td><td class="num">${Number(l.prozs)}</td><td class="mono">${esc(l.kstar)}</td><td class="num">${fmt(l.amount)}</td></tr>`).join("")
+          || `<tr><td colspan="5" class="empty">Nothing to settle.</td></tr>`}</tbody></table>`;
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  $("#st-test").onclick = () => settle(true);
+  $("#st-run").onclick = () => settle(false);
   document.querySelectorAll(".cy-act").forEach((b) => (b.onclick = async () => {
     const cycle = b.dataset.c, act = b.dataset.a;
     const perio = Number(document.querySelector(`.cy-per[data-c="${cycle}"]`).value);

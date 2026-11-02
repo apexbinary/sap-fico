@@ -1,5 +1,5 @@
 """End-to-end check for Controlling: CO documents from FI, actual cost reports,
-assessment and distribution cycles.
+assessment and distribution cycles, internal order settlement.
 
 Run after app.seed (rerunnable):  python -m app.verify_controlling
 """
@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.models.controlling import CODocumentHeader, COLineItem
-from app.services import allocation, controlling
+from app.services import allocation, controlling, reporting, settlement
 from app.services.fiscal import PostingError
 from app.services.posting import DocumentRequest, LineRequest, post_document
 from app.services.reversal import reverse_document
@@ -115,7 +115,30 @@ def main() -> None:
         assert _balance(s, admin, perio=nov) == sent
         again = allocation.run_cycle(s, MANDT, KOKRS, "ADMIN-ASM", 2026, 11)
         assert again["document"] and _balance(s, admin, perio=nov) == 0
-        print("\nOK - CO documents, cost reports, assessment, distribution and cycle reversal are consistent.")
+
+        # 4) settle the trade fair order: 60% to cost center 2000 (CO), 40% to G/L 477000 (FI)
+        post_document(s, DocumentRequest(
+            bukrs=BUKRS, blart="SA", bldat=date(2026, 11, 12), budat=date(2026, 11, 12), waers="EUR",
+            bktxt="Fair stand", lines=[
+                LineRequest(bschl="40", account="476000", wrbtr=D("1000.00"), aufnr=ORDER),
+                LineRequest(bschl="50", account="113100", wrbtr=D("1000.00")),
+            ]))
+        open_cost = _balance(s, order, perio=(1, 11))
+        marketing = reporting.account_balance(s, MANDT, BUKRS, 2026, "477000")["balance"]
+        sales_950 = controlling.object_balance(s, MANDT, KOKRS, sales, 2026, 1, 16).get("950000", D("0"))
+        test = settlement.settle_order(s, MANDT, KOKRS, ORDER, 2026, 11, test=True)
+        to = {l["receiver"]: l["amount"] for l in test["lines"]}
+        print(f"4 Settlement test: order balance {test['balance']} -> cost center {to[SALES]}, G/L 477000 {to['477000']}")
+        assert test["balance"] == open_cost and to[SALES] == (open_cost * D("0.6")).quantize(D("0.01"))
+        done = settlement.settle_order(s, MANDT, KOKRS, ORDER, 2026, 11)
+        print(f"  Settled: CO {done['co_document']} (KOAO), FI {done['fi_document']}")
+        assert _balance(s, order, perio=(1, 11)) == 0, "the order is fully settled"
+        assert controlling.object_balance(s, MANDT, KOKRS, sales, 2026, 1, 16)["950000"] == sales_950 + to[SALES]
+        assert reporting.account_balance(s, MANDT, BUKRS, 2026, "477000")["balance"] == marketing + to["477000"]
+        again = settlement.settle_order(s, MANDT, KOKRS, ORDER, 2026, 11)
+        assert again["co_document"] is None and again["settled"] == 0, "nothing is settled twice"
+        assert reporting.trial_balance(s, MANDT, BUKRS, 2026)["balanced"]
+        print("\nOK - CO documents, cost reports, allocations and order settlement are consistent.")
     finally:
         s.close()
 

@@ -6,6 +6,7 @@ Creates:
   * Controlling area 1000 with cost centers 1000/2000/3000, internal order 400001,
     primary cost elements and the CO document number range (RK_BELEG)
   * Allocation cycles ADMIN-ASM (assessment) and SALES-DST (distribution)
+  * Settlement rule of order 400001 (60% cost center 2000, 40% G/L 477000)
   * Document types, posting keys, document number ranges
   * A small chart of accounts (bank, receivables, payables, tax, revenue, expense)
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
@@ -43,6 +44,8 @@ from app.models.controlling import (
     CostElement,
     CostElementCO,
     InternalOrder,
+    SettlementDistribution,
+    SettlementRule,
 )
 from app.models.documents import DocumentType, NumberRange, PostingKey
 from app.models.dunning import DunningCharge, DunningLevel, DunningProcedure
@@ -117,6 +120,8 @@ def _gl_accounts():
         ("175000", "Output tax (MWS)", True, "GL00", None, ">"),
         ("400000", "Consumption of raw materials", False, "PL00", None, "V1"),
         ("476000", "Office supplies expense", False, "PL00", None, "V1"),
+        ("477000", "Marketing expenses", False, "PL00", None, None),
+        ("960000", "Internal order settlement", False, "PL00", None, None),
         ("480000", "Depreciation expense", False, "PL00", None, None),
         ("800000", "Sales revenue - domestic", False, "PL00", None, "A1"),
         ("880000", "Cash discount granted", False, "PL00", None, None),
@@ -144,7 +149,8 @@ FSV_ITEMS = [
     (32, 3, "32", "Sales deductions and payment differences", "", 1, [("880000", "889999", True, True)]),
     (33, 3, "33", "Other operating income", "", 1, [("270000", "279999", True, True), ("280000", "289999", True, True)]),
     (34, 3, "34", "Cost of materials", "", 1, [("400000", "409999", True, True)]),
-    (35, 3, "35", "Other operating expenses", "", 1, [("410000", "479999", True, True), ("230000", "239999", True, True)]),
+    (35, 3, "35", "Other operating expenses", "", 1, [("410000", "479999", True, True), ("230000", "239999", True, True),
+                                                       ("960000", "969999", True, True)]),
     (36, 3, "36", "Depreciation", "", 1, [("480000", "489999", True, True)]),
     (9, None, "9", "NOT ASSIGNED", "U", 1, []),
 ]
@@ -244,6 +250,19 @@ def seed() -> None:
                                            kostl=kostl, faktor=Decimal(factor)))
         put(InternalOrder(mandt=MANDT, aufnr="000000400001", auart="0100", autyp="01", ktext="Trade fair 2026",
                           bukrs=BUKRS, kokrs=KOKRS, kostv="0000002000", waers="EUR", phas0=True, phas1=True))
+        # Settlement: internal element 950000 (cat. 21, CO only), external 960000 (cat. 22, G/L account)
+        put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar="950000", erdat="20260101"))
+        put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar="950000", datbi=HIGH, datab=LOW, katyp="21",
+                          ktext="Order settlement", ltext="Internal order settlement (internal)"))
+        put(CostElement(mandt=MANDT, ktopl=KTOPL, kstar="960000", erdat="20260101"))
+        put(CostElementCO(mandt=MANDT, kokrs=KOKRS, kstar="960000", datbi=HIGH, datab=LOW, katyp="22",
+                          ktext="Ext. settlement", ltext="Internal order settlement (external)"))
+        # Trade fair order: 60% to the sales cost center, 40% to marketing expenses
+        put(SettlementRule(mandt=MANDT, objnr="OR000000400001", aprof="20", kokrs=KOKRS))
+        put(SettlementDistribution(mandt=MANDT, objnr="OR000000400001", bureg=1, lfdnr=1, konty="KS",
+                                   kostl="0000002000", prozs=Decimal("60"), perbz="PER", gabja=2026, gabpe=1))
+        put(SettlementDistribution(mandt=MANDT, objnr="OR000000400001", bureg=2, lfdnr=1, konty="SK",
+                                   hkont="477000", prozs=Decimal("40"), perbz="PER", gabja=2026, gabpe=1))
 
         # --- G/L accounts ---
         for saknr, name, is_bs, grp, recon, taxcat in _gl_accounts():

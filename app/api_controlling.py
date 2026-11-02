@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_session
 from app.models.controlling import CODocumentHeader, COLineItem
-from app.services import allocation, controlling
+from app.services import allocation, controlling, settlement
 from app.services.fiscal import PostingError
 
 router = APIRouter(prefix="/co", tags=["Controlling"])
@@ -81,3 +81,21 @@ def run_cycle(cycle: str, body: CycleRunIn, mandt: str = Query(default=None), s:
 @router.post("/cycles/{cycle}/reverse", summary="Reverse a cycle run")
 def reverse_cycle(cycle: str, body: CycleRunIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
     return _run_or_422(lambda: allocation.reverse_run(s, _m(mandt), body.kokrs, cycle, body.gjahr, body.perio))
+
+
+class SettleIn(BaseModel):
+    kokrs: str
+    gjahr: int
+    perio: int = Field(..., ge=1, le=16)
+    test: bool = Field(True, description="Test run: show the settlement without posting")
+
+
+@router.get("/orders/{aufnr}/settlement-rule", summary="Settlement rule of an internal order (COBRB)")
+def settlement_rule(aufnr: str, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> list[dict]:
+    return settlement.rules_of(s, _m(mandt), aufnr)
+
+
+@router.post("/orders/{aufnr}/settle", summary="Settle an internal order (KO88)")
+def settle(aufnr: str, body: SettleIn, mandt: str = Query(default=None), s: Session = Depends(get_session)) -> dict:
+    return _run_or_422(lambda: settlement.settle_order(s, _m(mandt), body.kokrs, aufnr, body.gjahr, body.perio,
+                                                       test=body.test))

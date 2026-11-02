@@ -10,6 +10,8 @@ Tables modelled here:
     T811C  Allocation cycles (assessment / distribution)
     T811S  Allocation cycle segments (senders, cost elements)
     T811K  Allocation segment receivers (tracing factors)
+    COBRA  Settlement rule header of a CO object (internal order)
+    COBRB  Settlement rule distribution rules (receiver, percentage, validity)
     COEP   CO object line items (actual postings)
 
 When an FI line item carries a CO account assignment (cost center, order or WBS)
@@ -265,3 +267,35 @@ class AllocationReceiver(Base):
     seg: Mapped[int] = mapped_column(primary_key=True)  # Segment number
     kostl: Mapped[str] = mapped_column(String(10), primary_key=True)  # Receiver cost center
     faktor: Mapped[Decimal] = mapped_column(Numeric(13, 4))  # Tracing factor (portion)
+
+
+class SettlementRule(Base):
+    """COBRA — Settlement rule (header) of a CO object."""
+
+    __tablename__ = "cobra"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    objnr: Mapped[str] = mapped_column(String(22), primary_key=True)  # Object number (OR + order)
+    aprof: Mapped[str | None] = mapped_column(String(6))  # Settlement profile
+    kokrs: Mapped[str] = mapped_column(String(4))  # Controlling area
+
+
+class SettlementDistribution(Base):
+    """COBRB — Distribution rule of a settlement rule (one receiver)."""
+
+    __tablename__ = "cobrb"
+    __table_args__ = (
+        ForeignKeyConstraint(["mandt", "objnr"], ["cobra.mandt", "cobra.objnr"]),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    objnr: Mapped[str] = mapped_column(String(22), primary_key=True)  # Sender object number
+    bureg: Mapped[int] = mapped_column(primary_key=True)  # Distribution rule number
+    lfdnr: Mapped[int] = mapped_column(primary_key=True, default=1)  # Sequence number
+    konty: Mapped[str] = mapped_column(String(2))  # Account assignment category: KS cost center, SK G/L account
+    kostl: Mapped[str | None] = mapped_column(String(10))  # Receiver cost center
+    hkont: Mapped[str | None] = mapped_column(String(10))  # Receiver G/L account
+    prozs: Mapped[Decimal] = mapped_column(Numeric(7, 3))  # Settlement percentage
+    perbz: Mapped[str] = mapped_column(String(3), default="PER")  # Settlement type (PER periodic, GES full)
+    gabja: Mapped[int | None] = mapped_column()  # Valid from fiscal year
+    gabpe: Mapped[int | None] = mapped_column()  # Valid from period

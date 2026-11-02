@@ -16,6 +16,7 @@ trademarks of SAP SE.
 | Inventory — goods receipt / issue / transfer, moving-average cost, inventory audit report (OINM) | ✅ |
 | Foreign currency — documents and journal entries in foreign currencies, open FC amounts, realized exchange differences on payment and reconciliation | ✅ |
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
+| Payment wizard — batch payment of due vendor items or collection from customers, transfer or check, cash discount, selection | ✅ |
 | Dunning — dunning terms and levels, dunning wizard, interest on arrears and fees, printable letters | ✅ |
 | Cash discount and installments — discount tiers on payment terms, discount on payment, installment invoices paid per installment | ✅ |
 | Exchange rate differences — revaluation of open FC items (unrealized, auto-reversed) and FC G/L accounts | ✅ |

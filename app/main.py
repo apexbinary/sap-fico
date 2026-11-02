@@ -15,6 +15,7 @@ from app.api_dunning import router as dunning_router
 from app.api_finance import router as finance_router
 from app.api_fxreval import router as fxreval_router
 from app.api_masterdata import router as masterdata_router
+from app.api_paywiz import router as paywiz_router
 from app.api_tax import router as tax_router
 from app.config import settings
 from app.database import init_db
@@ -31,6 +32,7 @@ app.include_router(banking_router, prefix="/api")
 app.include_router(bankrec_router, prefix="/api")
 app.include_router(fxreval_router, prefix="/api")
 app.include_router(dunning_router, prefix="/api")
+app.include_router(paywiz_router, prefix="/api")
 app.include_router(tax_router, prefix="/api")
 
 

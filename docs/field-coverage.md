@@ -489,6 +489,19 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | Cash G/L account / amount | CashAcct / CashSum (CashSumFC) | choose / number | ✅ |
 | Credit cards, bills of exchange, house bank selection for checks | RCT3, BoeAcc, … | — | ⏸ credit card and bill-of-exchange setup not in scope |
 
+### Payment wizard (OPWZ / PWZ1)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Run name / payment date / due date up to | WizardName / PmntDate / DueDateTo | text / date | ✅ |
+| Pay vendors (outgoing) or customers (incoming) | PayType | dropdown | ✅ |
+| Payment means (bank transfer, check) / bank G/L account / first check no. | PayMeans / BankAcct / FirstCheck | dropdown / choose / number | ✅ checks numbered per payment |
+| Business partner selection | — | dropdown | ✅ one or all |
+| Take cash discount | TakeDisc | checkbox | ✅ discount allowed on the payment date |
+| Recommendation: items per BP (due date, open, discount, to pay; credit memos and payments on account offset), select / deselect | PWZ1 | checkbox | ✅ saved, editable until executed |
+| Execute: one payment per BP with a positive net; outdated items refused; cancel a saved run | Status | — | ✅ |
+| ⚠ PWZ1 is not a verified B1 table name (B1 keeps the wizard data in OPWZ and several PWZ tables) | | | |
+| Payment methods (OPYM), bank file export, payment blocks, vendor bank accounts, multi-currency runs | | — | ⏸ |
+
 ### Checks for receipt (OCHH) and deposits (ODPS)
 | Field | Column | Type | Status |
 |---|---|---|---|
@@ -539,7 +552,7 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 
 | B1 function | Why not (yet) |
 |---|---|
-| Payment wizard | next on the priority list |
+| Payment methods (OPYM), bank payment files | not built yet |
 | Payment methods, credit cards, bills of exchange | not in scope |
 | Bank statement formats (MT940, camt.053), FC bank account reconciliation | not built yet |
 | Conversion differences (system currency) | not built yet |

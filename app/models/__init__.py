@@ -28,7 +28,8 @@ from app.models.finance import (Account, AccountDetermination, ExchangeRateRun, 
                                 JournalLine)
 from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatementRow, CheckForReceipt, Deposit,
                                  ExternalReconciliation, ExternalReconciliationLine, HouseBankAccount, IncomingPayment,
-                                 OutgoingPayment, DunningRun, DunningLetter, DunningLetterItem)
+                                 OutgoingPayment, DunningRun, DunningLetter, DunningLetterItem, PaymentRun,
+                                 PaymentRunItem)
 from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_INSTALLMENTS, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
@@ -47,6 +48,6 @@ __all__ = [
     "DOCUMENT_CLASSES", "DOCUMENT_TABLES", "DOCUMENT_INSTALLMENTS", "WarehouseJournal",
     # banking
     "IncomingPayment", "OutgoingPayment", "PAYMENT_CLASSES", "CheckForReceipt", "Deposit",
-    "DunningRun", "DunningLetter", "DunningLetterItem",
+    "DunningRun", "DunningLetter", "DunningLetterItem", "PaymentRun", "PaymentRunItem",
     "Bank", "HouseBankAccount", "BankStatement", "BankStatementRow", "ExternalReconciliation", "ExternalReconciliationLine",
 ]

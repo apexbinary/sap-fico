@@ -344,3 +344,42 @@ class DunningLetterItem(Base):
     interest: Mapped[Decimal] = mapped_column("Interest", AMOUNT, default=Decimal("0"))
 
     __table_args__ = (ForeignKeyConstraint(["AbsEntry", "LetterNum"], ["dwz1.AbsEntry", "dwz1.LetterNum"]),)
+
+
+# ------------------------------------------------------------- payment wizard
+class PaymentRun(Base):
+    """OPWZ — Payment wizard run: recommendation of due items, then one payment per business partner."""
+
+    __tablename__ = "opwz"
+
+    id_entry: Mapped[int] = mapped_column("IdEntry", primary_key=True)
+    wizard_name: Mapped[str] = mapped_column("WizardName", String(50))
+    pmnt_date: Mapped[date] = mapped_column("PmntDate", Date)  # Payment date
+    pay_type: Mapped[str] = mapped_column("PayType", String(1))  # V outgoing to vendors, C incoming from customers
+    pay_means: Mapped[str] = mapped_column("PayMeans", String(1))  # T bank transfer, C check
+    bank_acct: Mapped[str] = mapped_column("BankAcct", String(15))  # G/L bank account
+    due_date_to: Mapped[date] = mapped_column("DueDateTo", Date)
+    take_disc: Mapped[str] = mapped_column("TakeDisc", String(1), default="Y")  # take cash discount
+    status: Mapped[str] = mapped_column("Status", String(1), default="S")  # S saved recommendation, E executed, C canceled
+    first_check: Mapped[int | None] = mapped_column("FirstCheck")
+    items = relationship("PaymentRunItem", order_by="PaymentRunItem.line_num", cascade="all, delete-orphan")
+
+
+class PaymentRunItem(Base):
+    """PWZ1 — Open item of a payment wizard run (not a verified B1 table name)."""
+
+    __tablename__ = "pwz1"
+
+    id_entry: Mapped[int] = mapped_column("IdEntry", ForeignKey("opwz.IdEntry"), primary_key=True)
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    card_code: Mapped[str] = mapped_column("CardCode", String(15))
+    trans_id: Mapped[int] = mapped_column("TransId")
+    line_id: Mapped[int] = mapped_column("Line_ID")
+    trans_type: Mapped[str] = mapped_column("TransType", String(20))
+    doc_num: Mapped[str | None] = mapped_column("DocNum", String(11))
+    due_date: Mapped[date] = mapped_column("DueDate", Date)
+    open_amount: Mapped[Decimal] = mapped_column("OpenAmount", AMOUNT)  # LC, as recommended
+    direction: Mapped[int] = mapped_column("Direction")  # +1 to pay, -1 offsets (credit memos, payments on account)
+    discount: Mapped[Decimal] = mapped_column("Discount", AMOUNT, default=Decimal("0"))
+    selected: Mapped[str] = mapped_column("Selected", String(1), default="Y")
+    pay_entry: Mapped[int | None] = mapped_column("PayEntry")  # payment (ORCT / OVPM DocEntry) created

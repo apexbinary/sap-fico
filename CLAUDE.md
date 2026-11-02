@@ -64,6 +64,7 @@ app/
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
   services/fxreval.py exchange rate differences: preview / run (BP open items unrealized + reversed,
                       FC G/L accounts permanent), OEXR/EXR1 runs (models/finance.py)
+  services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
   services/reports.py trial balance, balance sheet, P&L (account tree)
@@ -89,7 +90,7 @@ web/                  index.html, styles.css, app.js (shell, typed field builder
                       documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup),
                       banking.js (payments, deposits), tax.js (tax setup),
                       bankrec.js (bank statements, bank reconciliation), fxreval.js (exchange rate differences),
-                      dunning.js (dunning wizard, letters)
+                      dunning.js (dunning wizard, letters), paywiz.js (payment wizard)
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
 
@@ -175,6 +176,12 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - A payment with items but no means posts no JE (pure reconciliation).
 - Cancel: refused if a check is deposited or the amount on account was used; items
   reopen, the JE is reversed. Documents used in an active payment cannot be canceled.
+
+### Payment wizard (keep invariant)
+- Recommendation = open partner lines due up to a date: vendors' credits are paid (+1),
+  their debits offset (-1) (customers the other way); discount = allowed on the payment date.
+- Execute creates one payment per BP with a positive net, in one transaction; an item whose
+  open amount changed since the recommendation makes the run fail (create a new run).
 
 ### Dunning (keep invariant)
 - Open customer items carry JDT1 DunnLevel / DunDate. A run on a date raises an item to the

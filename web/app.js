@@ -131,11 +131,22 @@ views.post = async (c) => {
       </div>
       <button class="btn" id="postBtn" disabled>Post Document</button>
       <button class="btn secondary" id="parkBtn" disabled>Park</button>
-    </div></div>`;
+    </div></div>
+    <details class="card"><summary class="card-head" style="cursor:pointer">Save as recurring entry (FBD1)</summary><div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label class="req">First run</label><input id="rc-from" type="date" value="${todayISO()}"></div>
+        <div class="field"><label class="req">Last run</label><input id="rc-to" type="date" value="${todayISO().slice(0, 4)}-12-31"></div>
+        <div class="field"><label>Interval (months)</label><input id="rc-mon" type="number" min="1" max="12" value="1"></div>
+        <div class="field"><label>Run day</label><input id="rc-day" type="number" min="1" max="31" placeholder="day of first run"></div>
+      </div>
+      <button class="btn secondary" id="recurBtn" style="margin-top:12px" disabled>Save recurring entry</button>
+      <div class="help">Enter tax lines explicitly (auto-tax is not used for recurring entries). Post the copies under Recurring Entries.</div>
+    </div></details>`;
 
   $("#addLine").onclick = () => { addLine(); recalc(); };
   $("#postBtn").onclick = () => submitDoc(false);
   $("#parkBtn").onclick = () => submitDoc(true);
+  $("#recurBtn").onclick = submitRecurring;
   addLine("40"); addLine("50"); recalc();
 };
 
@@ -143,6 +154,7 @@ views.post = async (c) => {
 function docStatus(d) {
   if (d.bstat === "V") return `<span class="chip dr">Parked</span>`;
   if (d.bstat === "Z") return `<span class="chip no">Deleted</span>`;
+  if (d.bstat === "D") return `<span class="chip dr">Recurring original</span>`;
   if (d.stblg) return `<span class="chip cr">${d.tcode === "FB08" ? "Reversal" : "Reversed"}</span>`;
   return "";
 }
@@ -204,9 +216,10 @@ function recalc() {
   chip.textContent = balanced ? "Balanced" : "Not balanced";
   $("#postBtn").disabled = !balanced;
   $("#parkBtn").disabled = !balanced;
+  $("#recurBtn").disabled = !balanced;
 }
 
-async function submitDoc(park) {
+function docPayload() {
   const lines = [...document.querySelectorAll("#lines tr")].map((row) => ({
     bschl: $(".l-bschl", row).value,
     account: $(".l-acct", row).value,
@@ -216,12 +229,26 @@ async function submitDoc(park) {
     kostl: $(".l-kostl", row).value || null,
     sgtxt: $(".l-text", row).value || null,
   }));
-  const payload = {
+  return {
     bukrs: state.bukrs, blart: $("#f-blart").value, bldat: $("#f-bldat").value,
     budat: $("#f-budat").value, waers: $("#f-waers").value.toUpperCase(),
     xblnr: $("#f-xblnr").value || null, bktxt: $("#f-bktxt").value || null,
     kokrs: null, lines,
   };
+}
+
+async function submitRecurring() {
+  const body = { document: docPayload(), dbbdt: $("#rc-from").value, dbedt: $("#rc-to").value,
+    dbmon: Number($("#rc-mon").value || 1), dbtag: $("#rc-day").value ? Number($("#rc-day").value) : null };
+  try {
+    const r = await api("/recurring", { method: "POST", body: JSON.stringify(body) });
+    toast(`Recurring entry ${r.belnr}/${r.gjahr} saved`, "good");
+    location.hash = "#/recurring";
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+async function submitDoc(park) {
+  const payload = docPayload();
   try {
     const doc = await api(park ? "/documents/park" : "/documents", { method: "POST", body: JSON.stringify(payload) });
     toast(`Document ${doc.belnr}/${doc.gjahr} ${park ? "parked" : "posted"}`, "good");
@@ -500,6 +527,44 @@ views.payments = async (c) => {
   fillAcct();
   if (banks.length) $("#p-bank").value = `${banks[0].hbkid}:${banks[0].hktid}`;
   await load();
+};
+
+// ---------- Recurring Entries (FBD1 / F.14) ----------
+views.recurring = async (c) => {
+  const list = await api(`/recurring?bukrs=${state.bukrs}`);
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Recurring Entries</h1>
+      <div class="sub">Originals (FBD1) are created on Post Document → "Save as recurring entry"; the run (F.14) posts the due copies</div></div>
+      <a class="btn secondary" href="#/post">+ New recurring entry</a></div>
+    <div class="toolbar">
+      <div class="field"><label>Settlement date</label><input id="rr-to" type="date" value="${todayISO()}"></div>
+      <button class="btn" id="rr-run">Run recurring entries (F.14)</button>
+    </div>
+    <div id="rr-result"></div>
+    <div class="card"><table><thead><tr><th>Original</th><th>Type</th><th>Text</th><th class="num">Amount</th><th>First run</th><th>Last run</th><th>Every</th><th>Next run</th><th class="num">Posted</th><th></th></tr></thead>
+      <tbody>${list.map((r) => `<tr>
+        <td class="mono"><a href="#/documents?doc=${r.belnr}:${r.gjahr}">${r.belnr}/${r.gjahr}</a></td><td>${r.blart}</td><td>${esc(r.bktxt || "")}</td>
+        <td class="num">${fmt(r.amount)} ${esc(r.waers)}</td><td>${r.dbbdt}</td><td>${r.dbedt}</td>
+        <td>${r.dbmon} month(s), day ${r.dbtag}</td>
+        <td>${r.deleted ? `<span class="chip no">Deleted</span>` : r.dbatr || `<span class="chip ok">Finished</span>`}</td>
+        <td class="num">${r.runs}</td>
+        <td>${r.deleted ? "" : `<button class="btn small ghost rr-del" data-k="${r.gjahr}/${r.belnr}">Delete</button>`}</td></tr>`).join("")
+        || `<tr><td colspan="10" class="empty">No recurring entries yet.</td></tr>`}</tbody></table></div>`;
+
+  $("#rr-run").onclick = async () => {
+    try {
+      const r = await api("/recurring/run", { method: "POST", body: JSON.stringify({ bukrs: state.bukrs, settle_to: $("#rr-to").value }) });
+      toast(`${r.posted.length} document(s) posted`, "good");
+      await views.recurring(c);
+      $("#rr-result").innerHTML = r.posted.length ? `<div class="card"><div class="card-head">Posted up to ${r.settle_to}</div><table><tbody>${r.posted.map((p) =>
+        `<tr><td class="mono"><a href="#/documents?doc=${p.belnr}:${p.gjahr}">${p.belnr}/${p.gjahr}</a></td><td>${p.budat}</td><td>${esc(p.bktxt || "")}</td><td class="help">from ${p.recurring}</td></tr>`).join("")}</tbody></table></div>` : "";
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  document.querySelectorAll(".rr-del").forEach((b) => (b.onclick = async () => {
+    if (!confirm("Delete this recurring entry? No further copies will be posted.")) return;
+    try { await api(`/recurring/${state.bukrs}/${b.dataset.k}`, { method: "DELETE" }); toast("Recurring entry deleted", "good"); route(); }
+    catch (e) { toast(e.message, "bad"); }
+  }));
 };
 
 // ---------- Automatic Payment Program (F110) ----------

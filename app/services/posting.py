@@ -95,7 +95,8 @@ class DocumentRequest:
     kokrs: str | None = None  # Controlling area (for CO integration)
     mandt: str | None = None  # Client (defaults to settings)
     xclear: bool = False  # Clearing document: may have no line items (zero-balance clearing)
-    bstat: str = " "  # Document status: ' ' posted, 'V' parked
+    bstat: str = " "  # Document status: ' ' posted, 'V' parked, 'D' recurring entry original
+    dbblg: str | None = None  # Recurring entry original this document was posted from
 
 
 def _to_local(amount: Decimal, rate: Decimal) -> Decimal:
@@ -289,20 +290,22 @@ def _post(
     _check_balanced(all_lines, req.waers, local_currency)
 
     posted = req.bstat == " "
-    if req.bstat not in (" ", "V"):
+    if req.bstat not in (" ", "V", "D"):
         raise PostingError(f"Document status {req.bstat!r} cannot be posted directly")
     if posted:  # a parked document is checked when it is posted
         for koart in {"+"} | {rl.koart for rl in all_lines}:
             check_period_open(session, mandt, req.bukrs, koart, gjahr, monat)
 
-    belnr = _next_document_number(session, mandt, req.bukrs, doc_type.numkr, gjahr)
+    # Recurring entry originals are numbered from the dedicated interval X1, as in SAP.
+    numkr = "X1" if req.bstat == "D" else doc_type.numkr
+    belnr = _next_document_number(session, mandt, req.bukrs, numkr, gjahr)
 
     header = AccountingDocumentHeader(
         mandt=mandt, bukrs=req.bukrs, belnr=belnr, gjahr=gjahr, blart=req.blart,
         bldat=req.bldat, budat=req.budat, monat=monat, usnam=req.usnam, tcode=req.tcode,
         xblnr=req.xblnr, bktxt=req.bktxt, waers=req.waers, kursf=req.kursf,
         hwaer=local_currency, bstat=req.bstat, awtyp="BKPF", kokrs=req.kokrs or cc.kokfi,
-        ppnam=None if posted else req.usnam,
+        ppnam=req.usnam if req.bstat == "V" else None, dbblg=req.dbblg,
     )
     session.add(header)
 

@@ -224,6 +224,7 @@ def seed() -> None:
             ("15", 150000000, 159999999),
             ("18", 180000000, 189999999),
             ("19", 190000000, 199999999),
+            ("X1", 9100000000, 9199999999),  # recurring entry originals
         ]:
             # Only create missing intervals: NRLEVEL is the live counter and must survive re-seeding.
             if s.get(NumberRange, (MANDT, "RF_BELEG", BUKRS, numkr, 0)) is None:

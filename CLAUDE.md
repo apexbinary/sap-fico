@@ -41,6 +41,7 @@ python -m app.verify_payments          # payments, cash discount, partial/residu
 python -m app.verify_payment_run       # F110 proposal, payment run, SEPA files, bank clearing
 python -m app.verify_fsv               # balance sheet / P&L by FSV, balance carryforward
 python -m app.verify_documents         # park / post parked / delete, reversal, reset clearing
+python -m app.verify_recurring         # recurring entry original + F.14 runs
 
 python -m uvicorn app.main:app --reload --port 8000
 # API docs: http://localhost:8000/docs   |   Web UI: http://localhost:8000/
@@ -61,7 +62,7 @@ scratch DB so they don't post test documents into it:
 
 ```bash
 docker run --rm -e DATABASE_URL=sqlite:////tmp/v.db cloned_system-app \
-  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents"
+  sh -c "python -m app.seed && python -m app.verify && python -m app.verify_assets && python -m app.verify_payments && python -m app.verify_payment_run && python -m app.verify_fsv && python -m app.verify_documents && python -m app.verify_recurring"
 ```
 
 ## Architecture (dependencies flow inward)
@@ -73,7 +74,7 @@ app/
   models/            ORM tables — authentic SAP names; MANDT (client) is CHAR(3) key
     organizational.py  T000 T001 T004 T009/T009B TKA01/02 TGSB T014 TCURC/TCURR T001B
     gl_master.py       SKA1 SKAT SKB1 T077S T004V/T004G
-    documents.py       T003 TBSL NRIV BKPF BSEG GLT0
+    documents.py       T003 TBSL NRIV BKPF BSEG GLT0 BKDF
     tax.py             T005 T007A TAXRATE T030K T059P/Z
     partners.py        KNA1 KNB1 LFA1 LFB1 LFBK KNBK SEPA_MANDATE
     controlling.py     CSKS CSKA CSKB AUFK CEPC COEP
@@ -92,6 +93,7 @@ app/
                        asset value updates (ANEP/ANLC); parked documents (bstat V,
                        post_parked / delete_parked)
     reversal.py        reverse_document (FB08, TBSL-STBSL keys), reset_clearing (FBRA)
+    recurring.py       create_recurring (FBD1, BSTAT D, interval X1) / run_recurring (F.14)
     asset_accounting.py  create_asset, post_acquisition, run_depreciation (straight-line)
     payment_terms.py   T052 -> BSEG terms fields, net due date, cash discount
     clearing.py        post_payment(): F-28/F-53 payments + F-32/F-44/F-03 clearing;
@@ -111,6 +113,7 @@ app/
   api_assets_bank.py /api/assets*, /api/bank*, /api/master/house-banks
   api_payments.py    /api/payments/open-items, /api/payments, /api/clearing
   api_payment_run.py /api/payment-runs (proposal, execute, sepa, sepa-dd, delete)
+  api_periodic.py    /api/recurring (+ run)
   main.py            FastAPI app; mounts routers under /api and the web UI at /
   seed.py            demo customizing + master data
   verify*.py         runnable end-to-end checks (FI, assets/bank, payments, F110, FSV,
@@ -205,6 +208,9 @@ unassigned-account check, balance carryforward to the next year, UI screen.
 Known gaps: FSV maintenance UI (edit nodes/assignments), functional areas,
 carryforward of sub-ledger balances (open items are not year-bound here).
 
+**Recurring entries — done:** originals (BSTAT 'D', interval X1) with BKDF schedule,
+F.14 run with month-end clamping and no double posting, deletion, UI.
+
 **Document lifecycle — done:** parking (FV50) with post (FBV0) and delete,
 reversal (FB08) with reasons 01/02, reset clearing with optional reversal
 (FBRA), UI actions on the document view.
@@ -214,8 +220,8 @@ Known gaps: changing a parked document, asset reversal (AB08), mass reversal.
 
 1. ~~Payments~~ — complete (see Status).
 2. ~~Financial Statement Version~~ — done (see Status).
-3. **Recurring entries** (FBD1/F.14), **dunning** (FBMP/F150),
-   **foreign-currency valuation** (FAGL_FCV). Reversal and parking are done.
+3. **Dunning** (FBMP/F150), **foreign-currency valuation** (FAGL_FCV).
+   Reversal, parking and recurring entries are done.
 4. **PostgreSQL cutover** (see HANDOFF.md) and Alembic migrations.
 5. More CO: assessments/distributions, internal order settlement, CO-PA.
 

@@ -7,6 +7,7 @@ Tables modelled here:
     BKPF   Accounting document header
     BSEG   Accounting document segment (line items)
     GLT0   G/L account transaction figures (period totals)
+    BKDF   Recurring entry run schedule (for recurring originals, BKPF-BSTAT 'D')
 
 A posted document is BKPF (one header) + 2..n BSEG rows whose debits equal
 credits in every currency. The posting key (BSCHL) on each line decides the
@@ -288,3 +289,25 @@ class GLAccountTotals(Base):
     tsl14: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))
     tsl15: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))
     tsl16: Mapped[Decimal] = mapped_column(AMOUNT, default=Decimal("0"))
+
+
+class RecurringEntrySchedule(Base):
+    """BKDF — Run schedule of a recurring entry original document (BSTAT 'D')."""
+
+    __tablename__ = "bkdf"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["mandt", "bukrs", "belnr", "gjahr"],
+            ["bkpf.mandt", "bkpf.bukrs", "bkpf.belnr", "bkpf.gjahr"],
+        ),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    bukrs: Mapped[str] = mapped_column(String(4), primary_key=True)  # Company code
+    belnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Recurring entry document number
+    gjahr: Mapped[int] = mapped_column(primary_key=True)  # Fiscal year
+    dbbdt: Mapped[date] = mapped_column()  # First run date
+    dbedt: Mapped[date] = mapped_column()  # Last run date
+    dbmon: Mapped[int] = mapped_column(default=1)  # Interval in months
+    dbtag: Mapped[int] = mapped_column()  # Run day of the month (clamped to month end)
+    dbatr: Mapped[date | None] = mapped_column()  # Next run date (None = schedule finished)

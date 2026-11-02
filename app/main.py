@@ -11,6 +11,7 @@ from app import __version__
 from app.api import router
 from app.api_assets_bank import router as aa_bank_router
 from app.api_payment_run import router as payment_run_router
+from app.api_periodic import router as periodic_router
 from app.api_payments import router as payments_router
 from app.config import settings
 from app.database import create_all
@@ -29,6 +30,7 @@ app.include_router(master_router, prefix="/api")
 app.include_router(aa_bank_router, prefix="/api")
 app.include_router(payments_router, prefix="/api")
 app.include_router(payment_run_router, prefix="/api")
+app.include_router(periodic_router, prefix="/api")
 
 
 @app.on_event("startup")

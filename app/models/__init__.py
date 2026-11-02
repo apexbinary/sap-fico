@@ -35,6 +35,7 @@ from app.models.documents import (
     GLAccountTotals,
     NumberRange,
     PostingKey,
+    RecurringEntrySchedule,
 )
 from app.models.fsv import FinancialStatementVersion, FSVAccountAssignment, FSVNode
 from app.models.gl_master import (
@@ -97,7 +98,7 @@ __all__ = [
     "FieldStatusVariant", "FieldStatusGroup",
     # documents
     "DocumentType", "PostingKey", "NumberRange", "AccountingDocumentHeader",
-    "AccountingDocumentItem", "GLAccountTotals",
+    "AccountingDocumentItem", "GLAccountTotals", "RecurringEntrySchedule",
     # tax
     "Country", "TaxCode", "TaxRate", "TaxAccount", "WithholdingTaxType",
     "WithholdingTaxCode",

@@ -147,3 +147,44 @@ class AccountDetermination(Base):
     opening_bal: Mapped[str] = mapped_column("OpenBalAcct", String(15))  # Opening balances offset
     bank_charges: Mapped[str] = mapped_column("BankChgAcct", String(15), server_default="613000")  # Bank charges
     checks_received: Mapped[str] = mapped_column("ChecksRcvdAcct", String(15), server_default="117000")  # Incoming checks
+    unreal_gain: Mapped[str] = mapped_column("UnrlzGainAcct", String(15), server_default="713000")  # Unrealized exchange gain
+    unreal_loss: Mapped[str] = mapped_column("UnrlzLossAcct", String(15), server_default="714000")  # Unrealized exchange loss
+
+
+class ExchangeRateRun(Base):
+    """OEXR — Exchange rate differences run: revaluation of open FC items of business partners
+    (unrealized, reversed on StornoDate) or of FC G/L accounts (permanent) on a date.
+
+    Not B1-verified: B1 posts the journal entries of the run; this table keeps the run and its lines.
+    """
+
+    __tablename__ = "oexr"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    run_date: Mapped[date] = mapped_column("RunDate")
+    category: Mapped[str] = mapped_column("Category", String(1))  # B business partner open items, G G/L accounts in FC
+    storno_date: Mapped[date | None] = mapped_column("StornoDate")  # Reversal date (business partners)
+    trans_id: Mapped[int | None] = mapped_column("TransId")
+    total_gain: Mapped[Decimal] = mapped_column("TotalGain", AMOUNT, default=Decimal("0"))
+    total_loss: Mapped[Decimal] = mapped_column("TotalLoss", AMOUNT, default=Decimal("0"))
+    lines: Mapped[list["ExchangeRateRunLine"]] = relationship(order_by="ExchangeRateRunLine.line_num",
+                                                              cascade="all, delete-orphan")
+
+
+class ExchangeRateRunLine(Base):
+    """EXR1 — Line of an exchange rate differences run: one open item or one FC G/L account."""
+
+    __tablename__ = "exr1"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", ForeignKey("oexr.AbsEntry"), primary_key=True)
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    short_name: Mapped[str] = mapped_column("ShortName", String(15))  # BP code or G/L account
+    account: Mapped[str] = mapped_column("Account", String(15))  # control account / G/L account posted
+    trans_id: Mapped[int | None] = mapped_column("TransId")  # revalued open item (JDT1)
+    line_id: Mapped[int | None] = mapped_column("Line_ID")
+    currency: Mapped[str] = mapped_column("Currency", String(3))
+    open_fc: Mapped[Decimal] = mapped_column("OpenFC", AMOUNT)
+    open_lc: Mapped[Decimal] = mapped_column("OpenLC", AMOUNT)
+    rate: Mapped[Decimal] = mapped_column("Rate", AMOUNT)
+    new_lc: Mapped[Decimal] = mapped_column("NewLC", AMOUNT)
+    difference: Mapped[Decimal] = mapped_column("Difference", AMOUNT)  # new - open (LC)

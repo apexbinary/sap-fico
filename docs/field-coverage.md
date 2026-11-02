@@ -161,6 +161,18 @@ STC1 lines (one tax authority each). Every part is maintained on the Tax Setup s
 | Open amount (FC) of partner lines | BalFcDeb / BalFcCred | — | 🔒 reduced by payments and reconciliations |
 | Distribution rules, tax amount, base amount, system currency amounts | OcrCode, … | — | ⏸ cost accounting and system-currency reporting not built |
 
+### Exchange rate differences (Financials)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| Execution date | OEXR RunDate | date | ✅ |
+| Revalue: business partner open items / G/L accounts in FC | Category | dropdown | ✅ |
+| Reversal date (business partners; default next day) | StornoDate | date | ✅ unrealized difference reversed automatically |
+| Currencies | — | dropdown | ✅ one or all foreign currencies |
+| Preview lines: BP / account, currency, open FC, open LC, rate, new LC, difference | EXR1 | — | 🔒 |
+| Journal entry, total gain / loss | TransId / TotalGain / TotalLoss | — | 🔒 BP: control accounts vs unrealized gain / loss (713000 / 714000); G/L: account vs realized gain / loss |
+| ⚠ OEXR / EXR1 (run and its lines) are not verified B1 tables; B1 keeps only the journal entries | | | |
+| Conversion differences (system currency), revaluation of FC G/L accounts per open item | | — | ⏸ |
+
 ### Financial reports
 Trial balance, balance sheet, profit and loss: period / as-of selection (date), account tree with title accounts — ✅.
 
@@ -498,7 +510,7 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 |---|---|
 | Payment wizard, payment methods, installments, cash discount, credit cards, bills of exchange, dunning | not in the agreed scope |
 | Bank statement formats (MT940, camt.053), FC bank account reconciliation | not built yet |
-| Exchange-rate revaluation of open FC items (unrealized differences) | next on the priority list |
+| Conversion differences (system currency) | not built yet |
 | Freight / additional expenses (OEXD), document rounding, down payments | not in the agreed scope |
 | Units of measure groups and quantity conversion on documents | not in the agreed scope; UoM names are stored and shown |
 | Serial and batch numbers, bin locations, FIFO / standard costing, inventory counting | not in the agreed scope |

@@ -19,7 +19,8 @@ from app.models.admin import (
     TaxGroup,
     TransactionCode,
 )
-from app.models.finance import Account, AccountDetermination, JournalEntry, JournalLine
+from app.models.finance import (Account, AccountDetermination, ExchangeRateRun, ExchangeRateRunLine, JournalEntry,
+                                JournalLine)
 from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatementRow, CheckForReceipt, Deposit,
                                  ExternalReconciliation, ExternalReconciliationLine, HouseBankAccount, IncomingPayment,
                                  OutgoingPayment)
@@ -32,7 +33,7 @@ __all__ = [
     "Company", "Currency", "ExchangeRate", "PostingPeriod", "NumberingSeries", "TaxGroup", "PaymentTerms",
     "SalesEmployee", "Project", "TransactionCode", "Country", "State", "TaxAuthority", "TaxComponent", "TaxType", "HsnCode", "TaxDetermination",
     # financials
-    "Account", "JournalEntry", "JournalLine", "AccountDetermination",
+    "Account", "JournalEntry", "JournalLine", "AccountDetermination", "ExchangeRateRun", "ExchangeRateRunLine",
     # business partners
     "PartnerGroup", "BusinessPartner", "ContactPerson", "PartnerAddress",
     # inventory

@@ -62,6 +62,8 @@ app/
   models/documents.py the 15 document header/line pairs (OQUT/QUT1 ... OWTR/WTR1, built from
                       shared DocumentHeader/DocumentLine columns) and OINM warehouse journal
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
+  services/fxreval.py exchange rate differences: preview / run (BP open items unrealized + reversed,
+                      FC G/L accounts permanent), OEXR/EXR1 runs (models/finance.py)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
   services/reports.py trial balance, balance sheet, P&L (account tree)
   services/masterdata.py  create BP / item / warehouse (validation, OITW rows), price lookup
@@ -85,7 +87,7 @@ app/
 web/                  index.html, styles.css, app.js (shell, typed field builder, journal entries,
                       documents, reports), masterdata.js (accounts, BPs, items, warehouses, setup),
                       banking.js (payments, deposits), tax.js (tax setup),
-                      bankrec.js (bank statements, bank reconciliation)
+                      bankrec.js (bank statements, bank reconciliation), fxreval.js (exchange rate differences)
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
 
@@ -172,6 +174,14 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - Cancel: refused if a check is deposited or the amount on account was used; items
   reopen, the JE is reversed. Documents used in an active payment cannot be canceled.
 
+### Exchange rate differences (keep invariant)
+- BP open FC items: difference (open FC x rate of the date - open LC) posted on the control
+  account against unrealized gain / loss (OACP UnrlzGainAcct / UnrlzLossAcct), reversed on the
+  reversal date; partner lines and balances are not touched, so payments still realize the
+  full difference. One BP run per date.
+- G/L accounts with ActCurr in FC: FC balance x rate - LC balance, posted permanently against
+  the realized gain / loss accounts.
+
 ### Bank reconciliation (keep invariant)
 - A statement's opening balance is the previous closing balance; closing = opening + in - out.
 - An external reconciliation matches statement rows (in - out) with journal lines of the same
@@ -188,7 +198,8 @@ accounts (Postable N) form the tree via FatherNum/Levels. Demo accounts: 112000 
 CGST/SGST/IGST (116000 other input tax), 211000 sundry creditors (A/P control), 212000
 goods received not invoiced, 216100/216200/216300 output CGST/SGST/IGST (216000 other),
 411000 sales, 511000 COGS, 512000 price variance, 513000 stock adjustments, 6xxxxx
-expenses, 711000/712000 exchange gain/loss. Tax codes OCS5/12/18/28 (output CGST + SGST),
+expenses, 711000/712000 exchange gain/loss, 713000/714000 unrealized exchange gain/loss,
+721000 interest income. Tax codes OCS5/12/18/28 (output CGST + SGST),
 OIG5/12/18/28 (output IGST), ONIL, and the input equivalents ICS.., IIG.., INIL;
 payment terms -1 cash, 1 net 30, 2 net 60, 3 end of next month.
 BP groups 100 Customers, 101 Wholesale, 102 Vendors; customers C10000-C30000,

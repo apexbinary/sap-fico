@@ -32,7 +32,7 @@ def create_document(
                 bschl=l.bschl, account=l.account, wrbtr=l.wrbtr, mwskz=l.mwskz,
                 calculate_tax=l.calculate_tax, sgtxt=l.sgtxt, zuonr=l.zuonr,
                 gsber=l.gsber, kostl=l.kostl, aufnr=l.aufnr, prctr=l.prctr,
-                zterm=l.zterm, umskz=l.umskz,
+                zterm=l.zterm, umskz=l.umskz, zlsch=l.zlsch, zlspr=l.zlspr,
             )
             for l in doc.lines
         ],

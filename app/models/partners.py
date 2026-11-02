@@ -5,6 +5,7 @@ Tables modelled here:
     KNB1   Customer master — company code data
     LFA1   Vendor master   — general (client) data
     LFB1   Vendor master   — company code data
+    LFBK   Vendor master   — bank details
 
 Open items are not stored in separate BSID/BSIK index tables here; they are
 derived from BSEG line items where the account type is D/K and the clearing
@@ -144,3 +145,23 @@ class VendorCompanyCode(Base):
     erdat: Mapped[str | None] = mapped_column(String(8))  # Created on
     mindk: Mapped[str | None] = mapped_column(String(2))  # Memo (minority indicator)
     qland: Mapped[str | None] = mapped_column(String(3))  # Withholding tax country
+
+
+class VendorBankDetails(Base):
+    """LFBK — Vendor master, bank details (IBAN from TIBAN folded into iban)."""
+
+    __tablename__ = "lfbk"
+    __table_args__ = (
+        ForeignKeyConstraint(["mandt", "lifnr"], ["lfa1.mandt", "lfa1.lifnr"]),
+    )
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    lifnr: Mapped[str] = mapped_column(String(10), primary_key=True)  # Vendor number
+    banks: Mapped[str] = mapped_column(String(3), primary_key=True)  # Bank country key
+    bankl: Mapped[str] = mapped_column(String(15), primary_key=True)  # Bank key (-> BNKA)
+    bankn: Mapped[str] = mapped_column(String(18), primary_key=True)  # Bank account number
+    bkont: Mapped[str | None] = mapped_column(String(2))  # Bank control key
+    bvtyp: Mapped[str | None] = mapped_column(String(4))  # Partner bank type
+    koinh: Mapped[str | None] = mapped_column(String(60))  # Account holder name
+    xezer: Mapped[bool] = mapped_column(default=False)  # Collection authorization
+    iban: Mapped[str | None] = mapped_column(String(34))  # IBAN (TIBAN)

@@ -22,6 +22,8 @@ class LineIn(BaseModel):
     prctr: str | None = None
     zterm: str | None = None
     umskz: str | None = None
+    zlsch: str | None = Field(None, description="Payment method (e.g. T bank transfer)")
+    zlspr: str | None = Field(None, description="Payment block (e.g. A blocked for payment)")
 
 
 class DocumentIn(BaseModel):

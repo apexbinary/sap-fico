@@ -394,6 +394,90 @@ views.payments = async (c) => {
   await load();
 };
 
+// ---------- Automatic Payment Program (F110) ----------
+const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+views["payment-run"] = async (c) => {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const runs = await api(`/payment-runs?zbukr=${state.bukrs}`);
+  c.innerHTML = `
+    <div class="page-head"><div><h1>Automatic Payment Program</h1>
+      <div class="sub">F110 · parameters → proposal → payment run → SEPA credit transfer file</div></div></div>
+    <div class="card"><div class="card-head">Payment Runs</div>
+      <table><thead><tr><th>Run date</th><th>Identification</th><th>Posting date</th><th>Next run</th><th>Status</th><th class="num">Payments</th><th class="num">Amount</th><th class="num">Exceptions</th></tr></thead>
+      <tbody>${runs.map((r) => `<tr style="cursor:pointer" onclick="location.hash='#/payment-run?run=${r.laufd}:${r.laufi}'">
+        <td>${r.laufd}</td><td class="mono">${esc(r.laufi)}</td><td>${r.zaldt}</td><td>${r.nedat}</td>
+        <td><span class="chip ${r.xecht ? "ok" : "dr"}">${esc(r.status)}</span></td>
+        <td class="num">${r.payments}</td><td class="num">${fmt(r.total)}</td><td class="num">${r.exceptions || ""}</td></tr>`).join("")
+        || `<tr><td colspan="8" class="empty">No payment runs yet.</td></tr>`}</tbody></table></div>
+    <div class="card"><div class="card-head">Parameters</div><div class="card-body">
+      <div class="form-grid">
+        <div class="field"><label class="req">Run date</label><input id="r-laufd" type="date" value="${todayISO()}"></div>
+        <div class="field"><label class="req">Identification</label><input id="r-laufi" maxlength="6" value="F${runs.filter((r) => r.laufd === todayISO()).length + 1}"></div>
+        <div class="field"><label class="req">Posting date</label><input id="r-zaldt" type="date" value="${todayISO()}"></div>
+        <div class="field"><label class="req">Next payment date</label><input id="r-nedat" type="date" value="${addDays(todayISO(), 14)}"></div>
+        <div class="field"><label>Docs entered up to</label><input id="r-cpudt" type="date" value="${todayISO()}"></div>
+        <div class="field"><label class="req">Payment methods</label><input id="r-zwels" value="T"></div>
+        <div class="field"><label>Vendor from</label><input id="r-low" placeholder="all"></div>
+        <div class="field"><label>Vendor to</label><input id="r-high" placeholder="all"></div>
+      </div>
+      <button class="btn" id="r-propose" style="margin-top:12px">Create Proposal</button>
+      <div class="help">Pays items that would be overdue by the next payment date, or whose cash discount would shrink by then. Credit memos are offset.</div>
+    </div></div>
+    <div id="r-detail"></div>`;
+
+  $("#r-propose").onclick = async () => {
+    const body = {
+      laufd: $("#r-laufd").value, laufi: $("#r-laufi").value, zbukr: state.bukrs, zwels: $("#r-zwels").value,
+      zaldt: $("#r-zaldt").value, nedat: $("#r-nedat").value, cpudt: $("#r-cpudt").value || null,
+      lifnr_low: $("#r-low").value || null, lifnr_high: $("#r-high").value || null,
+    };
+    try {
+      const r = await api("/payment-runs/proposal", { method: "POST", body: JSON.stringify(body) });
+      toast(`Proposal ${r.laufi}: ${r.payments} payment(s), ${r.exceptions} exception(s)`, "good");
+      location.hash = `#/payment-run?run=${r.laufd}:${r.laufi}`;
+    } catch (e) { toast(e.message, "bad"); }
+  };
+
+  const sel = q.get("run");
+  if (!sel) return;
+  const [laufd, laufi] = sel.split(":");
+  const path = `/payment-runs/${laufd}/${encodeURIComponent(laufi)}`;
+  const r = await api(path);
+  $("#r-detail").innerHTML = `<div class="card"><div class="card-head">
+      <span>Run ${r.laufd} / ${esc(r.laufi)} · <span class="chip ${r.xecht ? "ok" : "dr"}">${esc(r.status)}</span>
+        · ${r.payments} payment(s) · ${fmt(r.total)} · discount ${fmt(r.discount)}</span>
+      <span style="display:flex;gap:8px">
+        ${r.xecht ? `<a class="btn small" href="/api${path}/sepa">Download SEPA file</a>`
+          : `<button class="btn small secondary" id="r-del">Delete proposal</button>
+             <button class="btn small" id="r-exec" ${r.payments ? "" : "disabled"}>Execute payment run</button>`}
+      </span></div>
+    <table><thead><tr><th>Vendor</th><th>Name</th><th>Method</th><th>House bank</th><th>Payee IBAN</th><th class="num">Discount</th><th class="num">Amount</th><th>Payment doc</th><th>Exception</th></tr></thead>
+    <tbody>${r.payees.map((p) => `<tr>
+        <td class="mono">${p.lifnr}</td><td>${esc(p.name1)}</td><td>${esc(p.zlsch || "—")}</td>
+        <td>${p.hbkid ? `${esc(p.hbkid)}/${esc(p.hktid)}` : ""}</td><td class="mono">${esc(p.ziban || "")}</td>
+        <td class="num">${Number(p.rskon) ? fmt(p.rskon) : ""}</td><td class="num">${fmt(p.rwbtr)}</td>
+        <td class="mono">${p.vblnr ? `<a href="#/documents?doc=${p.vblnr}:${p.gjahr}">${p.vblnr}</a>` : ""}</td>
+        <td style="color:var(--bad);white-space:normal">${esc(p.exception || "")}</td></tr>
+      ${p.items.map((i) => `<tr class="sub-row"><td></td><td colspan="2" class="mono help">↳ <a href="#/documents?doc=${i.belnr}:${i.gjahr}">${i.belnr}/${i.gjahr}</a></td>
+        <td class="help">${esc(i.xblnr || i.sgtxt || "")}</td><td class="help">due ${i.faedt || ""}${i.zlspr ? ` · block ${esc(i.zlspr)}` : ""}</td>
+        <td class="num help">${Number(i.wskto) ? fmt(i.wskto) : ""}</td><td class="num help">${fmt(i.wrbtr)}</td><td colspan="2"></td></tr>`).join("")}`).join("")
+      || `<tr><td colspan="9" class="empty">Nothing due for payment.</td></tr>`}</tbody></table></div>`;
+
+  if (!r.xecht) {
+    $("#r-del").onclick = async () => {
+      try { await api(path, { method: "DELETE" }); toast("Proposal deleted", "good"); location.hash = "#/payment-run"; }
+      catch (e) { toast(e.message, "bad"); }
+    };
+    $("#r-exec").onclick = async () => {
+      if (!confirm(`Post ${r.payments} payment document(s) for ${fmt(r.total)}? This cannot be undone.`)) return;
+      try { const x = await api(`${path}/execute`, { method: "POST", body: "{}" });
+        toast(`Payment run executed: ${x.payments} payment(s), ${fmt(x.total)}`, "good"); route(); }
+      catch (e) { toast(e.message, "bad"); }
+    };
+  }
+};
+
 // ---------- G/L Accounts ----------
 views["gl-accounts"] = async (c) => {
   c.innerHTML = `

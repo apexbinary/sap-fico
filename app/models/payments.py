@@ -5,6 +5,9 @@ Tables modelled here:
     T030   Standard accounts table     (automatic postings by transaction key,
                                         e.g. SKT cash discount granted,
                                         SKE cash discount received)
+    T042Z  Payment methods per country (automatic payment program, F110)
+    T042E  Payment methods per company code (amount limits)
+    T042I  Bank determination: ranking of house banks per payment method
 """
 
 from __future__ import annotations
@@ -55,3 +58,47 @@ class AutomaticAccountDetermination(Base):
     bklas: Mapped[str] = mapped_column(String(4), primary_key=True, default="")  # Valuation class
     konts: Mapped[str] = mapped_column(String(10))  # G/L account (debit)
     konth: Mapped[str | None] = mapped_column(String(10))  # G/L account (credit; blank = konts)
+
+
+class PaymentMethod(Base):
+    """T042Z — Payment methods in a country (+ T042ZT text in text1)."""
+
+    __tablename__ = "t042z"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    land1: Mapped[str] = mapped_column(String(3), primary_key=True)  # Country key
+    zlsch: Mapped[str] = mapped_column(String(1), primary_key=True)  # Payment method
+    text1: Mapped[str] = mapped_column(String(30))  # Description of the payment method
+    xeinz: Mapped[bool] = mapped_column(default=False)  # Incoming payment (collection)
+    xschk: Mapped[bool] = mapped_column(default=False)  # Check payment
+    xbkkt: Mapped[bool] = mapped_column(default=False)  # Bank details of payee required
+    blart: Mapped[str | None] = mapped_column(String(2))  # Document type for the payment
+    progn: Mapped[str | None] = mapped_column(String(40))  # Payment medium program / format
+
+
+class CompanyCodePaymentMethod(Base):
+    """T042E — Payment method per paying company code (amount limits)."""
+
+    __tablename__ = "t042e"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    zbukr: Mapped[str] = mapped_column(String(4), primary_key=True)  # Paying company code
+    zlsch: Mapped[str] = mapped_column(String(1), primary_key=True)  # Payment method
+    minbt: Mapped[Decimal] = mapped_column(Numeric(13, 2), default=Decimal("0"))  # Minimum payment amount
+    maxbt: Mapped[Decimal | None] = mapped_column(Numeric(13, 2))  # Maximum payment amount (blank = none)
+    xfore: Mapped[bool] = mapped_column(default=False)  # Foreign currency allowed
+
+
+class BankDetermination(Base):
+    """T042I — Ranking order of house banks per payment method and currency."""
+
+    __tablename__ = "t042i"
+
+    mandt: Mapped[str] = mapped_column(MANDT, primary_key=True)
+    zbukr: Mapped[str] = mapped_column(String(4), primary_key=True)  # Paying company code
+    zlsch: Mapped[str] = mapped_column(String(1), primary_key=True)  # Payment method
+    waers: Mapped[str] = mapped_column(String(5), primary_key=True)  # Currency
+    rangf: Mapped[int] = mapped_column(primary_key=True)  # Rank order
+    hbkid: Mapped[str] = mapped_column(String(5))  # House bank
+    hktid: Mapped[str] = mapped_column(String(5))  # House bank account ID
+    ukont: Mapped[str] = mapped_column(String(10))  # G/L account posted by the payment (bank / sub-account)

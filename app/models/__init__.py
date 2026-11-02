@@ -62,9 +62,17 @@ from app.models.partners import (
     Customer,
     CustomerCompanyCode,
     Vendor,
+    VendorBankDetails,
     VendorCompanyCode,
 )
-from app.models.payments import AutomaticAccountDetermination, PaymentTerms
+from app.models.payment_run import PaymentRunControl, PaymentRunItem, PaymentRunPayee
+from app.models.payments import (
+    AutomaticAccountDetermination,
+    BankDetermination,
+    CompanyCodePaymentMethod,
+    PaymentMethod,
+    PaymentTerms,
+)
 from app.models.tax import (
     Country,
     TaxAccount,
@@ -90,9 +98,12 @@ __all__ = [
     "Country", "TaxCode", "TaxRate", "TaxAccount", "WithholdingTaxType",
     "WithholdingTaxCode",
     # partners
-    "Customer", "CustomerCompanyCode", "Vendor", "VendorCompanyCode",
+    "Customer", "CustomerCompanyCode", "Vendor", "VendorCompanyCode", "VendorBankDetails",
     # payments
-    "PaymentTerms", "AutomaticAccountDetermination",
+    "PaymentTerms", "AutomaticAccountDetermination", "PaymentMethod",
+    "CompanyCodePaymentMethod", "BankDetermination",
+    # payment run (F110)
+    "PaymentRunControl", "PaymentRunPayee", "PaymentRunItem",
     # controlling
     "CostCenter", "CostElement", "CostElementCO", "InternalOrder",
     "ProfitCenter", "COLineItem",

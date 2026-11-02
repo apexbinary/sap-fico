@@ -8,6 +8,7 @@ Creates:
   * A small chart of accounts (bank, receivables, payables, tax, revenue, expense)
   * German tax procedure TAXD with input (V1) and output (A1) VAT at 19%
   * Terms of payment 0001 / NT30 / ZB01 and cash discount accounts (SKT/SKE)
+  * F110: payment method T (SEPA transfer), bank determination, vendor bank details
   * One demo customer and one demo vendor (vendor on ZB01 cash discount terms)
 
 Run:  python -m app.seed
@@ -46,8 +47,20 @@ from app.models.organizational import (
     FiscalYearVariant,
     PostingPeriodControl,
 )
-from app.models.partners import Customer, CustomerCompanyCode, Vendor, VendorCompanyCode
-from app.models.payments import AutomaticAccountDetermination, PaymentTerms
+from app.models.partners import (
+    Customer,
+    CustomerCompanyCode,
+    Vendor,
+    VendorBankDetails,
+    VendorCompanyCode,
+)
+from app.models.payments import (
+    AutomaticAccountDetermination,
+    BankDetermination,
+    CompanyCodePaymentMethod,
+    PaymentMethod,
+    PaymentTerms,
+)
 from app.models.tax import Country, TaxAccount, TaxCode, TaxRate
 
 MANDT = "100"
@@ -154,6 +167,7 @@ def seed() -> None:
             ("AA", "Asset posting", "01", dict(xsach=True, xanlg=True, xlief=True, xkund=True)),
             ("AF", "Depreciation posting", "01", dict(xsach=True)),
             ("AB", "Accounting document", "01", dict(xsach=True, xkund=True, xlief=True, xanlg=True)),
+            ("ZP", "Payment posting (F110)", "15", dict(xsach=True, xkund=True, xlief=True)),
         ]:
             s.merge(DocumentType(mandt=MANDT, blart=blart, ltext=txt, numkr=numkr, **flags))
 
@@ -202,14 +216,18 @@ def seed() -> None:
                 mandt=MANDT, zterm=zterm, ztagg=0, text1=text, zdart="B",
                 ztag1=t1, zprz1=Decimal(p1), ztag2=t2, zprz2=Decimal(p2), ztag3=t3,
             ))
-        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKT", konts="880000"))
-        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKE", konts="276000"))
+        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKT", bwmod="", komok="", bklas="", konts="880000"))
+        s.merge(AutomaticAccountDetermination(mandt=MANDT, ktopl=KTOPL, ktosl="SKE", bwmod="", komok="", bklas="", konts="276000"))
 
         # --- Demo customer & vendor ---
         s.merge(Customer(mandt=MANDT, kunnr="0000010000", ktokd="KUNA", name1="Alpha Retail GmbH", land1="DE", ort01="Berlin", spras="E"))
         s.merge(CustomerCompanyCode(mandt=MANDT, kunnr="0000010000", bukrs=BUKRS, akont="140000", zterm="0001", zuawa="001"))
         s.merge(Vendor(mandt=MANDT, lifnr="0000020000", ktokk="LIEF", name1="Beta Supplies AG", land1="DE", ort01="Munich", spras="E"))
-        s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="ZB01", zuawa="001"))
+        s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020000", bukrs=BUKRS, akont="160000", zterm="ZB01", zuawa="001", zwels="T"))
+        s.merge(VendorBankDetails(mandt=MANDT, lifnr="0000020000", banks="DE", bankl="20000000", bankn="0987654321", koinh="Beta Supplies AG", iban="DE84200000000987654321"))
+        # Second vendor without bank details: shows up as an F110 exception.
+        s.merge(Vendor(mandt=MANDT, lifnr="0000020001", ktokk="LIEF", name1="Gamma Logistics GmbH", land1="DE", ort01="Hamburg", spras="E"))
+        s.merge(VendorCompanyCode(mandt=MANDT, lifnr="0000020001", bukrs=BUKRS, akont="160000", zterm="0001", zuawa="001", zwels="T"))
 
         # --- Asset Accounting ---
         s.merge(DepreciationArea(mandt=MANDT, afaber="01", afbe_txt="Book depreciation", buhbkt="1"))
@@ -229,7 +247,14 @@ def seed() -> None:
         # --- Bank Accounting ---
         s.merge(Bank(mandt=MANDT, banks="DE", bankl="10000000", banka="Deutsche Demo Bank", ort01="Frankfurt", swift="DEMODEFF"))
         s.merge(HouseBank(mandt=MANDT, bukrs=BUKRS, hbkid="DB", banks="DE", bankl="10000000", swift="DEMODEFF"))
-        s.merge(HouseBankAccount(mandt=MANDT, bukrs=BUKRS, hbkid="DB", hktid="GIRO", bankn="123456789", iban="DE89100000000123456789", waers="EUR", hkont="113100"))
+        s.merge(HouseBankAccount(mandt=MANDT, bukrs=BUKRS, hbkid="DB", hktid="GIRO", bankn="123456789", iban="DE91100000000123456789", waers="EUR", hkont="113100"))
+        s.merge(Bank(mandt=MANDT, banks="DE", bankl="20000000", banka="Munich Demo Bank", ort01="Munich", swift="MUDEDEMM"))
+
+        # --- Automatic payment program (F110) ---
+        s.merge(PaymentMethod(mandt=MANDT, land1="DE", zlsch="T", text1="Bank transfer (SEPA)", xbkkt=True, blart="ZP", progn="SEPA_CT"))
+        s.merge(CompanyCodePaymentMethod(mandt=MANDT, zbukr=BUKRS, zlsch="T", minbt=Decimal("1.00")))
+        # SAP usually posts to a bank clearing sub-account; the demo posts to the main bank account.
+        s.merge(BankDetermination(mandt=MANDT, zbukr=BUKRS, zlsch="T", waers="EUR", rangf=1, hbkid="DB", hktid="GIRO", ukont="113100"))
 
         s.commit()
         print("Seed complete: client 100, company code 1000, chart of accounts INT.")

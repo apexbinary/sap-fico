@@ -146,3 +146,4 @@ input[readonly] { background: #f3f3f3; }
 
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 .help { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.sub-row td { padding-top: 3px; padding-bottom: 3px; background: #fcfcfc; }

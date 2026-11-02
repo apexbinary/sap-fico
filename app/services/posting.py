@@ -65,6 +65,8 @@ class LineRequest:
     rebzj: int | None = None  # Invoice reference: fiscal year
     rebzz: int | None = None  # Invoice reference: line item
     wskto: Decimal | None = None  # Cash discount amount taken (document currency)
+    zlsch: str | None = None  # Payment method (overrides the partner's list)
+    zlspr: str | None = None  # Payment block key
     anln2: str = "0000"  # Asset sub-number (account type A)
     anbwa: str | None = None  # Asset transaction type (account type A)
     afabe: str = "01"  # Depreciation area (account type A)
@@ -311,6 +313,8 @@ def _post(
             rebzj=(src.rebzj if src else None),
             rebzz=(src.rebzz if src else None),
             wskto=(src.wskto if src else None),
+            zlsch=(src.zlsch if src else None),
+            zlspr=(src.zlspr if src else None),
             sknto=(_to_local(src.wskto, req.kursf) if src and src.wskto else None),
             kostl=(src.kostl if src else None),
             aufnr=(src.aufnr if src else None),

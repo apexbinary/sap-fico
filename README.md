@@ -28,13 +28,14 @@ so the model is recognizable to anyone who knows SAP FICO.
 | Asset Accounting | Asset master (ANLA/ANLB/ANLC), acquisition, straight-line depreciation run | ✅ |
 | Bank Accounting | House banks (T012/T012K), electronic statements (FEBKO/FEBEP), auto-reconcile | ✅ |
 | Payments & clearing | Terms of payment (T052), F-28/F-53 payments, F-32/F-44 clearing, cash discount, partial/residual items | ✅ |
+| Automatic payment program | F110 parameters (REGUV), proposal and payment run (REGUH/REGUP), SEPA pain.001 file — vendors | ✅ |
 | Reporting | Trial balance, account balances, open items (net due date) | ✅ |
 
 ### Web UI
 
 A SAP Fiori-style single-page app (`web/`, vanilla JS, no build step) is served by
 the same FastAPI process at `/`: Dashboard, Post Document (live balance + auto-tax),
-Documents, Payments & Clearing, Trial Balance, Open Items, Fixed Assets, Bank Statements, and master-data
+Documents, Payments & Clearing, Payment Run (F110), Trial Balance, Open Items, Fixed Assets, Bank Statements, and master-data
 browsers. Open http://localhost:8000/ after starting the server.
 
 ## Run

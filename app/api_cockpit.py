@@ -14,7 +14,10 @@ from app.models.admin import CockpitWidget
 from app.services import cockpit
 
 router = APIRouter()
-USER = "manager"  # single user until user management exists
+def _user() -> str:
+    from app.context import current_user_code
+
+    return current_user_code.get() or "manager"
 
 
 @router.get("/cockpit", tags=["Cockpit"], summary="KPIs, analyses, open documents and alerts")
@@ -23,7 +26,7 @@ def data(on: date | None = None, s: Session = Depends(get_session)) -> dict:
 
 
 def _layout(s: Session) -> list[dict]:
-    saved = {w.widget_id: w for w in s.scalars(select(CockpitWidget).where(CockpitWidget.user_sign == USER))}
+    saved = {w.widget_id: w for w in s.scalars(select(CockpitWidget).where(CockpitWidget.user_sign == _user()))}
     titles = dict(cockpit.WIDGETS)
     rows = [{"id": wid, "title": titles[wid], "visible": saved[wid].visible == "Y" if wid in saved else True,
              "position": saved[wid].position if wid in saved else 100 + n} for n, (wid, _) in enumerate(cockpit.WIDGETS)]
@@ -46,6 +49,6 @@ def save_layout(body: list[WidgetIn], s: Session = Depends(get_session)) -> list
     for n, w in enumerate(body):
         if w.id not in known:
             raise HTTPException(status_code=422, detail=f"Unknown widget {w.id}")
-        s.merge(CockpitWidget(user_sign=USER, widget_id=w.id, position=n, visible="Y" if w.visible else "N"))
+        s.merge(CockpitWidget(user_sign=_user(), widget_id=w.id, position=n, visible="Y" if w.visible else "N"))
     s.commit()
     return _layout(s)

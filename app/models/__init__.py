@@ -33,6 +33,7 @@ from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatem
                                  PaymentRunItem)
 from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_INSTALLMENTS, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
+from app.models.users import User, UserPermission, UserSession
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
 
 __all__ = [
@@ -41,6 +42,8 @@ __all__ = [
     "SalesEmployee", "Project", "TransactionCode", "Country", "State", "TaxAuthority", "TaxComponent", "TaxType", "HsnCode", "TaxDetermination",
     # financials
     "Account", "JournalEntry", "JournalLine", "AccountDetermination", "ExchangeRateRun", "ExchangeRateRunLine",
+    # users
+    "User", "UserPermission", "UserSession",
     # business partners
     "PartnerGroup", "BusinessPartner", "ContactPerson", "PartnerAddress",
     # inventory

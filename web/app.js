@@ -11,6 +11,7 @@ const yearEnd = () => `${new Date().getFullYear()}-12-31`;
 async function api(path, opts) {
   const res = await fetch(API + path, { headers: { "Content-Type": "application/json" }, ...opts });
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401) showLogin(body.detail === "Not logged in" ? "" : body.detail);  // session ended
   if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || res.statusText));
   return body;
 }
@@ -114,6 +115,8 @@ async function boot() {
     const h = await fetch("/health").then((r) => r.json());
     $("#dbBadge").textContent = h.db;
   } catch (_) {}
+  try { state.user = await api("/auth/me"); } catch (_) { return; }  // not logged in: the login form is shown
+  applyUser();
   state.company = await api("/admin/company");
   $("#companyBadge").textContent = `${state.company.company_name} · ${state.company.main_curncy}`;
   document.title = `Business One — ${state.company.company_name}`;
@@ -137,6 +140,8 @@ function route() {
   $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.obj ? a.dataset.obj === obj && view.startsWith("doc")
     : a.dataset.kind ? a.dataset.kind === kind && view.startsWith("payment") : a.dataset.view === view));
   const c = $("#content");
+  const area = obj ? areaOfObj(obj) : AREA_OF_VIEW[view];
+  if (area && !may(area)) { c.innerHTML = `<div class="empty">No authorization for ${esc(state.user.areas[area] || area)}.</div>`; return; }
   c.innerHTML = '<div class="loading">Loading…</div>';
   Promise.resolve((views[view] || views.cockpit)(c)).catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
 }

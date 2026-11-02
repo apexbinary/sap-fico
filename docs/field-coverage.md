@@ -37,6 +37,18 @@ is built, change its status.
 
 ## Administration
 
+### Users and authorizations (OUSR / USR3)
+| Field | Column | Type | Status |
+|---|---|---|---|
+| User code / user name / e-mail / department | USER_CODE / U_NAME / E_Mail / Department | text | ✅ |
+| Superuser / locked | SUPERUSER / Locked | checkbox | ✅ at least one unlocked superuser remains; nobody locks himself |
+| Password | PasswordHash (PBKDF2-SHA256, salted) | password | ✅ 8+ characters with letters and digits; own password changeable; reset by the administrator ends the user's sessions |
+| Last login | LastLogin | — | 🔒 |
+| General authorizations per area: full / read only / none | USR3 PermId / Permission | dropdown | ✅ enforced on every API call (read needs R or F, change needs F); reference data readable by all logged-in users |
+| Login / logout, session cookie B1SESSION (or bearer token), 12 hours | OUSS (not a B1 table) | — | ✅ |
+| Posting user | OJDT UserSign (user code), documents UserSign (user id) | — | 🔒 |
+| Authorization groups, data ownership, branches, licenses, single sign-on, password expiry / history | | — | ⏸ |
+
 ### Company details (OADM)
 | Field | Column | Type | Status |
 |---|---|---|---|

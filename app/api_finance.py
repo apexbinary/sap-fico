@@ -376,7 +376,7 @@ def _je_out(e: JournalEntry) -> dict:
             "tax_date": e.tax_date, "due_date": e.due_date, "memo": e.memo, "ref1": e.ref1, "ref2": e.ref2,
             "ref3": e.ref3, "trans_code": e.trans_code, "project": e.project, "storno_date": e.storno_date,
             "is_reversal": e.storno_to_tr is not None and e.storno_to_tr < e.trans_id, "trans_type": e.trans_type,
-            "trans_curr": e.trans_curr, "fc_total": e.fc_total,
+            "trans_curr": e.trans_curr, "fc_total": e.fc_total, "user_sign": e.user_sign,
             "base_ref": e.base_ref, "created_by": e.created_by, "loc_total": e.loc_total, "storno_to_tr": e.storno_to_tr,
             "auto_storno": e.auto_storno == "Y",
             "lines": [{"line_id": l.line_id, "account": l.account, "short_name": l.short_name, "debit": l.debit,

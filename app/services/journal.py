@@ -73,9 +73,15 @@ class JournalRequest:
     base_ref: str | None = None  # Source document number
     created_by: int | None = None  # Source DocEntry
     trans_curr: str | None = None
-    user_sign: str = "manager"
+    user_sign: str | None = None  # default: the logged-in user (request context), else "manager"
     manual: bool = True  # manual entries may not post control accounts directly
     extra: dict = field(default_factory=dict)
+
+
+def _current_user() -> str:
+    from app.context import current_user_code
+
+    return current_user_code.get() or "manager"
 
 
 def _account(session: Session, code: str) -> Account:
@@ -165,7 +171,7 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
         due_date=req.due_date or req.ref_date, tax_date=req.tax_date or req.ref_date, memo=req.memo,
         ref1=req.ref1, ref2=req.ref2, ref3=req.ref3, trans_code=req.trans_code, project=req.project,
         series=default_series(session, "30"), trans_type=req.trans_type, base_ref=req.base_ref,
-        created_by=req.created_by, loc_total=debit, user_sign=req.user_sign,
+        created_by=req.created_by, loc_total=debit, user_sign=req.user_sign or _current_user(),
         fc_total=sum((money(l.fc_debit) for l in lines), ZERO),
         trans_curr=req.trans_curr or next((l.fc_currency for l in lines if l.fc_currency), None),
     )

@@ -254,6 +254,7 @@ def seed() -> None:
         put_new(Bank(abs_entry=1, bank_code="HDFC", bank_name="HDFC Bank Ltd", country_cod="IN", swift_num="HDFCINBB"), 1)
         put_new(HouseBankAccount(abs_entry=1, bank_code="HDFC", account="50100123456789", branch="HDFC0000123",
                                  gl_account="112000", acct_name="HDFC current account", country="IN", currency=LOCAL), 1)
+        _seed_users(s)
         _seed_partners_and_items(s, put)
         s.commit()
         print("Seed complete: Demo Trading India Pvt Ltd (INR, GST), chart of accounts, periods 2025-2027, "
@@ -316,6 +317,29 @@ STATES = [("IN", code, name, gst) for code, name, gst in [
                                                 ("NY", "New York"), ("TX", "Texas"), ("WA", "Washington")]] + [
     ("DE", code, name, None) for code, name in [("BE", "Berlin"), ("BY", "Bavaria"), ("HH", "Hamburg"),
                                                 ("NW", "North Rhine-Westphalia")]]
+
+
+def _seed_users(s) -> None:
+    """manager (superuser) and two demo users; created once. Initial passwords from the
+    environment (B1_MANAGER_PASSWORD, default "manager"); change them after the first login."""
+    import os
+
+    from app.models.users import User, UserPermission
+    from app.services.auth import PERMISSIONS, hash_password
+
+    users = [(1, "manager", "Manager", "Y", os.environ.get("B1_MANAGER_PASSWORD", "manager"), {}),
+             (2, "sales", "Sales clerk", "N", os.environ.get("B1_DEMO_PASSWORD", "sales2026"),
+              {"SALES": "F", "BP": "F", "ITEMS": "R", "INV": "R", "COCKPIT": "F", "DUNNING": "R"}),
+             (3, "accountant", "Accountant", "N", os.environ.get("B1_DEMO_PASSWORD", "account2026"),
+              {"COA": "F", "JE": "F", "FINRPT": "F", "BANK": "F", "FXREVAL": "F", "DUNNING": "F", "BP": "R",
+               "SALES": "R", "PURCH": "R", "INV": "R", "ITEMS": "R", "COCKPIT": "F"})]
+    for uid, code, name, sup, pwd, perms in users:
+        if s.get(User, uid) is None:
+            s.add(User(user_id=uid, user_code=code, u_name=name, superuser=sup, locked="N", password=hash_password(pwd)))
+            s.flush()
+            for perm in PERMISSIONS:
+                s.add(UserPermission(user_link=uid, perm_id=perm, permission=perms.get(perm, "N") if sup == "N" else "F"))
+            s.flush()
 
 
 def _seed_partners_and_items(s, put) -> None:

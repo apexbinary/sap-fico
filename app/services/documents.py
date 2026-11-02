@@ -445,7 +445,7 @@ def _create(session: Session, req: DocumentRequest):
         doc_total_fc=net_total_fc + vat_total_fc if fc else ZERO, paid_fc=ZERO,
         filler=req.from_whs, to_whs_code=req.to_whs, comments=req.comments,
         jrnl_memo=(req.jrnl_memo or (f"{d.name} - {bp.card_code}" if bp else d.name))[:50],
-        series=default_series(session, d.obj), ref2=req.ref2, **header,
+        series=default_series(session, d.obj), ref2=req.ref2, user_sign=_current_user_id(), **header,
     )
     for n, x in enumerate(lines):
         lr, item = x["lr"], x["item"]
@@ -492,6 +492,12 @@ def _create(session: Session, req: DocumentRequest):
         refresh_partner(session, bp)
     session.flush()
     return doc
+
+
+def _current_user_id() -> int | None:
+    from app.context import current_user_id
+
+    return current_user_id.get()
 
 
 def _address_text(a) -> str:

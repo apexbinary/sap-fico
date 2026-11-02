@@ -55,6 +55,11 @@ app/
   models/admin.py     OADM OCRN ORTT OFPR NNM1 OVTG OCTG, OSLP OPRJ OTRC OCRY OCST,
                       tax setup: OSTT OSTA STC1 OCHP OTCD
   models/finance.py   OACT OJDT JDT1 OACP (G/L account determination)
+  models/users.py     OUSR users, USR3 general authorizations, OUSS sessions
+  services/auth.py    password hashing, login / sessions, areas (PERMISSIONS), path -> area (ROUTES),
+                      authorize(); app/main.py middleware checks every /api call; app/context.py
+                      holds the logged-in user (journal UserSign, document UserSign, cockpit layout)
+  api_users.py        /api/auth/login|logout|me|password, /api/users
   models/partners.py  OCRG OCRD OCPR CRD1
   models/inventory.py OITB OITM OMRC OWHS OITW OPLN ITM1
   models/banking.py   ORCT/OVPM (+RCT1/2/4, VPM1/2/4), OCHH checks for receipt, ODPS deposits,
@@ -93,10 +98,21 @@ web/                  index.html, styles.css, app.js (shell, typed field builder
                       banking.js (payments, deposits), tax.js (tax setup),
                       bankrec.js (bank statements, bank reconciliation), fxreval.js (exchange rate differences),
                       dunning.js (dunning wizard, letters), paywiz.js (payment wizard),
-                      cockpit.js (home screen; SVG charts, no chart library)
+                      cockpit.js (home screen; SVG charts, no chart library),
+                      users.js (login, user menu, nav by authorization, users)
                       index.html loads scripts / styles with ?v=N: raise N when they change
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
+
+### Users and authorizations (keep invariant)
+- Every /api path needs a session except /api/auth/login|logout; the web client (/), /health
+  and /docs stay public. Add every new API prefix to auth.ROUTES (unknown paths need ADMIN);
+  documents map by object type to SALES / PURCH / INV.
+- GET of shared reference data (auth.SHARED_READS) is allowed to every logged-in user.
+- Seeded users (created once): manager (superuser, password B1_MANAGER_PASSWORD, default
+  "manager"), sales and accountant (demo, password B1_DEMO_PASSWORD or sales2026 /
+  account2026). Change them after the first login.
+- Checks that call services directly need no login; verify_users tests the HTTP layer.
 
 ### Fields and UI (keep invariant)
 - **No standard B1 field of a built feature is silently missing.** Every form is

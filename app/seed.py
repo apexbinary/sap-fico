@@ -268,6 +268,14 @@ def seed() -> None:
         _seed_users(s)
         _seed_print_layouts(s)
         _seed_withholding(s)
+        from app.models.approvals import Alert, AlertRecipient
+
+        for code, name, typ, param in [(1, "Items below minimum stock", "MINSTOCK", None), (2, "Customer items overdue > 30 days", "OVERDUE", 30),
+                                       (3, "Customers over the credit limit", "CREDIT", None), (4, "Batches expiring in 30 days", "EXPIRY", 30),
+                                       (5, "Approval requests", "APPROVAL", None)]:
+            if s.get(Alert, code) is None:
+                s.add(Alert(code=code, name=name, alert_type=typ, param=param, active="Y", recipients=[AlertRecipient(user_id=1)]))
+                s.flush()
         from app.models.assets import AssetClass
 
         for code, name, acct, method, life, rate in [("OFFEQ", "Office equipment", "121000", "SL", 60, None),

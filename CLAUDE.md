@@ -118,6 +118,10 @@ app/
                       depreciation run (SL / WDV) / reverse, retire; api_assets.py; web/assets.js
   services/bp_reports.py aging (customers / vendors), account statement, cash flow (Finanse accounts);
                       /api/reports/aging|statement|cash-flow; web/bpreports.js
+  services/approvals.py approval procedures OWST / OWTM (WTM1-4) / OWDD / WDD1 (models/approvals.py): the
+                      document API (api_documents.create_document) asks approvals.check, which validates
+                      the document (create + rollback) and holds it; build_request replays it on add
+  services/alerts.py  system alerts OALT / ALT1, evaluated per user; /api/alerts; web/approvals.js (bell)
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

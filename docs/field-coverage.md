@@ -450,6 +450,16 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Approval procedures and alerts (Administration -> Approvals, Approval Procedures, Alert Settings; bell)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Approval stage: name, authorizers, approvals / rejections required | OWST, WST1 | text / multi-select / number | ✅ |
+| Approval template: name, active, originators, document types, stages in order, conditions (document total, discount %, gross profit % with > >= < <=; none = always) | OWTM, WTM1-WTM4 | text / multi-select / dropdown / number | ✅ |
+| Request: document validated and held (no document, no number), status pending / approved / rejected / added, reason, decisions with remarks | OWDD, WDD1 | — | ✅ the held document is kept as JSON (B1: draft ODRF) |
+| Approve / reject per stage, next stage, originator adds the approved document | | button | ✅ |
+| Alerts: items below minimum stock, overdue customer items (days), customers over the credit limit, batches expiring (days), approval requests; recipients, active | OALT, ALT1 | checkbox / number / multi-select | ✅ evaluated when opened; bell with count |
+| User-defined query alerts, alert frequency / e-mail / SMS, approvals of payments / journal entries / item master, drafts editable before approval | | — | ⏸ |
+
 ### Aging, account statement, cash flow (Financial Reports)
 | Report | Source | Status |
 |---|---|---|

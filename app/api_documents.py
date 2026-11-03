@@ -160,10 +160,9 @@ class DocumentIn(BaseModel):
     lines: list[DocLineIn]
 
 
-@router.post("/documents/{obj}", tags=["Documents"], summary="Add a document (posts stock and journal entry)")
-def create_document(obj: str, body: DocumentIn, s: Session = Depends(get_session)) -> dict:
-    _check(obj)
-    data = body.model_dump()
+def build_request(obj: str, payload: dict) -> documents.DocumentRequest:
+    """DocumentRequest from the JSON body of a document (also replayed by approved approval requests)."""
+    data = DocumentIn(**payload).model_dump()
     lines = [documents.DocLineRequest(**l) for l in data.pop("lines")]
     try:
         expenses = [documents.ExpenseRequest(**e) for e in (data.pop("expenses") or [])]
@@ -173,8 +172,20 @@ def create_document(obj: str, body: DocumentIn, s: Session = Depends(get_session
         draws = [documents.DownPaymentDraw(**x) for x in (data.pop("down_payments") or [])]
     except TypeError as exc:
         raise HTTPException(status_code=422, detail="Down payments: dp_entry and amount are expected") from exc
-    doc = run(lambda: documents.create_document(s, documents.DocumentRequest(obj=obj, lines=lines, expenses=expenses,
-                                                                           down_payments=draws, **data)))
+    return documents.DocumentRequest(obj=obj, lines=lines, expenses=expenses, down_payments=draws, **data)
+
+
+@router.post("/documents/{obj}", tags=["Documents"], summary="Add a document (posts stock and journal entry)")
+def create_document(obj: str, body: DocumentIn, s: Session = Depends(get_session)) -> dict:
+    _check(obj)
+    payload = body.model_dump(mode="json")
+    from app.context import current_user_id
+    from app.services import approvals
+
+    held = run(lambda: approvals.check(s, obj, payload, lambda p: build_request(obj, p), current_user_id.get()))
+    if held is not None:  # approval procedure: the document waits for the authorizers
+        return {"pending_approval": approvals.out(s, held)}
+    doc = run(lambda: documents.create_document(s, build_request(obj, payload)))
     return _doc_out(doc, detail=True)
 
 

@@ -41,6 +41,9 @@ from app.models.costacct import Dimension, DistributionRule, DistributionShare, 
 from app.models.budgets import Budget, BudgetMonth, BudgetScenario
 from app.models.recurring import RecurringPosting, RecurringPostingLine
 from app.models.assets import AssetClass, AssetTransaction, FixedAsset
+from app.models.approvals import (Alert, AlertRecipient, ApprovalDecision, ApprovalRequest, ApprovalStage, ApprovalStageUser,
+                                  ApprovalTemplate, ApprovalTemplateCondition, ApprovalTemplateDocument, ApprovalTemplateStage,
+                                  ApprovalTemplateUser)
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
 
 __all__ = [

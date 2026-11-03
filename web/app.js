@@ -797,9 +797,14 @@ views.doc = async (c) => {
       $("#d-credit-no").onclick = () => box.remove();
       $("#d-credit-ok").onclick = async () => {
         box.remove();
-        const r2 = await act(() => post(`/documents/${obj}`, { ...body, confirm_credit: true }), (d) => `${t.name} ${d.doc_num} added`);
-        if (r2) { state.partners = await api("/partners"); location.hash = `#/docs?obj=${obj}&entry=${r2.doc_entry}`; }
+        const r2 = await act(() => post(`/documents/${obj}`, { ...body, confirm_credit: true }), (d) => (d.pending_approval ? "Sent for approval" : `${t.name} ${d.doc_num} added`));
+        if (r2) { state.partners = await api("/partners"); location.hash = r2.pending_approval ? "#/approvals" : `#/docs?obj=${obj}&entry=${r2.doc_entry}`; }
       };
+      return;
+    }
+    if (r.pending_approval) {  // approval procedure: held until the authorizers approve
+      toast(`Sent for approval (${r.pending_approval.reason})`, "good");
+      location.hash = "#/approvals";
       return;
     }
     toast(`${t.name} ${r.doc_num} added`, "good");

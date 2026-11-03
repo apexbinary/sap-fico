@@ -450,6 +450,17 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Fixed assets (Financials -> Fixed Assets)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Asset class: accounts (asset, accumulated depreciation, depreciation expense, retirement gain / loss), method straight line / written-down value, useful life / rate | OACS | text / dropdown / number | ✅ seeded OFFEQ, COMP, FURN (not B1-verified: B1 uses items of type F and depreciation areas) |
+| Asset: number, description, class, serial no., location, salvage value, status | OFAS | text / dropdown / number | ✅ |
+| Capitalization (date, amount, offset account) | FAS1 TranType C | date / number / dropdown | ✅ |
+| Depreciation run per month (preview, post, reverse latest), pro rata from the capitalization month, last SL month takes the rest | FAS1 TranType D | month | ✅ months in order |
+| Retirement (sale / scrap) with gain / loss | FAS1 TranType R | date / number / dropdown | ✅ needs depreciation up to the previous month |
+| Asset register (cost, accumulated depreciation, book value) | | — | ✅ |
+| Capitalization from A/P invoices, partial retirement, transfers, several depreciation areas (books / tax), unplanned depreciation, Income Tax Act block-of-assets report | | — | ⏸ |
+
 ### Period-end closing (Administration -> Period-End Closing)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

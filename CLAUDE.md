@@ -114,6 +114,8 @@ app/
   services/closing.py period-end closing: TransType -3 entry on 31-12 (P&L accounts to the closing account),
                       lock / cancel; reports.profit_and_loss excludes -3 unless include_closing (the
                       balance sheet includes it); api_closing.py; web/closing.js
+  services/assets.py  fixed assets (models/assets.py OACS OFAS FAS1, not B1-verified): capitalize, monthly
+                      depreciation run (SL / WDV) / reverse, retire; api_assets.py; web/assets.js
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

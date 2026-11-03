@@ -169,7 +169,7 @@ function route() {
     .catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
 }
 // list + form screens: a "New" link or a chosen row opens the form below the list; bring it into view
-const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first", "withholding-tax": "last", freight: "last", "item-groups": "last", "cost-accounting": "last", recurring: "last" };
+const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first", "withholding-tax": "last", freight: "last", "item-groups": "last", "cost-accounting": "last", recurring: "last", assets: "last" };
 function revealForm(c, view) {
   const q = query();
   if (!FORM_VIEWS[view] || !["new", "id", "code", "rule"].some((k) => q.has(k))) return;

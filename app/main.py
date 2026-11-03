@@ -24,6 +24,7 @@ from app.api_costacct import router as costacct_router
 from app.api_budgets import router as budgets_router
 from app.api_recurring import router as recurring_router
 from app.api_closing import router as closing_router
+from app.api_assets import router as assets_router
 from app.api_documents import router as documents_router
 from app.api_dunning import router as dunning_router
 from app.api_finance import router as finance_router
@@ -62,6 +63,7 @@ app.include_router(costacct_router, prefix="/api")
 app.include_router(budgets_router, prefix="/api")
 app.include_router(recurring_router, prefix="/api")
 app.include_router(closing_router, prefix="/api")
+app.include_router(assets_router, prefix="/api")
 app.include_router(tax_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 

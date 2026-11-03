@@ -17,6 +17,7 @@ trademarks of SAP SE.
 | Foreign currency — documents and journal entries in foreign currencies, open FC amounts, realized exchange differences on payment and reconciliation | ✅ |
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
 | Printed documents — GST layout (tax invoice, credit note, delivery challan, orders ...) with HSN summary and amount in words, print / PDF | ✅ |
+| Fixed assets — classes, capitalization, straight-line / WDV depreciation runs, retirement, asset register | ✅ |
 | Period-end closing — P&L accounts of a year to retained earnings, periods locked, cancel | ✅ |
 | Recurring postings — monthly / quarterly / ... journal entry templates with catch-up execution | ✅ |
 | Budgets — scenarios, monthly account budgets, budget vs. actual, budget check of postings | ✅ |

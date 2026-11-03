@@ -43,6 +43,8 @@ CHART = [
     ("117000", "Cheques Received", 1, "11", "Y", "N", "N", "N"),
     ("12", "Fixed Assets", 1, "1", "N", "N", "N", "N"),
     ("121000", "Office Equipment", 1, "12", "Y", "N", "N", "N"),
+    ("122000", "Computers", 1, "12", "Y", "N", "N", "N"),
+    ("129000", "Accumulated Depreciation", 1, "12", "Y", "N", "N", "N"),
     ("2", "Liabilities", 2, None, "N", "N", "N", "N"),
     ("21", "Current Liabilities", 2, "2", "N", "N", "N", "N"),
     ("211000", "Sundry Creditors", 2, "21", "Y", "N", "Y", "N"),
@@ -74,6 +76,7 @@ CHART = [
     ("613000", "Bank Charges", 6, "61", "Y", "E", "N", "N"),
     ("615000", "Cash Discount Allowed", 6, "61", "Y", "E", "N", "N"),
     ("616000", "Freight and Charges Paid", 6, "61", "Y", "E", "N", "N"),
+    ("617000", "Depreciation", 6, "61", "Y", "E", "N", "N"),
     ("7", "Other Income and Expenses", 7, None, "N", "N", "N", "N"),
     ("71", "Foreign Exchange", 7, "7", "N", "N", "N", "N"),
     ("711000", "Foreign Exchange Gain", 7, "71", "Y", "I", "N", "N"),
@@ -82,6 +85,7 @@ CHART = [
     ("714000", "Unrealized Exchange Loss", 7, "71", "Y", "E", "N", "N"),
     ("72", "Other Income", 7, "7", "N", "I", "N", "N"),
     ("721000", "Interest Income", 7, "72", "Y", "I", "N", "N"),
+    ("724000", "Profit / Loss on Sale of Assets", 7, "72", "Y", "I", "N", "N"),
     ("722000", "Cash Discount Received", 7, "72", "Y", "I", "N", "N"),
     ("723000", "Dunning Fees", 7, "72", "Y", "I", "N", "N"),
 ]
@@ -264,6 +268,13 @@ def seed() -> None:
         _seed_users(s)
         _seed_print_layouts(s)
         _seed_withholding(s)
+        from app.models.assets import AssetClass
+
+        for code, name, acct, method, life, rate in [("OFFEQ", "Office equipment", "121000", "SL", 60, None),
+                                                     ("COMP", "Computers", "122000", "SL", 36, None),
+                                                     ("FURN", "Furniture (WDV)", "121000", "WD", None, Decimal("25.89"))]:
+            put_new(AssetClass(code=code, name=name, asset_acct=acct, acc_dep_acct="129000", dep_acct="617000", retire_acct="724000",
+                               method=method, useful_life=life, wdv_rate=rate), code)
         from app.models.costacct import Dimension
 
         for code, name, active in [(1, "Department", "Y"), (2, "Region", "Y"), (3, "Dimension 3", "N"), (4, "Dimension 4", "N"),

@@ -165,7 +165,7 @@ function route() {
   const area = obj ? areaOfObj(obj) : AREA_OF_VIEW[view];
   if (area && !may(area)) { c.innerHTML = `<div class="empty">No authorization for ${esc(state.user.areas[area] || area)}.</div>`; return; }
   c.innerHTML = '<div class="loading">Loading…</div>';
-  Promise.resolve((views[view] || views.cockpit)(c)).then(() => revealForm(c, view))
+  Promise.resolve((views[view] || views.cockpit)(c)).then(() => { revealForm(c, view); if (typeof addExportButton === "function") addExportButton(c, view); })
     .catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
 }
 // list + form screens: a "New" link or a chosen row opens the form below the list; bring it into view

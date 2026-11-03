@@ -122,6 +122,10 @@ app/
                       document API (api_documents.create_document) asks approvals.check, which validates
                       the document (create + rollback) and holds it; build_request replays it on add
   services/alerts.py  system alerts OALT / ALT1, evaluated per user; /api/alerts; web/approvals.js (bell)
+  services/dataimport.py data import (partners, items, prices, opening balances, opening stock) in one outer
+                      transaction with a savepoint per row (own engine: SQLite BEGIN / SAVEPOINT fix);
+                      api_import.py /api/import/*, /api/export/xlsx (openpyxl); web/dataimport.js adds
+                      the "Export to Excel" button to every page with tables (route() -> addExportButton)
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

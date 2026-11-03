@@ -450,6 +450,14 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Data import and Excel export (Administration -> Data Import; "Export to Excel" on every page with tables)
+| Function | Status |
+|---|---|
+| Import of business partners (with bill-to / ship-to address, GSTIN, state), items (UoM, HSN, tax codes, prices of lists 1-3), item prices, opening balances of G/L accounts and business partners (against the opening balance account), opening stock (goods receipt, batches) | ✅ CSV (comma / semicolon / tab) or XLSX, templates per import |
+| Simulation (nothing saved), import of the valid rows, all or nothing; a result per row; every row checked like manual entry | ✅ |
+| Excel export of every table of a page (one sheet each, amounts as numbers) | ✅ |
+| Import of documents, journal entries with several lines, updating existing master data, chart of accounts, scheduled imports | ⏸ |
+
 ### Approval procedures and alerts (Administration -> Approvals, Approval Procedures, Alert Settings; bell)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

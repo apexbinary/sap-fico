@@ -5,7 +5,7 @@ const AREA_OF_VIEW = {
   cockpit: "COCKPIT", accounts: "COA", "journal-entry": "JE", journal: "JE", "exchange-rate-differences": "FXREVAL",
   partners: "BP", dunning: "DUNNING", items: "ITEMS", warehouses: "ITEMS", "inventory-audit": "INV",
   payments: "BANK", "payment-wizard": "BANK", deposits: "BANK", "bank-statements": "BANK", "bank-reconciliation": "BANK",
-  "trial-balance": "FINRPT", "balance-sheet": "FINRPT", "profit-loss": "FINRPT", "tax-report": "FINRPT",
+  "trial-balance": "FINRPT", "balance-sheet": "FINRPT", "profit-loss": "FINRPT", "tax-report": "FINRPT", "gst-returns": "FINRPT",
   setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN", "print-layouts": "ADMIN",
 };
 const SALES_OBJS = ["23", "17", "15", "16", "13", "14"], PURCH_OBJS = ["540000006", "22", "20", "21", "18", "19"];

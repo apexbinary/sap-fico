@@ -17,6 +17,7 @@ trademarks of SAP SE.
 | Foreign currency — documents and journal entries in foreign currencies, open FC amounts, realized exchange differences on payment and reconciliation | ✅ |
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
 | Printed documents — GST layout (tax invoice, credit note, delivery challan, orders ...) with HSN summary and amount in words, print / PDF | ✅ |
+| GST returns — GSTR-1 (B2B, B2CL, B2CS, exports, credit notes, nil, HSN, documents issued) and GSTR-3B (with ITC set-off), JSON for the GST portal | ✅ |
 | Print layouts — several per document type (classic / modern / compact, accent colour, options, footer), default layout, company logo | ✅ |
 | Users and authorizations — login, users, superusers, full / read-only / no authorization per area, enforced on every API call | ✅ |
 | Cockpit — KPI tiles, sales / purchase chart, aging, top 5, open documents, alerts, common functions, per-user layout | ✅ |

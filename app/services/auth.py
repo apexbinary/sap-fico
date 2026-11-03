@@ -50,7 +50,7 @@ ROUTES = [
     ("/api/projects", "ADMIN"), ("/api/manufacturers", "ITEMS"), ("/api/transaction-codes", "ADMIN"),
     ("/api/master", "ADMIN"), ("/api/print-layouts", "ADMIN"),
     ("/api/accounts", "COA"), ("/api/journal-entries", "JE"),
-    ("/api/reports", "FINRPT"), ("/api/exchange-rate-differences", "FXREVAL"),
+    ("/api/reports", "FINRPT"), ("/api/gst-returns", "FINRPT"), ("/api/exchange-rate-differences", "FXREVAL"),
     ("/api/partners", "BP"), ("/api/partner-groups", "BP"),
     ("/api/items", "ITEMS"), ("/api/item-groups", "ITEMS"), ("/api/warehouses", "ITEMS"), ("/api/price-lists", "ITEMS"),
     ("/api/inventory", "INV"),

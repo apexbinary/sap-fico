@@ -77,6 +77,10 @@ app/
                       per type; seed creates STD-{obj} once), company logo OADM LogoImage (PNG / JPEG /
                       GIF data URL, magic bytes checked, 512 KB); api_printing.py /api/print-layouts,
                       /api/admin/company/logo; web view #/print-layouts
+  services/gst_returns.py GSTR-1 / GSTR-3B of a month from OINV / ORIN / OPCH / ORPC (lines taken
+                      again as posted: net after header discount, components rounded in the document
+                      currency x rate); set_off (IGST credit first); JSON in the GSTN offline tool layout;
+                      api_gst.py /api/gst-returns/gstr1|gstr3b[/json] (area FINRPT); web/gst.js
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -227,6 +231,13 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   a discount settles the item completely (sum applied + discount = open); the partner line
   is posted with paid + discount, the discount on OACP CashDiscAlwAcct / CashDiscRcvAcct.
 - Credit memos copied from installment invoices are not auto-reconciled (use a payment).
+
+### GST returns (keep invariant)
+- Registered = GSTIN on the bill-to address (else OCRD LicTradNum) and GstType not U; export =
+  bill-to country not the company country (POS 96). B2CL above 1,00,000 (inter-state, unregistered).
+- Documents with only nil-rated lines go to Table 8 only; exports keep their 0 % lines.
+- GSTR-3B liability / ITC must equal the output / input tax of the journal for the month
+  (checked in verify_gstreturns).
 
 ### Exchange rate differences (keep invariant)
 - BP open FC items: difference (open FC x rate of the date - open LC) posted on the control

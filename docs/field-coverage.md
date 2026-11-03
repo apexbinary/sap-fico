@@ -450,6 +450,19 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### GST returns (Financial Reports -> GST Returns)
+| Table / element | Source | Status |
+|---|---|---|
+| Period: year, month | | number / dropdown | ✅ |
+| GSTR-1 4A B2B (GSTIN, invoice no. / date / value, POS, reverse charge N, type R / SEZWP / SEZWOP, items by rate) | OINV / INV1, CRD1 GSTRegnNo / GstType, OCST GSTCode | ✅ |
+| GSTR-1 5 B2CL (unregistered, inter-state, value > 1,00,000) and 7 B2CS (by POS, supply type and rate) | | ✅ |
+| GSTR-1 6A exports (WPAY / WOPAY, POS 96), 9B CDNR / CDNUR (credit notes from A/R credit memos) | ORIN / RIN1 | ✅ shipping bill no. / port not kept |
+| GSTR-1 8 nil-rated / exempt / non-GST, 12 HSN summary (B2B and B2C, UQC, qty), 13 documents issued (from-to, canceled) | OITM ChapterID, NNM1 | ✅ exempt and non-GST tax codes are reported as nil-rated |
+| GSTR-3B 3.1 (a)-(e), 3.2 inter-state to unregistered / composition, 4 ITC (A/P invoices less A/P credit memos), 5 exempt inward, 6.1 payment with ITC set-off (IGST first, rule 88A) | OPCH / ORPC | ✅ |
+| JSON for the GST portal offline tool (GSTR-1, GSTR-3B) | | download | ✅ layout of the offline tool, not validated against the portal |
+| Checks before filing: GSTIN format, missing HSN / SAC, unknown place of supply, mixed intra / inter codes | | ✅ |
+| Reverse charge, imports (IMPG / IMPS), ITC reversals / ineligible ITC, amendments (B2BA ...), GSTR-2B matching, e-invoice IRN / e-way bill, filing on the portal | | ⏸ |
+
 ### Printed documents (Print / PDF)
 | Element | Source | Status |
 |---|---|---|

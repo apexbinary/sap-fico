@@ -6,7 +6,7 @@ const AREA_OF_VIEW = {
   partners: "BP", dunning: "DUNNING", items: "ITEMS", warehouses: "ITEMS", "inventory-audit": "INV",
   payments: "BANK", "payment-wizard": "BANK", deposits: "BANK", "bank-statements": "BANK", "bank-reconciliation": "BANK",
   "trial-balance": "FINRPT", "balance-sheet": "FINRPT", "profit-loss": "FINRPT", "tax-report": "FINRPT", "gst-returns": "FINRPT",
-  setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN", "print-layouts": "ADMIN", "e-documents": "SALES", "withholding-tax": "ADMIN", freight: "ADMIN", batches: "INV", counting: "INV", "item-groups": "ITEMS", "cost-accounting": "ADMIN", "profit-centers": "FINRPT", budgets: "FINRPT", aging: "FINRPT", statement: "FINRPT", "cash-flow": "FINRPT", "approval-setup": "ADMIN", "alert-setup": "ADMIN", "data-import": "ADMIN", recurring: "JE", closing: "ADMIN", assets: "COA", "tds-report": "FINRPT",
+  setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN", "print-layouts": "ADMIN", "e-documents": "SALES", "withholding-tax": "ADMIN", freight: "ADMIN", batches: "INV", counting: "INV", "item-groups": "ITEMS", "cost-accounting": "ADMIN", "profit-centers": "FINRPT", budgets: "FINRPT", aging: "FINRPT", statement: "FINRPT", "cash-flow": "FINRPT", "approval-setup": "ADMIN", "alert-setup": "ADMIN", "data-import": "ADMIN", boms: "INV", "production-orders": "INV", mrp: "INV", recurring: "JE", closing: "ADMIN", assets: "COA", "tds-report": "FINRPT",
 };
 const SALES_OBJS = ["23", "17", "15", "16", "13", "14", "203"], PURCH_OBJS = ["540000006", "22", "20", "21", "18", "19", "204"];
 const areaOfObj = (obj) => (SALES_OBJS.includes(obj) ? "SALES" : PURCH_OBJS.includes(obj) ? "PURCH" : "INV");

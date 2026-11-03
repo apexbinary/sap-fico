@@ -41,6 +41,7 @@ CHART = [
     ("116200", "Input SGST", 1, "11", "Y", "N", "N", "N"),
     ("116300", "Input IGST", 1, "11", "Y", "N", "N", "N"),
     ("117000", "Cheques Received", 1, "11", "Y", "N", "N", "N"),
+    ("118000", "Work in Progress", 1, "11", "Y", "N", "N", "N"),
     ("12", "Fixed Assets", 1, "1", "N", "N", "N", "N"),
     ("121000", "Office Equipment", 1, "12", "Y", "N", "N", "N"),
     ("122000", "Computers", 1, "12", "Y", "N", "N", "N"),
@@ -69,6 +70,7 @@ CHART = [
     ("511000", "Cost of Goods Sold", 5, "51", "Y", "E", "N", "N"),
     ("512000", "Purchase Price Variance", 5, "51", "Y", "E", "N", "N"),
     ("513000", "Stock Adjustments", 5, "51", "Y", "E", "N", "N"),
+    ("514000", "Production Variance", 5, "51", "Y", "E", "N", "N"),
     ("6", "Operating Expenses", 6, None, "N", "E", "N", "N"),
     ("61", "Administrative Expenses", 6, "6", "N", "E", "N", "N"),
     ("611000", "Office Expenses", 6, "61", "Y", "E", "N", "N"),
@@ -106,6 +108,7 @@ SERIES = {
     "203": ("Primary", 1),         # A/R down payment (ODPI)
     "204": ("Primary", 1),         # A/P down payment (ODPO)
     "1470000065": ("Primary", 1),  # inventory counting (OINC)
+    "202": ("Primary", 1),         # production order (OWOR)
     "10000071": ("Primary", 1),    # inventory posting (OIQR)
     "14": ("Primary", 1),          # A/R credit memo (ORIN)
     "540000006": ("Primary", 1),   # purchase quotation (OPQT)

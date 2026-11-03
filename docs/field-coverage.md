@@ -450,6 +450,15 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Production and MRP (Production -> Bills of Materials, Production Orders, MRP)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| BOM: parent item, type (production / sales / assembly / template), quantity, warehouse; components with quantity, warehouse, issue method (manual / backflush) | OITT Code / TreeType / Qauntity / ToWH, ITT1 Code / Quantity / Warehouse / IssueMthd | dropdown / number | ✅ cycles refused; BOM cost |
+| Production order: product, planned / completed quantity, warehouse, dates, status planned / released / closed / canceled; components with base / planned / issued quantity and value | OWOR, WOR1 (+ IssuedVal / RcptVal) | dropdown / number / date | ✅ |
+| Issue for production (goods issue against WIP), receipt from production (backflush, product at component cost), close (WIP balance to production variance) | OACP WipAcct 118000 / WipVarAcct 514000 | — | ✅ ordinary goods issues / receipts (Ref2 WO<no>) |
+| MRP: demand (sales orders, production components, minimum level) vs. supply (stock, purchase orders, production), multi-level through BOMs, minimum order quantity, lead time, preferred vendor; recommendations to purchase / production orders | | date / checkbox / number | ✅ computed on request |
+| Routings / resources (B1 9.1+ resources), sales and assembly BOM explosion on documents, disassembly orders, rejected quantity, MRP scenarios saved, forecasts | | — | ⏸ |
+
 ### Data import and Excel export (Administration -> Data Import; "Export to Excel" on every page with tables)
 | Function | Status |
 |---|---|

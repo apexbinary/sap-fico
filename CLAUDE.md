@@ -126,6 +126,10 @@ app/
                       transaction with a savepoint per row (own engine: SQLite BEGIN / SAVEPOINT fix);
                       api_import.py /api/import/*, /api/export/xlsx (openpyxl); web/dataimport.js adds
                       the "Export to Excel" button to every page with tables (route() -> addExportButton)
+  services/production.py BOMs OITT / ITT1 and production orders OWOR / WOR1 (models/production.py): issue /
+                      receipt via goods issues / receipts against OACP WipAcct, close -> WipVarAcct
+  services/mrp.py     MRP: net requirements level by level through production BOMs, recommendations ->
+                      purchase / production orders; api_production.py; web/production.js
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

@@ -111,6 +111,7 @@ class DocumentLine:
     from_whs_cod: Mapped[str | None] = mapped_column("FromWhsCod", String(8))  # Transfer: from warehouse
     acct_code: Mapped[str | None] = mapped_column("AcctCode", String(15))  # G/L account (service lines, offsets)
     unit_msr: Mapped[str | None] = mapped_column("unitMsr", String(100))
+    num_per_msr: Mapped[Decimal] = mapped_column("NumPerMsr", QTY, default=Decimal("1"), server_default="1")  # inventory units per unit of the line
     ship_date: Mapped[date | None] = mapped_column("ShipDate", Date)  # Line delivery date
     free_txt: Mapped[str | None] = mapped_column("FreeTxt", String(100))  # Free text
     project: Mapped[str | None] = mapped_column("Project", String(20))

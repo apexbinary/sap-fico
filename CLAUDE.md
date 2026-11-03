@@ -260,6 +260,11 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - Credit check: exposure = balance + DNotesBal + OrdersBal; a document is checked only when it
   raises the exposure (copied lines do not). Warn mode needs confirm_credit; block refuses.
 
+### Units of measure (keep invariant)
+- A line's Quantity / OpenQty / price are in its unit (unitMsr); NumPerMsr = inventory units per
+  unit (OITM NumInSale on sales, NumInBuy on purchasing, 1 on inventory documents; copied lines
+  keep the base line's). Stock moves, commitments, StockPrice and LastPurPrc are per inventory unit.
+
 ### Down payments (keep invariant)
 - A request is not posted. A payment that pays it keeps the amount on account (OpenBal) and raises
   the request's PaidToDate; drawing on an invoice reconciles the invoice's partner line(s) with

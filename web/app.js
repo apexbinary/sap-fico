@@ -619,7 +619,10 @@ views.doc = async (c) => {
         const pl = $("#d-price_list") && $("#d-price_list").value;
         if (side === "I") price.value = pl ? Number((await api(`/items/${encodeURIComponent(i.item_code)}/price?list_num=${pl}`)).price).toFixed(2)
           : Number(i.avg_price || i.last_pur_prc).toFixed(2);
-        else if (bpCode()) price.value = (Number((await api(`/items/${encodeURIComponent(i.item_code)}/price?card_code=${encodeURIComponent(bpCode())}`)).price) / (docRate || 1)).toFixed(2);
+        else if (bpCode()) {  // price list prices are per inventory unit: x items per sales / purchase unit
+          const per = side === "S" ? (i.sal_unit_msr ? Number(i.num_in_sale || 1) : 1) : (i.buy_unit_msr ? Number(i.num_in_buy || 1) : 1);
+          price.value = (Number((await api(`/items/${encodeURIComponent(i.item_code)}/price?card_code=${encodeURIComponent(bpCode())}`)).price) * per / (docRate || 1)).toFixed(2);
+        }
       }
       recalc();
     };

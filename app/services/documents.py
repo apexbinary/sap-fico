@@ -402,9 +402,10 @@ def _create(session: Session, req: DocumentRequest):
         elif d.side == "I":
             price = item.avg_price if d.kind != "receipt" else (item.avg_price or item.last_pur_prc)
         elif item is not None:
-            price = masterdata.partner_price(session, bp.card_code, item.item_code)
+            price = masterdata.partner_price(session, bp.card_code, item.item_code)  # per inventory unit
             if d.side == "P" and not price:
                 price = item.last_pur_prc
+            price = unit(price * _uom(item, d.side)[1])
         else:
             raise B1Error(f"Line {n + 1}: enter an amount")
         if base_line is None and lr.price is None and fc:
@@ -509,7 +510,9 @@ def _create(session: Session, req: DocumentRequest):
             line_total=x["line_total"], vat_group=x["tg"].code if x["tg"] else None,
             vat_prcnt=x["tg"].rate if x["tg"] else ZERO, vat_sum=x["vat"], gtotal=x["net"] + x["vat"],
             whs_code=x["whs"], from_whs_cod=lr.from_whs_cod or req.from_whs if d.kind == "transfer" else None,
-            acct_code=x["acct"], unit_msr=item.invntry_uom if item else None,
+            acct_code=x["acct"],
+            unit_msr=(x["base_line"].unit_msr if x["base_line"] else _uom(item, d.side)[0]) if item else None,
+            num_per_msr=x["base_line"].num_per_msr if x["base_line"] else (_uom(item, d.side)[1] if item else Decimal(1)),
             stock_price=x["base_line"].stock_price if x["base_line"] else ZERO,
             base_type=lr.base_type, base_entry=x["base"].doc_entry if x["base"] else None,
             base_line=lr.base_line if x["base"] else None, base_ref=str(x["base"].doc_num) if x["base"] else None,
@@ -626,9 +629,19 @@ def _header_defaults(session: Session, d: DocDef, req: DocumentRequest, bp, pick
     return out
 
 
+def _uom(item: Item, side: str) -> tuple[str | None, Decimal]:
+    """Unit of measure of a document line and its inventory units: sales (NumInSale), purchasing
+    (NumInBuy), inventory documents 1."""
+    if side == "S" and item.sal_unit_msr:
+        return item.sal_unit_msr, item.num_in_sale or Decimal(1)
+    if side == "P" and item.buy_unit_msr:
+        return item.buy_unit_msr, item.num_in_buy or Decimal(1)
+    return item.invntry_uom, Decimal(1)
+
+
 def _post_line(ctx: _Ctx, line, x: dict) -> None:
-    """Stock movement and G/L amounts of one line."""
-    d, item, qty, net = ctx.d, x["item"], line.quantity, x["net"]
+    """Stock movement and G/L amounts of one line (quantities in inventory units: Quantity x NumPerMsr)."""
+    d, item, qty, net = ctx.d, x["item"], line.quantity * (line.num_per_msr or 1), x["net"]
     group = ctx.session.get(ItemGroup, item.itms_grp_cod) if item else None
     inventory = item is not None and item.invnt_item == "Y"
     base_kind = DEFS[line.base_type].kind if line.base_type else None
@@ -670,7 +683,7 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
                 ctx.post(group.bal_invnt_ac, net)
                 ctx.post(grni, -net)
             line.stock_price = unit(net / qty)
-            item.last_pur_prc = unit(line.price * ctx.doc.doc_rate)
+            item.last_pur_prc = unit(line.price * ctx.doc.doc_rate / (line.num_per_msr or 1))
         elif d.kind == "invoice":
             if base_kind == "delivery" and inventory:
                 base_value = money(qty * x["base_line"].stock_price)
@@ -683,7 +696,7 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
                 ctx.post(expense, net)
             line.stock_price = unit(net / qty)
             if item is not None:
-                item.last_pur_prc = unit(line.price * ctx.doc.doc_rate)
+                item.last_pur_prc = unit(line.price * ctx.doc.doc_rate / (line.num_per_msr or 1))
         elif d.kind == "return":  # goods return
             base_value = money(qty * line.stock_price) if line.base_type else net
             cost = issue(ctx, item, whs, qty, n)
@@ -752,7 +765,7 @@ def _copy_effects(ctx: _Ctx, lines: list[dict]) -> None:
         bl.target_type, bl.trget_entry = ctx.d.obj, ctx.doc.doc_entry
         if bl.open_qty <= 0:
             bl.open_qty, bl.line_status = ZERO, "C"
-        _commit_line(ctx.session, base.obj_type, bl, -line.quantity)
+        _commit_line(ctx.session, base.obj_type, bl, -line.quantity * (bl.num_per_msr or 1))
         touched[(base.obj_type, base.doc_entry)] = base
     for base in touched.values():
         if DEFS[base.obj_type].kind != "invoice" and all(l.line_status == "C" for l in base.lines):
@@ -777,7 +790,7 @@ def _commit_line(session: Session, obj: str, line, qty: Decimal) -> None:
 
 def _commitments(session: Session, d: DocDef, doc, sign: int) -> None:
     for line in doc.lines:
-        _commit_line(session, d.obj, line, sign * line.open_qty)
+        _commit_line(session, d.obj, line, sign * line.open_qty * (line.num_per_msr or 1))
 
 
 def _post_journal(ctx: _Ctx) -> None:
@@ -1153,7 +1166,7 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
             if base.canceled == "N":
                 paid = DEFS[base.obj_type].kind == "invoice" and base.paid_to_date >= base.doc_total
                 base.doc_status = "C" if paid else "O"
-            _commit_line(session, base.obj_type, bl, line.quantity)
+            _commit_line(session, base.obj_type, bl, line.quantity * (bl.num_per_msr or 1))
         line.line_status = "C"
     doc.canceled, doc.doc_status = "Y", "C"
     if doc.card_code:

@@ -327,14 +327,14 @@ Properties (64 checkbox properties), attachments and user-defined fields — ⏸
 |---|---|---|---|
 | Preferred vendor | CardCode | choose | ✅ |
 | Mfr catalog no. | SuppCatNum | text | ✅ |
-| Purchasing UoM name / items per purchase unit | BuyUnitMsr / NumInBuy | text / number | ✅ stored, UoM shown on purchasing documents; ⏸ quantity conversion (documents are in inventory units) |
+| Purchasing UoM name / items per purchase unit | BuyUnitMsr / NumInBuy | text / number | ✅ purchasing documents: quantity in purchase units, NumPerMsr = NumInBuy, stock in inventory units (documents are in inventory units) |
 | Tax group | VatGroupPu | dropdown | ✅ |
 | Packaging UoM, quantity per package, customs group, dimensions / weight | PurPackMsr, PurPackUn, CstGrpCode, BLength1, … | — | ⏸ |
 
 ### Sales data tab
 | Field | Column | Type | Status |
 |---|---|---|---|
-| Sales UoM name / items per sales unit | SalUnitMsr / NumInSale | text / number | ✅ stored, UoM shown on sales documents; ⏸ quantity conversion |
+| Sales UoM name / items per sales unit | SalUnitMsr / NumInSale | text / number | ✅ sales documents: quantity in sales units, NumPerMsr = NumInSale, stock in inventory units |
 | Tax group | VatGourpSa | dropdown | ✅ |
 | Packaging UoM, quantity per package, dimensions / weight | SalPackMsr, SalPackUn, … | — | ⏸ |
 
@@ -449,6 +449,14 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
+### Units of measure on document lines
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| UoM of the line (sales / purchase unit of the item, inventory unit on inventory documents; copied lines keep the base line's) | xxx1 unitMsr | text | 🔒 |
+| Items per unit of the line | xxx1 NumPerMsr | number | 🔒 from OITM NumInSale / NumInBuy; stock, commitments and costs use Quantity x NumPerMsr |
+| Default price = price list price (per inventory unit) x NumPerMsr; last purchase price per inventory unit | | — | ✅ |
+| UoM groups (OUGP / UGP1), several UoMs per item, UoM chosen per line, packaging UoMs | | — | ⏸ |
 
 ### Down payments (A/R Down Payment ODPI 203, A/P Down Payment ODPO 204)
 | Field / function | Column | Type | Status |

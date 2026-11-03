@@ -318,7 +318,7 @@ Properties (64 checkbox properties), attachments and user-defined fields — ⏸
 | Field | Column | Type | Status |
 |---|---|---|---|
 | Manufacturer | FirmCode (OMRC) | dropdown | ✅ |
-| Manage serial / batch numbers | ManSerNum / ManBtchNum | checkbox | 🔒 "No" (serial/batch management not built) |
+| Manage serial / batch numbers | ManSerNum / ManBtchNum | checkbox | ✅ only without stock (see Batches and serial numbers) |
 | Active / inactive | frozenFor | checkbox | ✅ |
 | Additional identifier, shipping type, tax type, withholding liable, valid/frozen date ranges | SWW, ShipType, … | — | ⏸ |
 
@@ -449,6 +449,16 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
+### Batches and serial numbers (Item master, document lines, Inventory -> Batches and Serial Numbers)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Manage batch numbers / serial numbers (only without stock, not both) | OITM ManBtchNum / ManSerNum | checkbox | ✅ management method: on every transaction |
+| Batch / serial number, expiry date, manufacturing date, admission date, notes | OBTN / OSRN DistNumber / ExpDate / MnfDate / InDate / Notes | text / date | ✅ entered on the receiving line (number:qty@expiry) |
+| Quantity per warehouse | OBTQ / OSRQ Quantity | — | 🔒 always equals OITW OnHand |
+| Allocation of every stock move (receipts, issues, transfers, returns), automatic selection (earliest expiry, not expired), base document's numbers on copied lines | OITL / ITL1 | — | ✅ |
+| History of a number (traceability), canceled documents reverse their logs | OITL Reversed | — | ✅ |
+| Batch attributes (attribute 1 / 2, status released / locked / not accessible), serial numbers on release only, bin locations, batch / serial number reports by date | | — | ⏸ |
 
 ### Units of measure on document lines
 | Field / function | Column | Type | Status |

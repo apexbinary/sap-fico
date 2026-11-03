@@ -217,8 +217,8 @@ const ITEM_SECTIONS = (groups, isNew) => [
     ...(isNew ? [{ k: "invnt_item", label: "Inventory item", type: "check", value: true }] : []),
     { k: "sell_item", label: "Sales item", type: "check", value: true },
     { k: "prchse_item", label: "Purchase item", type: "check", value: true },
-    { k: "man_ser_num", label: "Manage serial numbers", type: "check", ro: true },
-    { k: "man_btch_num", label: "Manage batch numbers", type: "check", ro: true },
+    { k: "man_ser_num", label: "Manage serial numbers (only without stock)", type: "check" },
+    { k: "man_btch_num", label: "Manage batch numbers (only without stock)", type: "check" },
     ...(isNew ? [] : [{ k: "frozen", label: "Inactive", type: "check" }]),
   ]],
   ["Purchasing data", [

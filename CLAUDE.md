@@ -95,6 +95,9 @@ app/
   down payments       documents.DEFS 203 / 204 (kind downpayment, not posted); banking.DownPaymentPay
                       (RCT2 / VPM2 InvType 203 / 204, amount on account); documents._draw_down_payments
                       (INV9 / PCH9) and _undraw_down_payments; GET /api/documents/{203|204}/open-down-payments
+  services/batches.py batch / serial numbers (models/batches.py OBTN OSRN OBTQ OSRQ OITL ITL1): allocate()
+                      runs on the document's warehouse journal rows before the journal is posted;
+                      reverse() on cancel; api_batches.py /api/batches[/history]; web/batches.js
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -259,6 +262,12 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   GST returns and e-invoices take freight as a service with the OEXD SAC code.
 - Credit check: exposure = balance + DNotesBal + OrdersBal; a document is checked only when it
   raises the exposure (copied lines do not). Warn mode needs confirm_credit; block refuses.
+
+### Batches and serial numbers (keep invariant)
+- Every stock move (OINM row with quantity) of a managed item writes one OITL log with ITL1 lines;
+  OBTQ / OSRQ per warehouse always add up to OITW OnHand (checked in verify_batches).
+- Receipts need the numbers (or take the base line's); issues take named, base or automatic
+  (earliest expiry, not expired) numbers; serial numbers are unique units.
 
 ### Units of measure (keep invariant)
 - A line's Quantity / OpenQty / price are in its unit (unitMsr); NumPerMsr = inventory units per

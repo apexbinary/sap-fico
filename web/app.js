@@ -433,6 +433,9 @@ async function docDetail(el, t, entry) {
        ...(fcDoc ? [["Gross total (FC)", (l) => fmt(l.gtotal_fc), 1]] : []), ["Gross total (LC)", (l) => fmt(l.gtotal), 1],
        ...(svc ? [] : [["Whs", (l) => esc(l.whs_code || "")], ["Item cost", (l) => (Number(l.stock_price) ? fmt(l.stock_price) : ""), 1]]),
        ["Del. date", (l) => esc(l.ship_date || "")], ["Project", (l) => esc(l.project || "")], ["Free text", (l) => esc(l.free_txt || "")]];
+  const alloc = d.batch_allocations || {};
+  if (Object.keys(alloc).length) cols.push(["Batches / serial no.", (l) => (alloc[l.line_num] || []).map((a) =>
+    `${esc(a.number)} ${qtyFmt(Math.abs(a.quantity))}${a.whs_code ? ` (${esc(a.whs_code)})` : ""}${a.reversed ? " ↺" : ""}`).join("<br>")]);
   el.innerHTML = `<div class="card"><div class="card-head"><span>${esc(t.name)} ${d.doc_num} ${STATUS(d)}</span><span style="display:flex;gap:6px;flex-wrap:wrap">
       ${targets.map((x) => `<a class="btn small" href="#/doc?obj=${x}&from=${t.obj}:${d.doc_entry}">Copy to ${esc(types[x].name)}</a>`).join("")}
       ${open && ["quotation", "order"].includes(t.kind) ? '<button class="btn small secondary" id="doc-close">Close</button>' : ""}
@@ -586,7 +589,7 @@ views.doc = async (c) => {
       const it = items.find((i) => i.item_code === v.item_code);
       tr.innerHTML = `<td><select class="l-item">${opt("", "— item —")}${sellable.map((i) => opt(i.item_code, `${i.item_code} — ${i.item_name}`, v.item_code)).join("")}</select></td>
         <td><input class="l-desc" maxlength="100" value="${esc(v.dscription || (it && it.item_name) || "")}"></td>
-        <td class="num"><input class="l-qty" type="number" step="any" min="0" value="${v.quantity ?? 1}" style="width:80px"></td><td class="l-uom">${esc((it && it.invntry_uom) || "")}</td>
+        <td class="num"><input class="l-qty" type="number" step="any" min="0" value="${v.quantity ?? 1}" style="width:80px"><input class="l-bat" style="display:none;width:100%;margin-top:4px" maxlength="500"></td><td class="l-uom">${esc((it && it.invntry_uom) || "")}</td>
         ${t.kind === "transfer" ? `<td><select class="l-from">${whsOpts($("#d-from_whs").value)}</select></td><td><select class="l-whs">${whsOpts($("#d-to_whs").value)}</select></td>`
           : `<td><select class="l-whs">${whsOpts(v.whs_code || (it && it.dflt_wh) || "01")}</select></td>`}
         ${t.kind === "receipt" ? '<td class="num"><input class="l-price" type="number" step="0.01" min="0"></td><td class="num l-total">0.00</td>' : ""}
@@ -600,15 +603,26 @@ views.doc = async (c) => {
       const it = items.find((i) => i.item_code === v.item_code);
       tr.innerHTML = `<td><select class="l-item"${lock}>${opt("", "— item —")}${sellable.map((i) => opt(i.item_code, `${i.item_code} — ${i.item_name}`, v.item_code)).join("")}</select></td>
         <td><input class="l-desc" maxlength="100" value="${esc(v.dscription || (it && it.item_name) || "")}"></td>
-        <td class="num"><input class="l-qty" type="number" step="any" min="0" value="${v.quantity ?? 1}" style="width:80px">${tr.base ? `<div class="help">open ${qtyFmt(v.quantity)}</div>` : ""}</td>
+        <td class="num"><input class="l-qty" type="number" step="any" min="0" value="${v.quantity ?? 1}" style="width:80px">${tr.base ? `<div class="help">open ${qtyFmt(v.quantity)}</div>` : ""}<input class="l-bat" style="display:none;width:100%;margin-top:4px" maxlength="500"></td>
         <td class="l-uom">${esc((it && (side === "S" ? it.sal_unit_msr : it.buy_unit_msr)) || (it && it.invntry_uom) || "")}</td>
         <td class="num"><input class="l-price" type="number" step="0.01" min="0" value="${v.price ?? ""}"></td>
         <td class="num"><input class="l-disc" type="number" step="0.01" min="0" max="100" value="${Number(v.disc_prcnt || 0)}" style="width:70px"></td>
         <td class="num l-after">0.00</td>${amounts}<td><select class="l-whs">${whsOpts(v.whs_code || (it && it.dflt_wh) || "01")}</select></td>${tail}`;
     }
+    const batchField = (i) => {  // batch / serial numbers of managed items (inventory units)
+      const b = $(".l-bat", tr);
+      if (!b) return;
+      b.style.display = i && (i.man_btch_num || i.man_ser_num) ? "" : "none";
+      b.dataset.kind = i && i.man_btch_num ? "B" : i && i.man_ser_num ? "S" : "";
+      b.placeholder = i && i.man_btch_num ? "Batches: LOT-A:10@2028-06-30; LOT-B:5 (empty: issues select automatically)"
+        : "Serial numbers: SN-1, SN-2 (empty: issues select automatically)";
+      b.title = b.placeholder;
+    };
+    batchField(items.find((x) => x.item_code === v.item_code));
     const sel = $(".l-item", tr);
     if (sel) sel.onchange = async () => {
       const i = items.find((x) => x.item_code === sel.value);
+      batchField(i);
       if (!i) return;
       $(".l-desc", tr).value = i.item_name;
       $(".l-uom", tr).textContent = (side === "S" ? i.sal_unit_msr : side === "P" ? i.buy_unit_msr : null) || i.invntry_uom || "";
@@ -748,6 +762,15 @@ views.doc = async (c) => {
         dscription: val(".l-desc"), ship_date: val(".l-ship"), free_txt: val(".l-free"), project: val(".l-prj"), acct_code: val(".l-acct") };
       if (side !== "I" && type() === "S") line.quantity = 1;
       else Object.assign(line, { item_code: val(".l-item"), quantity: num(".l-qty") || 0, whs_code: val(".l-whs"), from_whs_cod: val(".l-from") });
+      const bat = $(".l-bat", tr);
+      if (bat && bat.value.trim() && bat.dataset.kind === "B") {  // LOT:qty@expiry; ...
+        line.batches = bat.value.split(/[;\n]/).map((x) => x.trim()).filter(Boolean).map((x) => {
+          const [num, rest = "1"] = x.split(":"); const [q, exp] = rest.split("@");
+          return { number: num.trim(), quantity: Number(q), exp_date: exp ? exp.trim() : null };
+        });
+      } else if (bat && bat.value.trim() && bat.dataset.kind === "S") {
+        line.serials = bat.value.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean).map((x) => ({ number: x }));
+      }
       if (line.item_code || line.acct_code) body.lines.push(line);
     });
     let r;

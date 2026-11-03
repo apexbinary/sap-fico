@@ -46,6 +46,16 @@ def _doc_out(doc, detail: bool = False) -> dict:
         from app.services import withholding
 
         out["withholding"] = withholding.rows_of(object_session(doc), doc.obj_type, doc.doc_entry)
+        from app.models.batches import Batch, InventoryLog, SerialNumber
+
+        alloc: dict[int, list] = {}
+        for log in object_session(doc).scalars(select(InventoryLog).where(InventoryLog.doc_type == doc.obj_type,
+                                                                          InventoryLog.doc_entry == doc.doc_entry)):
+            master = Batch if log.managed_by == "10000044" else SerialNumber
+            for l in log.lines:
+                alloc.setdefault(log.doc_line, []).append({"number": object_session(doc).get(master, l.md_abs_entry).dist_number,
+                                                           "quantity": l.quantity, "whs_code": log.loc_code, "reversed": log.reversed == "Y"})
+        out["batch_allocations"] = alloc
         from app.models.documents import DOCUMENT_DOWN_PAYMENTS
 
         dcls = DOCUMENT_DOWN_PAYMENTS.get(doc.obj_type)
@@ -118,6 +128,8 @@ class DocLineIn(BaseModel):
     free_txt: str | None = Field(None, max_length=100)
     project: str | None = Field(None, max_length=20)
     slp_code: int | None = None
+    batches: list[dict] | None = None  # [{number, quantity, exp_date, mnf_date}]
+    serials: list[dict] | None = None  # [{number, exp_date, mnf_date}]
 
 
 class DocumentIn(BaseModel):

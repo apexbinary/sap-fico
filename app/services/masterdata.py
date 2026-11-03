@@ -222,6 +222,8 @@ class ItemRequest:
     lead_time: int | None = None
     min_ordr_qty: Decimal = Decimal("0")
     user_text: str | None = None
+    man_btch_num: bool = False  # manage batch numbers
+    man_ser_num: bool = False  # manage serial numbers
 
 
 ITEM_FIELDS = ["frgn_name", "item_type", "code_bars", "chapter_id", "firm_code", "supp_cat_num", "buy_unit_msr", "num_in_buy",
@@ -271,8 +273,13 @@ def create_item(session: Session, req: ItemRequest, *, commit: bool = True) -> I
         raise B1Error("An item must be an inventory, sales or purchase item")
     validate_item_fields(session, {f: getattr(req, f) for f in ITEM_FIELDS})
 
+    if req.man_btch_num and req.man_ser_num:
+        raise B1Error("An item is managed by batches or by serial numbers, not both")
+    if (req.man_btch_num or req.man_ser_num) and not req.invnt_item:
+        raise B1Error("Only inventory items are managed by batches / serial numbers")
     yn = lambda b: "Y" if b else "N"  # noqa: E731
     item = Item(
+        man_btch_num=yn(req.man_btch_num), man_ser_num=yn(req.man_ser_num),
         item_code=code, itms_grp_cod=req.itms_grp_cod, invnt_item=yn(req.invnt_item),
         sell_item=yn(req.sell_item), prchse_item=yn(req.prchse_item), eval_system="A", gl_method="C",
         **{f: getattr(req, f) for f in ITEM_FIELDS}, on_hand=Decimal("0"),

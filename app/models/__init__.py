@@ -35,6 +35,7 @@ from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_INSTALLMENTS, DOCUME
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.users import User, UserPermission, UserSession
 from app.models.edocs import EDocument
+from app.models.batches import Batch, BatchQuantity, InventoryLog, InventoryLogLine, SerialNumber, SerialQuantity
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
 
 __all__ = [

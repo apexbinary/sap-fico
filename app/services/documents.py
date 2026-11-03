@@ -124,6 +124,8 @@ class DocLineRequest:
     free_txt: str | None = None
     project: str | None = None
     slp_code: int | None = None
+    batches: list[dict] | None = None  # batch managed items: [{number, quantity, exp_date, mnf_date}] (inventory units)
+    serials: list[dict] | None = None  # serial managed items: [{number, exp_date, mnf_date}]
 
 
 @dataclass
@@ -567,6 +569,9 @@ def _create(session: Session, req: DocumentRequest):
         ctx.bp_fc = sign * doc.doc_total_fc
         if d.kind == "invoice":
             ctx.installments = _installments(session, d, doc, bp)
+    from app.services import batches
+
+    batches.allocate(ctx, req)  # batch / serial numbers of the stock moves (before the journal takes ctx.oinm)
     _post_journal(ctx)
     if req.down_payments:
         _draw_down_payments(ctx, req.down_payments)
@@ -1132,6 +1137,9 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
         raise B1Error(f"{d.name} {doc.doc_num} is paid or reconciled; cancel the payment or credit memo first")
 
     ctx = _Ctx(session=session, d=d, doc=doc, det=_determination(session, doc.doc_date))
+    from app.services import batches
+
+    batches.reverse(session, obj, doc_entry)
     rows = session.scalars(select(WarehouseJournal).where(WarehouseJournal.trans_type == d.obj,
                                                           WarehouseJournal.created_by == doc.doc_entry)
                            .order_by(WarehouseJournal.trans_num.desc())).all()

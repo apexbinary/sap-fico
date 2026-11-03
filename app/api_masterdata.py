@@ -487,6 +487,8 @@ class ItemIn(ItemFields):
     invnt_item: bool = True
     sell_item: bool = True
     prchse_item: bool = True
+    man_btch_num: bool = False
+    man_ser_num: bool = False
     prices: dict[int, Decimal] | None = None
 
 
@@ -511,6 +513,8 @@ def get_item(item_code: str, s: Session = Depends(get_session)) -> dict:
 
 class ItemUpdate(ItemFields):
     item_name: str | None = Field(None, max_length=100)
+    man_btch_num: bool | None = None  # manage batch numbers (only without stock)
+    man_ser_num: bool | None = None  # manage serial numbers (only without stock)
     item_type: str | None = Field(None, pattern="^[ILT]$")
     sell_item: bool | None = None
     prchse_item: bool | None = None
@@ -522,8 +526,12 @@ class ItemUpdate(ItemFields):
 def update_item(item_code: str, body: ItemUpdate, s: Session = Depends(get_session)) -> dict:
     i = _item_or_404(s, item_code)
     data = body.model_dump(exclude_unset=True)
+    if "man_btch_num" in data or "man_ser_num" in data:
+        from app.services import batches
+
+        run(lambda: batches.check_item_change(i, data))
     for flag, attr in (("frozen", "frozen_for"), ("sell_item", "sell_item"), ("prchse_item", "prchse_item"),
-                       ("by_wh", "by_wh")):
+                       ("by_wh", "by_wh"), ("man_btch_num", "man_btch_num"), ("man_ser_num", "man_ser_num")):
         if flag in data:
             setattr(i, attr, yn(data.pop(flag)))
     run(lambda: masterdata.validate_item_fields(s, {**{"min_level": i.min_level, "max_level": i.max_level}, **data}))

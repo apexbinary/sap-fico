@@ -132,11 +132,15 @@ def post(session: Session, entry: int, doc_date: date) -> InventoryPosting:
     shortage = [l for l in counted if l.difference < 0]
 
     def cost(item: Item) -> Decimal:
-        """Item cost; without one the last purchase price, else the lowest price-list number's price."""
+        """Item cost; without one the last purchase price, the preferred vendor's price, else the lowest list price
+        (a surplus is never valued above what it would cost to buy)."""
         from app.models.inventory import ItemPrice
+        from app.services.masterdata import partner_price
 
-        price = item.avg_price or item.last_pur_prc or session.scalar(
-            select(ItemPrice.price).where(ItemPrice.item_code == item.item_code, ItemPrice.price > 0).order_by(ItemPrice.price_list))
+        price = item.avg_price or item.last_pur_prc
+        if not price and item.card_code:
+            price = partner_price(session, item.card_code, item.item_code)
+        price = price or session.scalar(select(func.min(ItemPrice.price)).where(ItemPrice.item_code == item.item_code, ItemPrice.price > 0))
         if not price:
             raise B1Error(f"{item.item_code} has no item cost, purchase price or list price to value the surplus; enter a price first")
         return price

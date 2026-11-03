@@ -272,10 +272,14 @@ def seed() -> None:
         _seed_print_layouts(s)
         _seed_withholding(s)
         from app.models.approvals import Alert, AlertRecipient
+        from app.models.crm import SalesStage
+
+        for num, name, pct in [(1, "Lead", 10), (2, "Qualification", 25), (3, "Proposal", 50), (4, "Negotiation", 75)]:
+            put_new(SalesStage(num=num, descript=name, clo_prcnt=Decimal(pct), step_id=num, canceled="N"), num)
 
         for code, name, typ, param in [(1, "Items below minimum stock", "MINSTOCK", None), (2, "Customer items overdue > 30 days", "OVERDUE", 30),
                                        (3, "Customers over the credit limit", "CREDIT", None), (4, "Batches expiring in 30 days", "EXPIRY", 30),
-                                       (5, "Approval requests", "APPROVAL", None)]:
+                                       (5, "Approval requests", "APPROVAL", None), (6, "My activities due", "ACTIVITY", None)]:
             if s.get(Alert, code) is None:
                 s.add(Alert(code=code, name=name, alert_type=typ, param=param, active="Y", recipients=[AlertRecipient(user_id=1)]))
                 s.flush()

@@ -130,6 +130,8 @@ app/
                       receipt via goods issues / receipts against OACP WipAcct, close -> WipVarAcct
   services/mrp.py     MRP: net requirements level by level through production BOMs, recommendations ->
                       purchase / production orders; api_production.py; web/production.js
+  services/crm.py     CRM: OOST stages, OOPR / OPR1 opportunities, OCLG activities (models/crm.py), pipeline;
+                      api_crm.py /api/crm/*; web/crm.js (opportunities, activities, calendar, pipeline)
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

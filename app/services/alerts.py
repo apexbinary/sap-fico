@@ -23,7 +23,7 @@ from app.models.users import User
 from app.services.admin import B1Error
 
 TYPES = {"MINSTOCK": "Items below minimum stock", "OVERDUE": "Overdue customer items", "CREDIT": "Customers over the credit limit",
-         "EXPIRY": "Batches expiring soon", "APPROVAL": "Approval requests"}
+         "EXPIRY": "Batches expiring soon", "APPROVAL": "Approval requests", "ACTIVITY": "My activities due"}
 
 
 def setup(session: Session) -> dict:
@@ -86,6 +86,12 @@ def _evaluate(session: Session, a: Alert, user_id: int, on: date) -> list[dict]:
         return [{"text": f"{r['item_code']} batch {r['number']}: {r['quantity'].normalize()} in {r['whs_code']}, expires {r['exp_date']}",
                  "link": f"#/batches?item={r['item_code']}&number={r['number']}"}
                 for r in numbers(session) if r["type"] == "batch" and r["exp_date"] and r["exp_date"] <= until]
+    if a.alert_type == "ACTIVITY":
+        from app.services.crm import ACTIONS, activities
+
+        return [{"text": f"{ACTIONS[x.action]} {x.recontact}{' ' + x.begin_time if x.begin_time else ''}: {x.details}"
+                         f"{' (' + x.card_code + ')' if x.card_code else ''}{' — overdue' if x.recontact < on else ''}", "link": f"#/activities?id={x.clg_code}"}
+                for x in activities(session, None, on, user_id, None, True)]
     if a.alert_type == "APPROVAL":
         from app.services.approvals import requests_for
 
@@ -103,7 +109,7 @@ def for_user(session: Session, user_id: int | None, on: date | None = None) -> d
     on = on or date.today()
     out = []
     for a in session.scalars(select(Alert).where(Alert.active == "Y").order_by(Alert.code)):
-        if a.alert_type != "APPROVAL" and user_id not in [r.user_id for r in a.recipients]:
+        if a.alert_type not in {"APPROVAL", "ACTIVITY"} and user_id not in [r.user_id for r in a.recipients]:
             continue
         if user_id is None:
             continue

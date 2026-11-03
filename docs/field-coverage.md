@@ -450,6 +450,16 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### CRM (CRM -> Sales Opportunities, Activities, Calendar, Opportunity Pipeline)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Sales stages: description, closing %, order | OOST Num / Descript / CloPrcnt / StepId | — | ✅ seeded Lead 10, Qualification 25, Proposal 50, Negotiation 75 |
+| Opportunity: name, customer / lead, contact, sales employee, open / predicted / close date, potential and weighted amount, closing %, stage, status open / won / lost, reason, remarks | OOPR | text / dropdown / date / number | ✅ |
+| Stage lines: stage, dates, amount, %, linked quotation / order / delivery / invoice | OPR1 | dropdown / number | ✅ the document must belong to the partner |
+| Activity: type (call, meeting, task, note, e-mail, other), subject, notes, partner, contact, handled by, date, start / end time, duration, priority, location, linked opportunity / document, closed | OCLG | dropdown / text / date / time | ✅ alert "My activities due" |
+| Calendar (month, mine / all), pipeline by stage and sales employee, won / lost, win rate | | — | ✅ |
+| Competitors, partners, interest levels, information sources, recurring activities, reminders by e-mail, campaigns, service module | | — | ⏸ |
+
 ### Production and MRP (Production -> Bills of Materials, Production Orders, MRP)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

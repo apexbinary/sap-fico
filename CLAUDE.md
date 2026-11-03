@@ -98,6 +98,10 @@ app/
   services/batches.py batch / serial numbers (models/batches.py OBTN OSRN OBTQ OSRQ OITL ITL1): allocate()
                       runs on the document's warehouse journal rows before the journal is posted;
                       reverse() on cancel; api_batches.py /api/batches[/history]; web/batches.js
+  services/counting.py inventory counting OINC / INC1 and inventory posting OIQR / IQR1 (models/counting.py):
+                      differences post through a goods receipt (surplus) / goods issue (shortage);
+                      api_counting.py /api/inventory/counting*; web/counting.js; item groups:
+                      POST / PATCH /api/item-groups, web/itemgroups.js
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

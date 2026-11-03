@@ -101,6 +101,8 @@ SERIES = {
     "13": ("Primary", 1),          # A/R invoice (OINV)
     "203": ("Primary", 1),         # A/R down payment (ODPI)
     "204": ("Primary", 1),         # A/P down payment (ODPO)
+    "1470000065": ("Primary", 1),  # inventory counting (OINC)
+    "10000071": ("Primary", 1),    # inventory posting (OIQR)
     "14": ("Primary", 1),          # A/R credit memo (ORIN)
     "540000006": ("Primary", 1),   # purchase quotation (OPQT)
     "22": ("Primary", 1),          # purchase order (OPOR)

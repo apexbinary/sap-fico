@@ -340,6 +340,60 @@ def item_groups(s: Session = Depends(get_session)) -> list[dict]:
              "price_dif_ac": g.price_dif_ac} for g in s.scalars(select(ItemGroup).order_by(ItemGroup.itms_grp_cod))]
 
 
+class ItemGroupIn(BaseModel):
+    itms_grp_nam: str | None = Field(None, max_length=20)
+    bal_invnt_ac: str | None = Field(None, max_length=15)
+    sale_cost_ac: str | None = Field(None, max_length=15)
+    revenues_ac: str | None = Field(None, max_length=15)
+    expenses_ac: str | None = Field(None, max_length=15)
+    price_dif_ac: str | None = Field(None, max_length=15)
+
+
+def _save_group(s: Session, g: ItemGroup, body: ItemGroupIn) -> dict:
+    from sqlalchemy import func as f
+
+    from app.models.finance import Account
+
+    data = body.model_dump(exclude_unset=True)
+    with s.no_autoflush:  # a new group is not complete before the checks
+        for key in ("bal_invnt_ac", "sale_cost_ac", "revenues_ac", "expenses_ac", "price_dif_ac"):
+            if key in data:
+                a = s.get(Account, data[key]) if data[key] else None
+                if a is None or a.postable != "Y":
+                    s.rollback()
+                    raise HTTPException(status_code=422, detail=f"Account {data[key]} does not exist or is a title account")
+        if "bal_invnt_ac" in data and g.bal_invnt_ac and data["bal_invnt_ac"] != g.bal_invnt_ac and s.scalar(
+                select(f.count()).select_from(Item).where(Item.itms_grp_cod == g.itms_grp_cod, Item.stock_value != 0)):
+            s.rollback()
+            raise HTTPException(status_code=422, detail="Items of the group have stock: the inventory account cannot change "
+                                                        "(it must keep the value of their stock)")
+    for k, v in data.items():
+        setattr(g, k, v)
+    if not all([g.itms_grp_nam, g.bal_invnt_ac, g.sale_cost_ac, g.revenues_ac, g.expenses_ac, g.price_dif_ac]):
+        s.rollback()
+        raise HTTPException(status_code=422, detail="Enter the name and all G/L accounts of the group")
+    s.commit()
+    return {"itms_grp_cod": g.itms_grp_cod, "itms_grp_nam": g.itms_grp_nam, "bal_invnt_ac": g.bal_invnt_ac, "sale_cost_ac": g.sale_cost_ac,
+            "revenues_ac": g.revenues_ac, "expenses_ac": g.expenses_ac, "price_dif_ac": g.price_dif_ac}
+
+
+@router.post("/item-groups", tags=["Inventory"], summary="Add an item group")
+def add_item_group(body: ItemGroupIn, s: Session = Depends(get_session)) -> dict:
+    from sqlalchemy import func as f
+
+    g = ItemGroup(itms_grp_cod=(s.scalar(select(f.max(ItemGroup.itms_grp_cod))) or 99) + 1)
+    s.add(g)
+    return _save_group(s, g, body)
+
+
+@router.patch("/item-groups/{code}", tags=["Inventory"], summary="Change an item group")
+def change_item_group(code: int, body: ItemGroupIn, s: Session = Depends(get_session)) -> dict:
+    g = s.get(ItemGroup, code)
+    if g is None:
+        raise HTTPException(status_code=404, detail=f"Item group {code} does not exist")
+    return _save_group(s, g, body)
+
+
 def _whs_out(w: Warehouse) -> dict:
     return {"whs_code": w.whs_code, "whs_name": w.whs_name, "street": w.street, "block": w.block,
             "zip_code": w.zip_code, "city": w.city, "county": w.county, "state": w.state, "country": w.country,

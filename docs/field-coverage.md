@@ -387,7 +387,7 @@ Production data, properties, attachments, picture — ⏸.
 | Location, warehouse accounts tab, bin locations, use tax | Location, BalInvntAc (per whs), BinActivat, … | — | ⏸ accounts are set by item group; bin locations not built |
 
 ### Item groups (OITB)
-Group name and its G/L accounts (inventory, COGS, revenue, expense, price difference) — 🔒 seeded, shown on the item; ⏸ item group maintenance screen and the further OITB accounts (exchange rate differences, goods clearing, …).
+Group name and its G/L accounts (inventory, COGS, revenue, expense, price difference) — 🔒 seeded, shown on the item; ✅ maintained under Inventory -> Item Groups; ⏸ the further OITB accounts (exchange rate differences, goods clearing, …).
 
 ---
 
@@ -449,6 +449,21 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
+### Inventory counting and inventory posting (Inventory -> Inventory Counting)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Counting: number, count date, remarks, status; lines item / warehouse with the quantity in the warehouse when created | OINC DocNum / CountDate / Remarks / Status, INC1 ItemCode / WhsCode / InWhsQty | date / text / dropdowns | ✅ items, or a whole warehouse (and item group) |
+| Counted, counted quantity, difference, batches / serial numbers of a surplus | INC1 Counted / CountQty / Difference / Batches | checkbox / number / text | ✅ |
+| Inventory posting of the differences: surplus at item cost (goods receipt), shortage (goods issue), against the inventory offset accounts; counting closed | OIQR / IQR1 (GrEntry / GiEntry) | date | ✅ B1 posts the inventory posting itself; here through goods receipt / issue |
+| Recount when the item moved after the counting was created; one open counting per item / warehouse | | — | ✅ |
+| Multiple counters, counting by UoM, freeze items during counting, inventory opening balances, cycle count determination | | — | ⏸ |
+
+### Item groups (Inventory -> Item Groups)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Code, name, inventory / COGS / revenue / expense / price difference accounts | OITB ItmsGrpCod / ItmsGrpNam / BalInvntAc / SaleCostAc / RevenuesAc / ExpensesAc / PriceDifAc | text / dropdown | ✅ the inventory account cannot change while items of the group have stock |
+| Further accounts (variance, returns, exchange ...), planning data, default UoM group, cycle counting | | — | ⏸ |
 
 ### Batches and serial numbers (Item master, document lines, Inventory -> Batches and Serial Numbers)
 | Field / function | Column | Type | Status |

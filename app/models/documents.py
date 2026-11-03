@@ -74,6 +74,8 @@ class DocumentHeader:
     wt_sum_fc: Mapped[Decimal] = mapped_column("WTSumFC", AMOUNT, default=Decimal("0"), server_default="0")
     total_expns: Mapped[Decimal] = mapped_column("TotalExpns", AMOUNT, default=Decimal("0"), server_default="0")  # freight, net (LC)
     total_exp_fc: Mapped[Decimal] = mapped_column("TotalExpFC", AMOUNT, default=Decimal("0"), server_default="0")
+    dpm_amnt: Mapped[Decimal] = mapped_column("DpmAmnt", AMOUNT, default=Decimal("0"), server_default="0")  # invoices: down payments drawn (LC)
+    dpm_appl: Mapped[Decimal] = mapped_column("DpmAppl", AMOUNT, default=Decimal("0"), server_default="0")  # down payments: drawn on invoices
     paid_fc: Mapped[Decimal] = mapped_column("PaidFC", AMOUNT, default=Decimal("0"), server_default="0")  # Paid to date (FC)
     filler: Mapped[str | None] = mapped_column("Filler", String(8))  # From warehouse (transfer)
     to_whs_code: Mapped[str | None] = mapped_column("ToWhsCode", String(8))  # To warehouse (transfer)
@@ -138,6 +140,8 @@ DOCUMENT_TABLES = [
     ("GoodsReturn", "21", "orpd", "rpd1"),
     ("APInvoice", "18", "opch", "pch1"),
     ("APCreditMemo", "19", "orpc", "rpc1"),
+    ("ARDownPayment", "203", "odpi", "dpi1"),
+    ("APDownPayment", "204", "odpo", "dpo1"),
     ("GoodsReceipt", "59", "oign", "ign1"),
     ("GoodsIssue", "60", "oige", "ige1"),
     ("InventoryTransfer", "67", "owtr", "wtr1"),
@@ -214,6 +218,29 @@ for _obj, _table, _header in FREIGHT_TABLES:
     })
     DOCUMENT_CLASSES[_obj][0].expenses = relationship(DOCUMENT_EXPENSES[_obj], order_by=DOCUMENT_EXPENSES[_obj].line_num,
                                                       cascade="all, delete-orphan")
+
+
+class DocumentDownPayment:
+    """Columns shared by INV9 and PCH9: down payment drawn on an invoice, with the reconciled lines."""
+
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    base_abs: Mapped[int] = mapped_column("BaseAbs", Integer)  # down payment document (ODPI / ODPO DocEntry)
+    drawn_sum: Mapped[Decimal] = mapped_column("DrawnSum", AMOUNT)  # LC, gross
+    pay_type: Mapped[str] = mapped_column("PayType", String(20))  # 24 incoming / 46 outgoing payment that paid it
+    pay_entry: Mapped[int] = mapped_column("PayEntry", Integer)
+    pay_trans: Mapped[int] = mapped_column("PayTrans", Integer)  # reconciled payment partner line (JDT1)
+    pay_line: Mapped[int] = mapped_column("PayLine", Integer)
+    doc_line: Mapped[int] = mapped_column("DocLine", Integer)  # reconciled invoice partner line (JDT1 Line_ID)
+
+
+# object type -> down payments drawn class (A/R invoice INV9, A/P invoice PCH9)
+DOCUMENT_DOWN_PAYMENTS: dict[str, type] = {}
+for _obj, _table, _header in (("13", "inv9", "oinv"), ("18", "pch9", "opch")):
+    DOCUMENT_DOWN_PAYMENTS[_obj] = type(f"{_table.upper()}DownPayment", (DocumentDownPayment, Base), {
+        "__tablename__": _table,
+        "__doc__": f"{_table.upper()} - down payments drawn on {_header.upper()}.",
+        "doc_entry": mapped_column("DocEntry", Integer, ForeignKey(f"{_header}.DocEntry"), primary_key=True),
+    })
 
 
 class DocumentWithholding:

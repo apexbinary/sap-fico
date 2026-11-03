@@ -185,6 +185,19 @@ views.payment = async (c) => {
       disc.oninput = () => { const own = inItemCur(tr.item); sum.value = (Number(own ? tr.item.open_fc : tr.item.open) - Number(disc.value || 0)).toFixed(2); recalc(); };
     });
     itemCurrencies();
+    const dpObj = incoming ? "203" : "204";
+    const dps = (await api(`/documents/${dpObj}/open-down-payments?card_code=${encodeURIComponent(code)}`).catch(() => [])).filter((x) => Number(x.to_pay) > 0);
+    if (dps.length) {
+      $("#p-items").insertAdjacentHTML("beforeend", `<h3 class="section" style="margin:12px 12px 4px">Down payment requests</h3>
+        <table class="lines"><thead><tr><th></th><th>No.</th><th>Date</th><th>Remarks</th><th class="num">Total</th><th class="num">Paid</th><th class="num w-amt">Amount to pay (LC)</th></tr></thead><tbody>
+        ${dps.map((x) => `<tr data-dp="${x.doc_entry}"><td><input type="checkbox" class="dp-pick"></td><td>${docLink(dpObj, x.doc_entry, x.doc_num)}</td><td>${x.doc_date}</td>
+          <td>${esc(x.comments || "")}</td><td class="num">${fmt(x.doc_total)}</td><td class="num">${fmt(x.paid)}</td>
+          <td class="num"><input class="dp-sum" type="number" step="0.01" min="0" max="${Number(x.to_pay)}" value="${Number(x.to_pay)}" disabled></td></tr>`).join("")}</tbody></table>`);
+      $$("#p-items tr[data-dp]").forEach((tr) => {
+        $(".dp-pick", tr).onchange = () => { $(".dp-sum", tr).disabled = !$(".dp-pick", tr).checked; recalc(); };
+        $(".dp-sum", tr).oninput = recalc;
+      });
+    }
     recalc();
   };
   const addCheck = () => {
@@ -217,6 +230,7 @@ views.payment = async (c) => {
       const v = Number($(".i-sum", tr).value || 0);
       due += Number(tr.dataset.sign) * (inItemCur(tr.item) ? v : (rate ? v / rate : 0));
     });
+    $$("#p-items tr[data-dp]").forEach((tr) => { if ($(".dp-pick", tr).checked) due += Number($(".dp-sum", tr).value || 0); });
     const checks = $$("#p-checks tr").reduce((s, tr) => s + Number($(".c-sum", tr).value || 0), 0);
     const means = round(checks) + Number($("#p-trsfr_sum").value || 0) + Number($("#p-cash_sum").value || 0);
     const meansLc = round(round(checks) * rate) + round(Number($("#p-trsfr_sum").value || 0) * rate) + round(Number($("#p-cash_sum").value || 0) * rate);
@@ -236,7 +250,10 @@ views.payment = async (c) => {
     const h = readFields(head, "p");
     const means = readFields([...MEANS_TRANSFER, ...MEANS_CASH, { k: "check_acct", type: "select" }], "p");
     const body = { ...h, ...means, trsfr_sum: means.trsfr_sum || 0, cash_sum: means.cash_sum || 0, bank_chrg: means.bank_chrg || 0,
-      card_code: type() === "A" ? null : h.card_code, checks: [], items: [], accounts: [] };
+      card_code: type() === "A" ? null : h.card_code, checks: [], items: [], accounts: [], down_payments: [] };
+    $$("#p-items tr[data-dp]").forEach((tr) => {
+      if ($(".dp-pick", tr).checked) body.down_payments.push({ dp_entry: Number(tr.dataset.dp), amount: Number($(".dp-sum", tr).value || 0) });
+    });
     $$("#p-checks tr").forEach((tr) => {
       const v = (cls) => $(cls, tr).value || null;
       if (v(".c-sum")) body.checks.push({ due_date: v(".c-due"), check_sum: Number(v(".c-sum")), country_cod: v(".c-country"), bank_code: v(".c-bank"),

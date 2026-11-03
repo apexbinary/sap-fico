@@ -290,7 +290,7 @@ Trial balance, balance sheet, profit and loss: period / as-of selection (date), 
 |---|---|---|---|
 | Control account (A/R or A/P) | DebPayAcct | choose | ✅ |
 | Tax group | VatGroup | dropdown | ✅ |
-| Down payment clearing accounts, consolidating BP | DpmClear, FatherCard | — | ⏸ down payments, consolidation not built (withholding tax: see Withholding tax / TDS) |
+| Down payment clearing accounts, consolidating BP | DpmClear, FatherCard | — | ⏸ clearing account (down payments reconcile with the payment on account instead) and consolidation not built (withholding tax: see Withholding tax / TDS) |
 
 ### Remarks tab
 | Field | Column | Type | Status |
@@ -420,7 +420,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Discount / tax / total in the document currency | DiscSumFC / VatSumFC / DocTotalFC | number | 🔒 FC documents |
 | Paid to date (FC) | PaidFC | number | 🔒 |
 | Applied amount / balance due (invoices, credit memos) | PaidToDate | number | 🔒 |
-| Rounding, down payment, owner, shipping type, payment method, installments, indicator, cancellation date | RoundDif, DpmAmnt, OwnerCode, TrnspCode, PeyMethod, Installmnt, Indicator, … | — | ⏸ down payments and HR owner not built (freight: see Freight; installments: see Cash discount and installments) |
+| Rounding, down payment, owner, shipping type, payment method, installments, indicator, cancellation date | RoundDif, DpmAmnt, OwnerCode, TrnspCode, PeyMethod, Installmnt, Indicator, … | — | ⏸ HR owner not built (down payments: see Down payments; freight: see Freight; installments: see Cash discount and installments) |
 
 ### Contents tab — lines (QUT1 … RPC1)
 | Field | Column | Type | Status |
@@ -449,6 +449,14 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
+### Down payments (A/R Down Payment ODPI 203, A/P Down Payment ODPO 204)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Down payment request: header, lines and tax like an invoice; not posted | ODPI / DPI1, ODPO / DPO1 | as invoices | ✅ |
+| Paid by incoming / outgoing payment: amount on account, request PaidToDate | RCT2 / VPM2 InvType 203 / 204 | checkbox / number | ✅ local currency |
+| Drawn on the final invoice: partner lines reconciled with the payment's amount on account, invoice PaidToDate, total drawn; request DpmAppl, closed when drawn | INV9 / PCH9 BaseAbs / DrawnSum (+ PayType / PayEntry / PayTrans / PayLine / DocLine), OINV / OPCH DpmAmnt, ODPI / ODPO DpmAppl | checkbox / number | ✅ partial draws; cancel of the invoice releases the down payment |
+| Down payment invoice (posted, GST on advances), down payment percentage, clearing account (DpmClear), FC down payments, copy from orders | DpmPrcnt, DpmClear | — | ⏸ |
 
 ### Freight / additional expenses (Administration -> Freight, document form)
 | Field / function | Column | Type | Status |

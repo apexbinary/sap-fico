@@ -195,7 +195,7 @@ const docLink = (type, entry, label) => (type === "24" || type === "46") && entr
 const DOC_NAMES = { "23": "Sales Quotation", "17": "Sales Order", "15": "Delivery", "16": "Return", "13": "A/R Invoice",
   "14": "A/R Credit Memo", "540000006": "Purchase Quotation", "22": "Purchase Order", "20": "Goods Receipt PO",
   "21": "Goods Return", "18": "A/P Invoice", "19": "A/P Credit Memo", "59": "Goods Receipt", "60": "Goods Issue",
-  "67": "Inventory Transfer" };
+  "67": "Inventory Transfer", "203": "A/R Down Payment", "204": "A/P Down Payment" };
 
 // ---------- Journal Entry ----------
 const JE_HEADER = [
@@ -451,6 +451,8 @@ async function docDetail(el, t, entry) {
       <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div>
       ${Number(d.wt_sum) ? `<div><span>Withholding tax (TDS) ${d.withholding.map((w) => `${esc(w.wt_code)} ${esc(w.section)} ${Number(w.rate)} %${w.no_pan ? " (no PAN)" : ""}`).join(", ")}</span><b>-${fmt(d.wt_sum)}</b></div>` : ""}
       <div class="grand"><span>${Number(d.wt_sum) ? "Total payment due (LC)" : "Total (LC)"}</span><b>${fmt(d.doc_total)} ${esc(state.company.main_curncy)}</b></div>
+      ${(d.down_payments || []).map((x) => `<div><span>Down payment ${docLink(t.side === "S" ? "203" : "204", x.dp_entry, x.dp_num)} drawn</span><b>-${fmt(x.drawn_sum)}</b></div>`).join("")}
+      ${t.kind === "downpayment" ? `<div><span>Paid</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Drawn on invoices</span><b>${fmt(d.dpm_appl)}</b></div>` : ""}
       ${fcDoc ? `<div><span>Tax (FC)</span><b>${fmt(d.vat_sum_fc)}</b></div><div class="grand"><span>Total (${esc(d.doc_cur)}) at ${Number(d.doc_rate)}</span><b>${fmt(d.doc_total_fc)} ${esc(d.doc_cur)}</b></div>` : ""}
       ${isAR(t) ? `<div><span>Applied amount</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Balance due</span><b>${fmt(d.doc_total - d.paid_to_date)}</b></div>
         ${fcDoc ? `<div><span>Applied amount (FC)</span><b>${fmt(d.paid_fc)}</b></div><div><span>Balance due (FC)</span><b>${fmt(d.doc_total_fc - d.paid_fc)}</b></div>` : ""}` : ""}
@@ -497,6 +499,8 @@ views.doc = async (c) => {
         <div><span>Freight <button class="btn small ghost" id="d-fr-add" type="button">+ add</button></span><b id="t-freight">0.00</b></div>
         <div id="d-freight" class="freight-rows"></div>
         <div><span>Tax</span><b id="t-vat">0.00</b></div><div class="grand"><span>Total (<span id="t-cur">${esc(state.company.main_curncy)}</span>)</span><b id="t-total">0.00</b></div>
+        ${t.kind === "invoice" ? `<div id="d-dps" class="dp-draw"></div><div><span>Down payments drawn</span><b id="t-dpm">0.00</b></div>
+          <div><span>Total payment due</span><b id="t-due">0.00</b></div>` : ""}
         <div id="t-lc-row" style="display:none"><span>Total (LC)</span><b id="t-lc">0.00</b></div></div>` : ""}
       <button class="btn" id="d-post" style="margin-top:12px">Add</button>
     </div></div>`;
@@ -537,6 +541,17 @@ views.doc = async (c) => {
       await loadRate(false);
     }
     showAddresses();
+    if ($("#d-dps")) {  // paid down payments of the partner that can be drawn on this invoice
+      const dps = b ? (await api(`/documents/${side === "S" ? "203" : "204"}/open-down-payments?card_code=${encodeURIComponent(b.card_code)}`).catch(() => []))
+        .filter((x) => Number(x.to_draw) > 0) : [];
+      $("#d-dps").innerHTML = dps.length ? `<div class="help" style="text-align:right">Paid down payments to draw</div><table><tbody>${dps.map((x) =>
+        `<tr data-dp="${x.doc_entry}"><td><label><input type="checkbox" class="dp-pick"> Down payment ${x.doc_num} (${x.doc_date})</label></td>
+          <td class="num"><input class="dp-sum" type="number" step="0.01" min="0" max="${Number(x.to_draw)}" value="${Number(x.to_draw)}" disabled style="width:120px"></td></tr>`).join("")}</tbody></table>` : "";
+      $$("#d-dps tr[data-dp]").forEach((tr) => {
+        $(".dp-pick", tr).onchange = () => { $(".dp-sum", tr).disabled = !$(".dp-pick", tr).checked; recalc(); };
+        $(".dp-sum", tr).oninput = recalc;
+      });
+    }
     $$("#d-lines tr").forEach((tr) => { const s = $(".l-item", tr); if (s && s.value && !tr.base) s.onchange(); else if (!tr.base && b && b.vat_group && $(".l-vat", tr) && type() === "S") $(".l-vat", tr).value = b.vat_group; });
     recalc();
   };
@@ -639,6 +654,10 @@ views.doc = async (c) => {
     $("#t-before").textContent = fmt(before); $("#t-disc").textContent = fmt(discount); $("#t-vat").textContent = fmt(vat);
     $("#t-freight").textContent = fmt(freight);
     $("#t-total").textContent = fmt(before - discount + freight + vat);
+    if ($("#t-dpm")) {
+      const dpm = $$("#d-dps tr[data-dp]").reduce((s, tr) => s + ($(".dp-pick", tr).checked ? Number($(".dp-sum", tr).value || 0) : 0), 0);
+      $("#t-dpm").textContent = fmt(dpm); $("#t-due").textContent = fmt(before - discount + freight + vat - dpm);
+    }
     if ($("#t-lc")) $("#t-lc").textContent = fmt($$("#d-lines tr").reduce((s, tr) => {
       const net = round(Number(($(".l-total", tr) || {}).textContent?.replace(/[^0-9.-]/g, "") || 0) * (1 - disc));
       return s + round(net * docRate) + round(round(net * rate($(".l-vat", tr).value) / 100) * docRate);
@@ -715,6 +734,8 @@ views.doc = async (c) => {
     const body = { ...h, doc_type: type(), lines: [] };
     if ($("#d-card_code")) body.card_code = bpCode() || null;
     if (side !== "I") body.disc_prcnt = Number($("#d-disc").value || 0);
+    if ($("#d-dps")) body.down_payments = $$("#d-dps tr[data-dp]").filter((tr) => $(".dp-pick", tr).checked)
+      .map((tr) => ({ dp_entry: Number(tr.dataset.dp), amount: Number($(".dp-sum", tr).value || 0) }));
     if (side !== "I") body.expenses = $$("#d-freight .fr-row").map((r) => ({ expns_code: Number($(".fr-code", r).value),
       amount: Number($(".fr-amt", r).value || 0), vat_group: $(".fr-vat", r).value || null })).filter((e) => e.amount > 0);
     $$("#d-lines tr").forEach((tr) => {

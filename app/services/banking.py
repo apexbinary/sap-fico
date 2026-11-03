@@ -70,6 +70,14 @@ class AccountLine:
 
 
 @dataclass
+class DownPaymentPay:
+    """Down payment request paid by the payment (LC); the amount stays open on account until it is drawn."""
+
+    dp_entry: int
+    amount: Decimal
+
+
+@dataclass
 class PaymentRequest:
     obj: str  # 24 incoming, 46 outgoing
     doc_date: date
@@ -90,6 +98,7 @@ class PaymentRequest:
     items: list[PaidItem] = field(default_factory=list)
     accounts: list[AccountLine] = field(default_factory=list)
     pay_no_doc: bool = False  # payment on account
+    down_payments: list[DownPaymentPay] = field(default_factory=list)  # down payment requests (ODPI / ODPO) paid
     cntct_code: int | None = None
     counter_ref: str | None = None
     ref2: str | None = None
@@ -318,6 +327,28 @@ def _create(session: Session, req: PaymentRequest):
         due_pc += sign * pc_part
         items.append((line, lc_part, sign * (lc_part - disc_lc), fc_part, sign * fc_part, disc_lc))
 
+    # down payment requests: their amount stays on account on the payment's partner line until drawn
+    dps, dp_total = [], ZERO
+    if req.down_payments:
+        dp_obj = "203" if incoming else "204"
+        if req.doc_type not in {"C", "S"} or (req.doc_type == "C") != incoming:
+            raise B1Error("Down payments are paid by incoming payments of customers / outgoing payments of vendors")
+        if curr != main:
+            raise B1Error("Down payments are paid in the local currency")
+        dp_cls = DOCUMENT_CLASSES[dp_obj][0]
+        for dpr in req.down_payments:
+            dp = session.get(dp_cls, int(dpr.dp_entry))
+            if dp is None or dp.canceled == "Y" or dp.card_code != bp.card_code:
+                raise B1Error(f"Down payment {dpr.dp_entry} is not a down payment request of {bp.card_code}")
+            amount = money(dpr.amount)
+            if amount <= 0 or amount > dp.doc_total - dp.paid_to_date:
+                raise B1Error(f"Down payment {dp.doc_num}: the amount must be between 0 and the unpaid {(dp.doc_total - dp.paid_to_date).normalize()}")
+            dps.append((dp, amount))
+            dp_total += amount
+        if means_lc - applied < dp_total:
+            raise B1Error(f"The payment means ({means_lc}) do not cover the items and the down payments ({applied + dp_total})")
+        req.pay_no_doc = True
+
     accounts = []
     for n, a in enumerate(req.accounts):
         _gl(session, a.acct_code, "")
@@ -387,6 +418,10 @@ def _create(session: Session, req: PaymentRequest):
                                     doc_trans_id=line.trans_id, doc_line=line.line_id, sum_applied=signed,
                                     applied_fc=signed_fc, dcnt_sum=disc_lc,
                                     inst_id=inst.instlmnt_id if inst is not None else None))
+    for n, (dp, amount) in enumerate(dps, start=len(items)):  # paid down payment requests (InvType 203 / 204)
+        pay.invoices.append(inv_cls(invoice_id=n, doc_entry=dp.doc_entry, inv_type=dp.obj_type, doc_trans_id=0, doc_line=0,
+                                    sum_applied=amount, applied_fc=ZERO, dcnt_sum=ZERO))
+        dp.paid_to_date += amount
     for n, (a, fc, amount_lc) in enumerate(accounts):
         pay.accounts.append(acct_cls(line_id=n, acct_code=a.acct_code, sum_applied=amount_lc,
                                      applied_fc=fc if curr != main else ZERO, descrip=a.descrip, prj_code=a.prj_code))
@@ -478,6 +513,9 @@ def cancel_payment(session: Session, obj: str, doc_entry: int, cancel_date: date
             for c in checks:
                 c.canceled = "Y"
         for inv in pay.invoices:  # reopen the paid items
+            if inv.inv_type in {"203", "204"}:  # paid down payment request (not drawn: OpenBal is complete)
+                session.get(DOCUMENT_CLASSES[inv.inv_type][0], inv.doc_entry).paid_to_date -= inv.sum_applied
+                continue
             line = session.get(JournalLine, (inv.doc_trans_id, inv.doc_line))
             _apply_to_item(session, line, -(abs(inv.sum_applied) + inv.dcnt_sum), -abs(inv.applied_fc))
         if pay.trans_id:

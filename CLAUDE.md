@@ -64,7 +64,7 @@ app/
   models/inventory.py OITB OITM OMRC OWHS OITW OPLN ITM1
   models/banking.py   ORCT/OVPM (+RCT1/2/4, VPM1/2/4), OCHH checks for receipt, ODPS deposits,
                       ODSC/DSC1 house banks, OBNH/OBNK bank statements, OMTH/MTH1 external reconciliation
-  models/documents.py the 15 document header/line pairs (OQUT/QUT1 ... OWTR/WTR1, built from
+  models/documents.py the 17 document header/line pairs (OQUT/QUT1 ... OWTR/WTR1, built from
                       shared DocumentHeader/DocumentLine columns) and OINM warehouse journal
   services/admin.py   B1Error, numbering (NNM1), posting periods, exchange rates, due dates
   services/fxreval.py exchange rate differences: preview / run (BP open items unrealized + reversed,
@@ -92,6 +92,9 @@ app/
   services/credit.py  credit / commitment limit check of customers (OADM CrdLmtChk / CmtLmtChk /
                       CrdLmtDocs); documents.create_document compares the exposure before / after
   api_freight.py      freight / additional expenses OEXD (web/freight.js); document freight QUT3 ... RPC3
+  down payments       documents.DEFS 203 / 204 (kind downpayment, not posted); banking.DownPaymentPay
+                      (RCT2 / VPM2 InvType 203 / 204, amount on account); documents._draw_down_payments
+                      (INV9 / PCH9) and _undraw_down_payments; GET /api/documents/{203|204}/open-down-payments
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -256,6 +259,13 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   GST returns and e-invoices take freight as a service with the OEXD SAC code.
 - Credit check: exposure = balance + DNotesBal + OrdersBal; a document is checked only when it
   raises the exposure (copied lines do not). Warn mode needs confirm_credit; block refuses.
+
+### Down payments (keep invariant)
+- A request is not posted. A payment that pays it keeps the amount on account (OpenBal) and raises
+  the request's PaidToDate; drawing on an invoice reconciles the invoice's partner line(s) with
+  that open payment line (oldest payment first) via banking._apply_to_item — no journal entry, so
+  every BP balance still equals its open items. Canceling the invoice releases the draws; a payment
+  whose amount on account was drawn cannot be canceled.
 
 ### Withholding tax / TDS (keep invariant)
 - A/P invoice of a vendor with WTLiable Y: base = net LC excl. GST, TDS in whole rupees; vendor

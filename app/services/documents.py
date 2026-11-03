@@ -83,6 +83,8 @@ DEFS: dict[str, DocDef] = {d.obj: d for d in [
     DocDef("21", "Goods Return", "P", "return", ("20",)),
     DocDef("18", "A/P Invoice", "P", "invoice", ("540000006", "22", "20")),
     DocDef("19", "A/P Credit Memo", "P", "credit", ("18", "21")),
+    DocDef("203", "A/R Down Payment", "S", "downpayment"),
+    DocDef("204", "A/P Down Payment", "P", "downpayment"),
     DocDef("59", "Goods Receipt", "I", "receipt"),
     DocDef("60", "Goods Issue", "I", "issue"),
     DocDef("67", "Inventory Transfer", "I", "transfer"),
@@ -134,6 +136,14 @@ class ExpenseRequest:
 
 
 @dataclass
+class DownPaymentDraw:
+    """A paid down payment (request) drawn on an invoice; amount None = all that is still available."""
+
+    dp_entry: int
+    amount: Decimal | None = None
+
+
+@dataclass
 class DocumentRequest:
     obj: str
     doc_date: date
@@ -158,6 +168,7 @@ class DocumentRequest:
     wt_codes: list[str] | None = None  # A/P invoices: withholding tax codes (None = the vendor's CRD4 codes, [] = none)
     confirm_credit: bool = False  # add although the credit / commitment limit is exceeded (warn mode)
     expenses: list[ExpenseRequest] = field(default_factory=list)  # freight (QUT3 ... RPC3)
+    down_payments: list[DownPaymentDraw] = field(default_factory=list)  # invoices: paid down payments to draw (INV9 / PCH9)
 
 
 # ------------------------------------------------------------- stock movements
@@ -554,6 +565,8 @@ def _create(session: Session, req: DocumentRequest):
         if d.kind == "invoice":
             ctx.installments = _installments(session, d, doc, bp)
     _post_journal(ctx)
+    if req.down_payments:
+        _draw_down_payments(ctx, req.down_payments)
     if d.kind == "credit":
         _reconcile_with_invoice(ctx, lines)
     if d.side == "I":
@@ -807,6 +820,96 @@ def _post_journal(ctx: _Ctx) -> None:
     ctx.oinm.clear()
 
 
+DP_OBJ = {"S": ("203", "24"), "P": ("204", "46")}  # side -> (down payment, payment) object types
+
+
+def _partner_lines(session: Session, doc) -> list:
+    if not doc.trans_id:
+        return []
+    return list(session.scalars(select(JournalLine).where(
+        JournalLine.trans_id == doc.trans_id, JournalLine.short_name == doc.card_code,
+        JournalLine.short_name != JournalLine.account).order_by(JournalLine.line_id)))
+
+
+def _draw_down_payments(ctx: _Ctx, draws: list) -> None:
+    """Draw paid down payments on an invoice: its partner line(s) are reconciled with the open amount
+    the down payment's payments left on account (oldest first); INV9 / PCH9 keep the pairs."""
+    from app.models.banking import PAYMENT_CLASSES
+    from app.models.documents import DOCUMENT_DOWN_PAYMENTS
+    from app.services.banking import _apply_to_item
+
+    session, d, doc = ctx.session, ctx.d, ctx.doc
+    if d.kind != "invoice" or d.obj not in DOCUMENT_DOWN_PAYMENTS:
+        raise B1Error("Down payments are drawn on A/R and A/P invoices")
+    if doc.doc_cur != company(session).main_curncy:
+        raise B1Error("Down payments are drawn on invoices in the local currency")
+    dp_obj, pay_obj = DP_OBJ[d.side]
+    dp_cls = DOCUMENT_CLASSES[dp_obj][0]
+    pay_cls, _, rct_cls, _ = PAYMENT_CLASSES[pay_obj]
+    inv_lines = _partner_lines(session, doc)
+    drawn_cls = DOCUMENT_DOWN_PAYMENTS[d.obj]
+    total, n, seen = ZERO, 0, set()
+    for dr in draws:
+        dp = session.get(dp_cls, int(dr.dp_entry))
+        if dp is None or dp.canceled == "Y" or dp.card_code != doc.card_code:
+            raise B1Error(f"Down payment {dr.dp_entry} is not a down payment of {doc.card_code}")
+        if dp.doc_entry in seen:
+            raise B1Error(f"Down payment {dp.doc_num} is selected twice")
+        seen.add(dp.doc_entry)
+        available = dp.paid_to_date - dp.dpm_appl
+        amount = money(Decimal(dr.amount)) if dr.amount is not None else available
+        if amount <= 0 or amount > available:
+            raise B1Error(f"Down payment {dp.doc_num}: {available.normalize()} paid and not yet drawn")
+        rest = amount
+        rows = session.execute(select(pay_cls, rct_cls).join(rct_cls, rct_cls.doc_num == pay_cls.doc_entry).where(
+            rct_cls.inv_type == dp_obj, rct_cls.doc_entry == dp.doc_entry, pay_cls.canceled == "N").order_by(pay_cls.doc_entry)).all()
+        for pay, _row in rows:
+            if rest <= 0:
+                break
+            own = session.scalars(select(JournalLine).where(JournalLine.trans_id == pay.trans_id,
+                                                            JournalLine.short_name == pay.card_code)).first()
+            open_amt = (own.bal_due_cred or own.bal_due_deb) if own is not None else ZERO
+            while rest > 0 and open_amt > 0:
+                inv_line = next((l for l in inv_lines if (l.bal_due_deb or l.bal_due_cred) > 0), None)
+                if inv_line is None:
+                    raise B1Error("The down payments drawn exceed the invoice total")
+                piece = min(rest, open_amt, inv_line.bal_due_deb or inv_line.bal_due_cred)
+                _apply_to_item(session, own, piece)  # the payment's amount on account (OpenBal)
+                _apply_to_item(session, inv_line, piece)  # the invoice (PaidToDate, installments)
+                session.add(drawn_cls(doc_entry=doc.doc_entry, line_num=n, base_abs=dp.doc_entry, drawn_sum=piece, pay_type=pay_obj,
+                                      pay_entry=pay.doc_entry, pay_trans=own.trans_id, pay_line=own.line_id, doc_line=inv_line.line_id))
+                n += 1
+                rest -= piece
+                open_amt -= piece
+                total += piece
+        if rest > 0:
+            raise B1Error(f"Down payment {dp.doc_num}: the payments that paid it have only {(amount - rest).normalize()} left on account")
+        dp.dpm_appl += amount
+        dp.doc_status = "C" if dp.dpm_appl >= dp.doc_total else "O"
+    doc.dpm_amnt += total
+    session.flush()
+
+
+def _undraw_down_payments(session: Session, d: DocDef, doc) -> None:
+    """Cancel of an invoice: the drawn down payments are released (lines reopened, OpenBal restored)."""
+    from app.models.documents import DOCUMENT_DOWN_PAYMENTS
+    from app.services.banking import _apply_to_item
+
+    if d.obj not in DOCUMENT_DOWN_PAYMENTS:
+        return
+    cls = DOCUMENT_DOWN_PAYMENTS[d.obj]
+    dp_cls = DOCUMENT_CLASSES[DP_OBJ[d.side][0]][0]
+    for row in session.scalars(select(cls).where(cls.doc_entry == doc.doc_entry)).all():
+        _apply_to_item(session, session.get(JournalLine, (row.pay_trans, row.pay_line)), -row.drawn_sum)
+        _apply_to_item(session, session.get(JournalLine, (doc.trans_id, row.doc_line)), -row.drawn_sum)
+        dp = session.get(dp_cls, row.base_abs)
+        dp.dpm_appl -= row.drawn_sum
+        dp.doc_status = "O"
+        doc.dpm_amnt -= row.drawn_sum
+        session.delete(row)
+    session.flush()
+
+
 def _installments(session: Session, d: DocDef, doc, bp) -> list:
     """Installments of an invoice from the payment terms (OCTG InstNum + CTG1); the last takes the rest."""
     from app.models.admin import PaymentTerms, PaymentTermsInstallment
@@ -1007,6 +1110,9 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
         raise B1Error(f"{d.name} {doc.doc_num} was copied to a target document; cancel that document first")
     if doc.trans_id and _paid_by_payment(session, doc.trans_id):
         raise B1Error(f"{d.name} {doc.doc_num} is used in a payment; cancel the payment first")
+    if d.kind == "downpayment" and doc.paid_to_date:
+        raise B1Error(f"{d.name} {doc.doc_num} is paid; cancel the payment first")
+    _undraw_down_payments(session, d, doc)
     if d.kind == "credit":
         _unreconcile(session, d, doc)
     elif doc.paid_to_date:

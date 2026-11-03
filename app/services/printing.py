@@ -26,6 +26,7 @@ TITLES = {  # document type -> printed title (India)
     "23": "Quotation", "17": "Sales Order", "15": "Delivery Challan", "16": "Sales Return", "13": "Tax Invoice",
     "14": "Credit Note", "540000006": "Request for Quotation", "22": "Purchase Order", "20": "Goods Receipt Note",
     "21": "Purchase Return", "18": "Purchase Invoice", "19": "Debit Note",
+    "203": "Advance Payment Request", "204": "Advance Payment Request (Vendor)",
 }
 NO_PRICES = {"15", "20", "21", "16"}  # delivery challans / receipts / returns print quantities only
 STYLES = {"classic": "Classic (boxed GST layout)", "modern": "Modern (colour band, light lines)",

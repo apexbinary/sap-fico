@@ -89,6 +89,11 @@ class AccountLineIn(BaseModel):
     prj_code: str | None = Field(None, max_length=20)
 
 
+class DownPaymentIn(BaseModel):
+    dp_entry: int
+    amount: Decimal = Field(..., gt=0)
+
+
 class PaymentIn(BaseModel):
     doc_date: date
     doc_type: str = Field("C", pattern="^[CSA]$")
@@ -108,6 +113,7 @@ class PaymentIn(BaseModel):
     items: list[ItemIn] = []
     accounts: list[AccountLineIn] = []
     pay_no_doc: bool = False
+    down_payments: list[DownPaymentIn] = []
     cntct_code: int | None = None
     counter_ref: str | None = Field(None, max_length=8)
     ref2: str | None = Field(None, max_length=11)
@@ -121,7 +127,8 @@ def create_payment(kind: str, body: PaymentIn, s: Session = Depends(get_session)
     obj = _obj(kind)
     data = body.model_dump()
     req = banking.PaymentRequest(
-        obj=obj, **{k: v for k, v in data.items() if k not in ("checks", "items", "accounts")},
+        obj=obj, **{k: v for k, v in data.items() if k not in ("checks", "items", "accounts", "down_payments")},
+        down_payments=[banking.DownPaymentPay(**x) for x in data["down_payments"]],
         checks=[banking.CheckRequest(**c) for c in data["checks"]],
         items=[banking.PaidItem(**i) for i in data["items"]],
         accounts=[banking.AccountLine(**a) for a in data["accounts"]])

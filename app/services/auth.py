@@ -41,7 +41,7 @@ PERMISSIONS = {
     "FXREVAL": "Exchange rate differences",
     "COCKPIT": "Cockpit",
 }
-SALES_OBJS, PURCH_OBJS, INV_OBJS = {"23", "17", "15", "16", "13", "14"}, {"540000006", "22", "20", "21", "18", "19"}, {"59", "60", "67"}
+SALES_OBJS, PURCH_OBJS, INV_OBJS = {"23", "17", "15", "16", "13", "14", "203"}, {"540000006", "22", "20", "21", "18", "19", "204"}, {"59", "60", "67"}
 
 # (path prefix, area); the first match wins. None: any logged-in user may read and write
 ROUTES = [

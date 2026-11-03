@@ -29,6 +29,7 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "disc_sum_fc": doc.disc_sum_fc, "paid_fc": doc.paid_fc, "disc_prcnt": doc.disc_prcnt, "disc_sum": doc.disc_sum, "vat_sum": doc.vat_sum,
            "doc_total": doc.doc_total, "paid_to_date": doc.paid_to_date, "trans_id": doc.trans_id,
            "wt_sum": doc.wt_sum, "wt_sum_fc": doc.wt_sum_fc, "total_expns": doc.total_expns, "total_exp_fc": doc.total_exp_fc,
+           "dpm_amnt": doc.dpm_amnt, "dpm_appl": doc.dpm_appl,
            "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
            "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
@@ -45,6 +46,13 @@ def _doc_out(doc, detail: bool = False) -> dict:
         from app.services import withholding
 
         out["withholding"] = withholding.rows_of(object_session(doc), doc.obj_type, doc.doc_entry)
+        from app.models.documents import DOCUMENT_DOWN_PAYMENTS
+
+        dcls = DOCUMENT_DOWN_PAYMENTS.get(doc.obj_type)
+        dp_cls = DOCUMENT_CLASSES["203" if doc.obj_type == "13" else "204"][0] if dcls else None
+        out["down_payments"] = [{"dp_entry": r.base_abs, "dp_num": object_session(doc).get(dp_cls, r.base_abs).doc_num,
+                                 "drawn_sum": r.drawn_sum, "pay_type": r.pay_type, "pay_entry": r.pay_entry}
+                                for r in object_session(doc).scalars(select(dcls).where(dcls.doc_entry == doc.doc_entry))] if dcls else []
         from app.models.admin import AdditionalExpense
 
         out["expenses"] = [{"expns_code": e.expns_code, "expns_name": (object_session(doc).get(AdditionalExpense, e.expns_code).expns_name
@@ -134,6 +142,7 @@ class DocumentIn(BaseModel):
     wt_codes: list[str] | None = None
     confirm_credit: bool = False
     expenses: list[dict] | None = None  # [{expns_code, amount, vat_group}]
+    down_payments: list[dict] | None = None  # invoices: [{dp_entry, amount}] paid down payments to draw
     lines: list[DocLineIn]
 
 
@@ -146,8 +155,24 @@ def create_document(obj: str, body: DocumentIn, s: Session = Depends(get_session
         expenses = [documents.ExpenseRequest(**e) for e in (data.pop("expenses") or [])]
     except TypeError as exc:
         raise HTTPException(status_code=422, detail="Freight: expns_code, amount and vat_group are expected") from exc
-    doc = run(lambda: documents.create_document(s, documents.DocumentRequest(obj=obj, lines=lines, expenses=expenses, **data)))
+    try:
+        draws = [documents.DownPaymentDraw(**x) for x in (data.pop("down_payments") or [])]
+    except TypeError as exc:
+        raise HTTPException(status_code=422, detail="Down payments: dp_entry and amount are expected") from exc
+    doc = run(lambda: documents.create_document(s, documents.DocumentRequest(obj=obj, lines=lines, expenses=expenses,
+                                                                           down_payments=draws, **data)))
     return _doc_out(doc, detail=True)
+
+
+@router.get("/documents/{obj}/open-down-payments", tags=["Documents"], summary="Down payments of a partner: unpaid (to pay) or paid and not drawn (to draw)")
+def open_down_payments(obj: str, card_code: str, s: Session = Depends(get_session)) -> list[dict]:
+    if obj not in {"203", "204"}:
+        raise HTTPException(status_code=404, detail="Down payments are object 203 (A/R) or 204 (A/P)")
+    cls = DOCUMENT_CLASSES[obj][0]
+    rows = s.scalars(select(cls).where(cls.card_code == card_code, cls.canceled == "N").order_by(cls.doc_entry))
+    return [{"obj": obj, "doc_entry": d.doc_entry, "doc_num": d.doc_num, "doc_date": d.doc_date, "doc_total": d.doc_total,
+             "paid": d.paid_to_date, "drawn": d.dpm_appl, "to_pay": d.doc_total - d.paid_to_date, "to_draw": d.paid_to_date - d.dpm_appl,
+             "comments": d.comments} for d in rows if d.doc_total - d.paid_to_date > 0 or d.paid_to_date - d.dpm_appl > 0]
 
 
 @router.get("/documents/{obj}/copy-sources", tags=["Documents"], summary="Open base documents to copy from")

@@ -8,7 +8,7 @@ const AREA_OF_VIEW = {
   "trial-balance": "FINRPT", "balance-sheet": "FINRPT", "profit-loss": "FINRPT", "tax-report": "FINRPT", "gst-returns": "FINRPT",
   setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN", "print-layouts": "ADMIN", "e-documents": "SALES", "withholding-tax": "ADMIN", freight: "ADMIN", "tds-report": "FINRPT",
 };
-const SALES_OBJS = ["23", "17", "15", "16", "13", "14"], PURCH_OBJS = ["540000006", "22", "20", "21", "18", "19"];
+const SALES_OBJS = ["23", "17", "15", "16", "13", "14", "203"], PURCH_OBJS = ["540000006", "22", "20", "21", "18", "19", "204"];
 const areaOfObj = (obj) => (SALES_OBJS.includes(obj) ? "SALES" : PURCH_OBJS.includes(obj) ? "PURCH" : "INV");
 const may = (area, level = "R") => !state.user || state.user.superuser || (level === "F" ? state.user.permissions[area] === "F"
   : ["R", "F"].includes(state.user.permissions[area]));

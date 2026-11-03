@@ -12,6 +12,10 @@ const short = (n) => {  // compact amounts for chart labels (lakh / crore for IN
 };
 
 function barChart(months) {  // grouped bars: sales and purchases per month
+  if (!months.some((m) => Number(m.sales) || Number(m.purchases)))
+    return `<div class="empty">No A/R or A/P invoices in the last 12 months yet — the chart fills as soon as you
+      <a href="#/docs?obj=13">post an A/R invoice</a> or <a href="#/docs?obj=18">an A/P invoice</a>
+      (net of credit memos, excl. tax).</div>`;
   const w = 640, h = 220, pad = 30, max = Math.max(1, ...months.flatMap((m) => [Number(m.sales), Number(m.purchases)]));
   const slot = (w - pad * 2) / months.length, bw = Math.max(4, slot / 2 - 4);
   const y = (v) => h - pad - (Number(v) / max) * (h - pad * 2);

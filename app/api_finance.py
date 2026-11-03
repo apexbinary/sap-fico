@@ -39,7 +39,7 @@ def run(fn):
 
 # ------------------------------------------------------------- administration
 def _company_out(c) -> dict:
-    return {"company_name": c.company_name, "main_curncy": c.main_curncy, "sys_curncy": c.sys_curncy,
+    return {"has_logo": bool(c.logo_image), "company_name": c.company_name, "main_curncy": c.main_curncy, "sys_curncy": c.sys_curncy,
             "country": c.country, "state": c.state, "tax_id": c.tax_id, "address": c.address, "phone": c.phone, "phone2": c.phone2,
             "fax": c.fax, "e_mail": c.e_mail, "manager": c.manager}
 

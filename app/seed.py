@@ -255,6 +255,7 @@ def seed() -> None:
         put_new(HouseBankAccount(abs_entry=1, bank_code="HDFC", account="50100123456789", branch="HDFC0000123",
                                  gl_account="112000", acct_name="HDFC current account", country="IN", currency=LOCAL), 1)
         _seed_users(s)
+        _seed_print_layouts(s)
         _seed_partners_and_items(s, put)
         s.commit()
         print("Seed complete: Demo Trading India Pvt Ltd (INR, GST), chart of accounts, periods 2025-2027, "
@@ -339,6 +340,22 @@ def _seed_users(s) -> None:
             s.flush()
             for perm in PERMISSIONS:
                 s.add(UserPermission(user_link=uid, perm_id=perm, permission=perms.get(perm, "N") if sup == "N" else "F"))
+            s.flush()
+
+
+def _seed_print_layouts(s) -> None:
+    """A standard (classic GST) default layout per sales / purchasing document type; layouts are
+    maintained by users (Administration -> Print layouts): created only for types without one."""
+    from sqlalchemy import select
+
+    from app.models.admin import PrintLayout
+    from app.services.printing import TITLES
+
+    for obj in TITLES:
+        if s.scalar(select(PrintLayout).where(PrintLayout.type_code == obj).limit(1)) is None:
+            s.add(PrintLayout(doc_code=f"STD-{obj}", doc_name="Standard (GST)", type_code=obj, style="classic",
+                              color="#1f3b63", show_logo="Y", show_hsn="Y", show_bank="Y", show_sign="Y",
+                              footer="Subject to local jurisdiction. E. & O.E." if obj == "13" else None, default="Y"))
             s.flush()
 
 

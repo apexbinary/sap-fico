@@ -72,7 +72,11 @@ app/
   services/cockpit.py cockpit data (KPIs, 12-month chart, aging, top 5, open documents, alerts);
                       api_cockpit.py with the per-user widget layout (OCPT)
   services/printing.py print data of sales / purchasing documents (GST layout, amount in words);
-                      GET /api/documents/{obj}/{entry}/print; web/print.js renders the A4 page
+                      GET /api/documents/{obj}/{entry}/print?layout=; web/print.js renders the A4 page.
+                      Print layouts RDOC (style classic / modern / compact, colour, options, one default
+                      per type; seed creates STD-{obj} once), company logo OADM LogoImage (PNG / JPEG /
+                      GIF data URL, magic bytes checked, 512 KB); api_printing.py /api/print-layouts,
+                      /api/admin/company/logo; web view #/print-layouts
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -101,7 +105,10 @@ web/                  index.html, styles.css, app.js (shell, typed field builder
                       bankrec.js (bank statements, bank reconciliation), fxreval.js (exchange rate differences),
                       dunning.js (dunning wizard, letters), paywiz.js (payment wizard),
                       cockpit.js (home screen; SVG charts, no chart library),
-                      users.js (login, user menu, nav by authorization, users)
+                      users.js (login, user menu, nav by authorization, users),
+                      print.js (print preview, Print Layouts screen with the company logo)
+                      Router: a link to the current hash re-renders; list + form screens (FORM_VIEWS)
+                      scroll to the form and focus its first field on ?new / ?id / ?code / ?rule
                       index.html loads scripts / styles with ?v=N: raise N when they change
 docs/field-coverage.md  B1 field register: every form, column, input type, status
 ```
@@ -259,4 +266,6 @@ S00001 (non-inventory service).
 
 ### Not B1-verified
 OACP column names are descriptive (B1's OACP has many more columns with other
-names); everything else uses B1's documented table and field names.
+names). RDOC keeps template options in descriptive columns (Style, Color, Show*, Footer,
+Default) instead of B1's Print Layout Designer template; OADM LogoImage, OCPT and OUSS are
+not B1-verified either. Everything else uses B1's documented table and field names.

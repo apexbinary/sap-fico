@@ -6,7 +6,7 @@ const AREA_OF_VIEW = {
   partners: "BP", dunning: "DUNNING", items: "ITEMS", warehouses: "ITEMS", "inventory-audit": "INV",
   payments: "BANK", "payment-wizard": "BANK", deposits: "BANK", "bank-statements": "BANK", "bank-reconciliation": "BANK",
   "trial-balance": "FINRPT", "balance-sheet": "FINRPT", "profit-loss": "FINRPT", "tax-report": "FINRPT",
-  setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN",
+  setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN", "print-layouts": "ADMIN",
 };
 const SALES_OBJS = ["23", "17", "15", "16", "13", "14"], PURCH_OBJS = ["540000006", "22", "20", "21", "18", "19"];
 const areaOfObj = (obj) => (SALES_OBJS.includes(obj) ? "SALES" : PURCH_OBJS.includes(obj) ? "PURCH" : "INV");
@@ -90,7 +90,7 @@ views.users = async (c) => {
     { k: "superuser", label: "Superuser", type: "check" }, ...(edit ? [{ k: "locked", label: "Locked", type: "check" }] : []),
   ];
   c.innerHTML = `<div class="page-head"><div><h1>Users</h1><div class="sub">Users (OUSR) and general authorizations (USR3)</div></div>
-      <a class="btn" href="#/users">+ New user</a></div>
+      <a class="btn" href="#/users?new=1">+ New user</a></div>
     <div class="card"><table><thead><tr><th>User code</th><th>Name</th><th>Department</th><th>Superuser</th><th>Locked</th><th>Last login</th></tr></thead><tbody>
       ${data.users.map((u) => `<tr style="cursor:pointer" onclick="location.hash='#/users?id=${u.user_id}'"><td class="mono">${esc(u.user_code)}</td><td>${esc(u.u_name)}</td>
         <td>${esc(u.department || "")}</td><td>${yesNo(u.superuser)}</td><td>${u.locked ? '<span class="status X">Locked</span>' : ""}</td>

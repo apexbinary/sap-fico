@@ -236,3 +236,35 @@ h3.section { margin: 16px 0 6px; font-size: 0.85em; text-transform: uppercase; l
   .print-page { max-width: none; margin: 0; padding: 0; border-radius: 0; }
   @page { size: A4; margin: 12mm; }
 }
+
+/* print layouts: logo, template styles (classic / modern / compact) with the layout's accent colour */
+.print-page { --pp-accent: #1f3b63; }
+.pp-brand { display: flex; gap: 12px; align-items: flex-start; }
+.pp-logo { max-height: 64px; max-width: 160px; object-fit: contain; }
+.pp-classic .pp-title { color: var(--pp-accent); }
+.pp-footer { margin-top: 12px; padding-top: 6px; border-top: 1px solid #bbb; font-size: 10px; color: #444; text-align: center; }
+.pp-modern .pp-head { border-bottom: 4px solid var(--pp-accent); }
+.pp-modern .pp-company, .pp-modern .pp-title { color: var(--pp-accent); }
+.pp-modern .pp-box { border: none; background: #f4f6f9; border-left: 3px solid var(--pp-accent); }
+.pp-modern .pp-lines th { background: var(--pp-accent); color: #fff; border-color: var(--pp-accent); }
+.pp-modern .pp-lines td { border-left: none; border-right: none; border-color: #dde2ea; }
+.pp-modern .pp-lines tbody tr:nth-child(even) td { background: #f7f8fb; }
+.pp-modern .pp-grand td { border-top-color: var(--pp-accent); color: var(--pp-accent); }
+.pp-modern .pp-words { border: none; background: #f4f6f9; }
+.pp-modern .pp-footer { border-top-color: var(--pp-accent); }
+.pp-compact { font-size: 10px; padding: 8mm 9mm; }
+.pp-compact .pp-company { font-size: 14px; }
+.pp-compact .pp-title { font-size: 15px; color: var(--pp-accent); }
+.pp-compact .pp-lines th, .pp-compact .pp-lines td { padding: 2px 3px; }
+.pp-compact .pp-lines th { font-size: 9px; }
+.pp-compact .pp-grid { gap: 5px; margin-bottom: 6px; }
+.pp-compact .pp-box { padding: 3px 5px; }
+.pp-compact .pp-logo { max-height: 44px; }
+.pp-pick { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.print-page, .print-page * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.pl-logo { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.pl-logo-box { width: 180px; height: 80px; border: 1px dashed var(--border, #999); display: flex; align-items: center; justify-content: center; background: #fff; border-radius: 4px; }
+.pl-logo-box img { max-width: 170px; max-height: 72px; object-fit: contain; }
+.pl-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; border: 1px solid #0003; }
+@media print { .print-page.pp-compact { padding: 0; } }
+input[type="color"] { padding: 2px; width: 64px; height: 34px; cursor: pointer; }

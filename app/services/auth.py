@@ -48,7 +48,7 @@ ROUTES = [
     ("/api/auth/", None), ("/api/cockpit", "COCKPIT"),
     ("/api/users", "ADMIN"), ("/api/admin", "ADMIN"), ("/api/tax", "ADMIN"), ("/api/sales-employees", "ADMIN"),
     ("/api/projects", "ADMIN"), ("/api/manufacturers", "ITEMS"), ("/api/transaction-codes", "ADMIN"),
-    ("/api/master", "ADMIN"),
+    ("/api/master", "ADMIN"), ("/api/print-layouts", "ADMIN"),
     ("/api/accounts", "COA"), ("/api/journal-entries", "JE"),
     ("/api/reports", "FINRPT"), ("/api/exchange-rate-differences", "FXREVAL"),
     ("/api/partners", "BP"), ("/api/partner-groups", "BP"),
@@ -62,7 +62,7 @@ ROUTES = [
 # reference data every logged-in user may read (GET), whatever the area
 SHARED_READS = re.compile(r"^/api/(admin/(company|lookups|exchange-rates)|master/lookups|tax/setup|accounts$|partners(/[^/]+)?$|"
                           r"partner-groups$|items(/[^/]+(/price)?)?$|item-groups$|warehouses$|price-lists$|documents/types$|"
-                          r"payments/open-items$|house-banks$|dunning/terms$)")
+                          r"payments/open-items$|house-banks$|dunning/terms$|print-layouts$)")
 
 
 def hash_password(password: str) -> str:

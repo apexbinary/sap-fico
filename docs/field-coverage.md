@@ -460,7 +460,11 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Lines: description, item, HSN / SAC, quantity, UoM, rate, discount, taxable value, CGST + SGST or IGST (rate, amount), total | lines, OITM ChapterID, STC1 | ✅ delivery challans, receipts and returns print quantities only |
 | HSN / SAC-wise tax summary; totals; amount in words (Indian lakh / crore, rupees and paise) | | ✅ |
 | Payment terms, bank details (house bank), remarks, authorised signatory | OCTG, DSC1 | ✅ A4 print styling; PDF through the browser |
-| Print Layout Designer / Crystal templates, several layouts per document type, logo, e-mailing, e-invoice IRN / QR code | | ⏸ |
+| Several layouts per document type, default layout, layout chosen in the print preview | RDOC DocCode / DocName / TypeCode / Default | ✅ |
+| Template style (classic / modern / compact), accent colour | RDOC Style / Color | dropdown / colour picker | ✅ |
+| Print company logo, HSN / SAC summary, bank details, authorised signatory, footer text | RDOC ShowLogo / ShowHSN / ShowBank / ShowSign / Footer | checkbox / text | ✅ |
+| Company logo (PNG / JPEG / GIF, at most 512 KB) | OADM LogoImage | file upload | ✅ |
+| Print Layout Designer (free field placement) / Crystal templates, default layout per user or BP, e-mailing, e-invoice IRN / QR code | | ⏸ |
 
 ## Inventory documents (goods receipt OIGN, goods issue OIGE, inventory transfer OWTR)
 | Field | Column | Type | Status |

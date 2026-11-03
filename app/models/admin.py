@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Numeric, String
+from sqlalchemy import ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -46,6 +46,7 @@ class Company(Base):
     fax: Mapped[str | None] = mapped_column("Fax", String(20))
     e_mail: Mapped[str | None] = mapped_column("E_Mail", String(100))
     manager: Mapped[str | None] = mapped_column("Manager", String(100))  # Manager / contact
+    logo_image: Mapped[str | None] = mapped_column("LogoImage", Text)  # company logo (data URL) on printed documents
 
 
 class Currency(Base):
@@ -329,3 +330,25 @@ class CockpitWidget(Base):
     widget_id: Mapped[str] = mapped_column("WidgetId", String(30), primary_key=True)
     position: Mapped[int] = mapped_column("Position")
     visible: Mapped[str] = mapped_column("Visible", String(1), default="Y")
+
+
+class PrintLayout(Base):
+    """RDOC — Print layouts of a document type; one of them is the default (B1: RTYP DEFLT_REP).
+
+    Not B1-verified: B1's RDOC stores Print Layout Designer / Crystal templates; this one keeps
+    the template style and its options (Style, Color, Show*, Footer, Default are descriptive).
+    """
+
+    __tablename__ = "rdoc"
+
+    doc_code: Mapped[str] = mapped_column("DocCode", String(20), primary_key=True)
+    doc_name: Mapped[str] = mapped_column("DocName", String(100))
+    type_code: Mapped[str] = mapped_column("TypeCode", String(20), index=True)  # document type (ObjType)
+    style: Mapped[str] = mapped_column("Style", String(10), default="classic")  # classic / modern / compact
+    color: Mapped[str] = mapped_column("Color", String(7), default="#1f3b63")  # accent colour
+    show_logo: Mapped[str] = mapped_column("ShowLogo", String(1), default="Y")
+    show_hsn: Mapped[str] = mapped_column("ShowHSN", String(1), default="Y")  # HSN / SAC summary
+    show_bank: Mapped[str] = mapped_column("ShowBank", String(1), default="Y")
+    show_sign: Mapped[str] = mapped_column("ShowSign", String(1), default="Y")
+    footer: Mapped[str | None] = mapped_column("Footer", String(254))
+    default: Mapped[str] = mapped_column("Default", String(1), default="N")

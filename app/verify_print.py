@@ -60,6 +60,54 @@ def main() -> None:
         pd = printing.print_data(s, "15", dn.doc_entry)
         assert pd["title"] == "Delivery Challan" and pd["no_prices"] and printing.print_data(s, "20", grpo.doc_entry)["title"] == "Goods Receipt Note"
         print(f"4 {pd['title']} {pd['doc_num']} prints quantities only; GRPO prints as Goods Receipt Note")
+
+        # print layouts: every document type has a seeded default; a second layout can be chosen or made default
+        assert all(printing.layout_for(s, obj) is not None for obj in printing.TITLES)
+        assert p["layout"]["doc_code"] == "STD-13" and p["layout"]["default"] and p["layout"]["style"] == "classic"
+        code = f"MOD{inv.doc_entry}"
+        printing.save_layout(s, {"doc_code": code, "doc_name": "Modern blue", "type_code": "13", "style": "modern",
+                                 "color": "#0A66C2", "show_hsn": False, "show_bank": False, "footer": "Thank you for your business"})
+        pm = printing.print_data(s, "13", inv.doc_entry, code)
+        assert pm["layout"]["style"] == "modern" and pm["layout"]["color"] == "#0a66c2" and not pm["layout"]["show_hsn"]
+        assert pm["totals"] == p["totals"] and printing.print_data(s, "13", inv.doc_entry)["layout"]["doc_code"] == "STD-13"
+        assert code in [l["doc_code"] for l in pm["layouts"]]
+        for bad, msg in [(lambda: printing.print_data(s, "17", so.doc_entry, code), "is not a layout of"),
+                         (lambda: printing.save_layout(s, {"color": "blue"}, code), "hex value"),
+                         (lambda: printing.save_layout(s, {"style": "fancy"}, code), "Unknown style"),
+                         (lambda: printing.delete_layout(s, "STD-13"), "cannot be removed"),
+                         (lambda: printing.save_layout(s, {"default": False}, "STD-13"), "needs a default")]:
+            try:
+                bad()
+                raise AssertionError(f"expected an error: {msg}")
+            except printing.B1Error as exc:
+                assert msg in str(exc), exc
+                s.rollback()
+        printing.save_layout(s, {"default": True}, code)
+        assert printing.layout_for(s, "13").doc_code == code and s.get(printing.PrintLayout, "STD-13").default == "N"
+        printing.save_layout(s, {"default": True}, "STD-13")
+        printing.delete_layout(s, code)
+        print(f"5 Layouts: STD-13 (classic, default); {code} (modern, #0a66c2, no HSN summary) printed on request, "
+              "made default and back, removed; bad colour / style / foreign layout / removing the default refused")
+
+        # company logo: PNG / JPEG / GIF up to 512 KB, printed when the layout shows it
+        import base64
+
+        from app.services.admin import company
+
+        before = company(s).logo_image
+        png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\0" * 64).decode()
+        printing.save_logo(s, f"data:image/png;base64,{png}")
+        assert printing.print_data(s, "13", inv.doc_entry)["company"]["logo"].startswith("data:image/png;base64,")
+        for bad in (f"data:image/svg+xml;base64,{png}", "data:image/png;base64," + base64.b64encode(b"<svg/>").decode(),
+                    "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\0" * (513 * 1024)).decode()):
+            try:
+                printing.save_logo(s, bad)
+                raise AssertionError("bad logo accepted")
+            except printing.B1Error:
+                s.rollback()
+        company(s).logo_image = before
+        s.commit()
+        print("6 Logo: PNG stored and printed; SVG, non-image content and > 512 KB refused")
         print("\nOK - print data (GST layout) is consistent with the documents.")
     finally:
         s.close()

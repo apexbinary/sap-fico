@@ -122,6 +122,11 @@ async function boot() {
   document.title = `Business One — ${state.company.company_name}`;
   await reloadMasterData();
   window.addEventListener("hashchange", route);
+  // a link to the page already shown (e.g. "+ New" on its own list) fires no hashchange: render again
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest('a[href^="#/"]');
+    if (a && !e.ctrlKey && !e.metaKey && !e.shiftKey && a.getAttribute("href") === location.hash) { e.preventDefault(); route(); }
+  });
   $("#navToggle").onclick = () => $("#sidenav").classList.toggle("collapsed");
   if (!location.hash) location.hash = "#/cockpit";
   route();
@@ -143,7 +148,21 @@ function route() {
   const area = obj ? areaOfObj(obj) : AREA_OF_VIEW[view];
   if (area && !may(area)) { c.innerHTML = `<div class="empty">No authorization for ${esc(state.user.areas[area] || area)}.</div>`; return; }
   c.innerHTML = '<div class="loading">Loading…</div>';
-  Promise.resolve((views[view] || views.cockpit)(c)).catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
+  Promise.resolve((views[view] || views.cockpit)(c)).then(() => revealForm(c, view))
+    .catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
+}
+// list + form screens: a "New" link or a chosen row opens the form below the list; bring it into view
+const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first" };
+function revealForm(c, view) {
+  const q = query();
+  if (!FORM_VIEWS[view] || !["new", "id", "code", "rule"].some((k) => q.has(k))) return;
+  const grids = $$(".form-grid", c);
+  const grid = q.has("rule") || FORM_VIEWS[view] === "last" ? grids[grids.length - 1] : grids[0];
+  if (!grid) return;
+  const card = grid.closest(".card") || grid;  // a form may have several field groups: start at its first
+  card.scrollIntoView({ block: "start", behavior: "smooth" });
+  const first = $$(".form-grid input, .form-grid select, .form-grid textarea", card).find((x) => !x.disabled && !x.readOnly && x.type !== "hidden");
+  if (first) first.focus({ preventScroll: true });
 }
 
 // ---------- Cockpit: see cockpit.js ----------

@@ -105,6 +105,9 @@ app/
   services/costacct.py cost accounting (models/costacct.py ODIM OPRC OOCR OCR1): JDT1 ProfitCode / OcrCode2-5,
                       document lines OcrCode-5; _Ctx.post keeps a line's rules on revenue / expense
                       accounts; profit center report; api_costacct.py; web/costacct.js
+  services/budgets.py budgets OBGS / OBGT / BGT1 (models/budgets.py), budget vs. actual, budget check called by
+                      journal.post_entry (OADM BgtCheck B: expense account over the year's main budget);
+                      api_budgets.py /api/budgets*, /api/admin/budget-check; web/budgets.js
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

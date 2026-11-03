@@ -219,6 +219,9 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
         ))
         if req.manual:
             check_project(session, l.project, req.ref_date)
+    from app.services.budgets import check_posting
+
+    check_posting(session, req.ref_date, [(x.account, x.debit - x.credit) for x in entry.lines], entry.trans_id)
     session.flush()
     return entry
 

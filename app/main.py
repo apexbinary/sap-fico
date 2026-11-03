@@ -21,6 +21,7 @@ from app.api_freight import router as freight_router
 from app.api_batches import router as batches_router
 from app.api_counting import router as counting_router
 from app.api_costacct import router as costacct_router
+from app.api_budgets import router as budgets_router
 from app.api_documents import router as documents_router
 from app.api_dunning import router as dunning_router
 from app.api_finance import router as finance_router
@@ -56,6 +57,7 @@ app.include_router(freight_router, prefix="/api")
 app.include_router(batches_router, prefix="/api")
 app.include_router(counting_router, prefix="/api")
 app.include_router(costacct_router, prefix="/api")
+app.include_router(budgets_router, prefix="/api")
 app.include_router(tax_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 

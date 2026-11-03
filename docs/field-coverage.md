@@ -450,6 +450,15 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Budgets (Financial Reports -> Budgets)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Budget scenario: name, financial year, ratio of the main budget, main budget | OBGS Name / FinancYear / InitRatio / MainBudget | text / number | ✅ the main budget of a year is created with its first budget |
+| Account budget: annual debit / credit, monthly amounts | OBGT AcctCode / Instance / DebLTotal / CrdLTotal, BGT1 Line_ID / DebLTotal / CrdLTotal | dropdown / number | ✅ annual split equally or 12 months; credit side for revenue / liability accounts |
+| Budget vs. actual per account, by month, to date, deviation and % | | — | ✅ |
+| Budget check of postings: none / block expense accounts over the annual main budget | OADM BgtCheck | dropdown | ✅ warn mode, monthly / quarterly checks, purchase documents before posting ⏸ |
+| Budget distribution methods (ascending / descending), budgets per profit center, budget report by project | | — | ⏸ |
+
 ### Cost accounting (Administration -> Cost Accounting, Financial Reports -> Profit Center Report)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

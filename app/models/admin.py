@@ -55,6 +55,7 @@ class Company(Base):
     crd_lmt_chk: Mapped[str] = mapped_column("CrdLmtChk", String(1), default="N", server_default="N")
     cmt_lmt_chk: Mapped[str] = mapped_column("CmtLmtChk", String(1), default="N", server_default="N")
     crd_lmt_docs: Mapped[str | None] = mapped_column("CrdLmtDocs", String(30), default="17,15,13", server_default="17,15,13")
+    bgt_check: Mapped[str] = mapped_column("BgtCheck", String(1), default="N", server_default="N")  # budget check: N none, B block (expense accounts)
 
 
 class CompanyAddress(Base):

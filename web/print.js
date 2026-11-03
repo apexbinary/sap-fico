@@ -54,6 +54,7 @@ views.print = async (c) => {
         <div><table class="pp-kv pp-totals"><tbody>
           <tr><td>Total before discount</td><td class="num">${money(p.totals.before_discount)}</td></tr>
           ${Number(p.totals.discount) ? `<tr><td>Discount ${Number(p.totals.disc_prcnt)}%</td><td class="num">-${money(p.totals.discount)}</td></tr>` : ""}
+          ${Number(p.totals.freight) ? `<tr><td>Freight / charges</td><td class="num">${money(p.totals.freight)}</td></tr>` : ""}
           <tr><td>Tax</td><td class="num">${money(p.totals.tax)}</td></tr>
           ${Number(p.totals.wt) ? `<tr><td>Total before TDS</td><td class="num">${money(Number(p.totals.total) + Number(p.totals.wt))}</td></tr>
             <tr><td>Less TDS deducted</td><td class="num">-${money(p.totals.wt)}</td></tr>` : ""}

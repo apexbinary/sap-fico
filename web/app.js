@@ -143,6 +143,7 @@ async function reloadMasterData() {
     api("/accounts"), api("/admin/lookups"), api("/partners"), api("/master/lookups"), api("/price-lists"), api("/warehouses"),
     api("/tax/setup")]);
   state.wtCodes = await api("/withholding-tax").catch(() => []);
+  state.freight = await api("/freight").catch(() => []);
 }
 
 const views = {};
@@ -160,7 +161,7 @@ function route() {
     .catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
 }
 // list + form screens: a "New" link or a chosen row opens the form below the list; bring it into view
-const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first", "withholding-tax": "last" };
+const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first", "withholding-tax": "last", freight: "last" };
 function revealForm(c, view) {
   const q = query();
   if (!FORM_VIEWS[view] || !["new", "id", "code", "rule"].some((k) => q.has(k))) return;
@@ -446,6 +447,7 @@ async function docDetail(el, t, entry) {
     ${t.side !== "I" ? `<div class="card-body"><div class="totals">
       <div><span>Total before discount</span><b>${fmt(d.lines.reduce((s, l) => s + Number(l.line_total), 0))}</b></div>
       <div><span>Discount ${Number(d.disc_prcnt) ? `${Number(d.disc_prcnt)} %` : ""}</span><b>${fmt(d.disc_sum)}</b></div>
+      ${(d.expenses || []).map((e) => `<div><span>${esc(e.expns_name || `Freight ${e.expns_code}`)} (${esc(e.vat_group || "no tax")})</span><b>${fmt(e.line_total)}</b></div>`).join("")}
       <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div>
       ${Number(d.wt_sum) ? `<div><span>Withholding tax (TDS) ${d.withholding.map((w) => `${esc(w.wt_code)} ${esc(w.section)} ${Number(w.rate)} %${w.no_pan ? " (no PAN)" : ""}`).join(", ")}</span><b>-${fmt(d.wt_sum)}</b></div>` : ""}
       <div class="grand"><span>${Number(d.wt_sum) ? "Total payment due (LC)" : "Total (LC)"}</span><b>${fmt(d.doc_total)} ${esc(state.company.main_curncy)}</b></div>
@@ -492,6 +494,8 @@ views.doc = async (c) => {
         <div><span>Total before discount</span><b id="t-before">0.00</b></div>
         <div><span>Discount %</span><input id="d-disc" type="number" min="0" max="99.99" step="0.01" value="0" style="width:80px;text-align:right"></div>
         <div><span>Discount</span><b id="t-disc">0.00</b></div>
+        <div><span>Freight <button class="btn small ghost" id="d-fr-add" type="button">+ add</button></span><b id="t-freight">0.00</b></div>
+        <div id="d-freight" class="freight-rows"></div>
         <div><span>Tax</span><b id="t-vat">0.00</b></div><div class="grand"><span>Total (<span id="t-cur">${esc(state.company.main_curncy)}</span>)</span><b id="t-total">0.00</b></div>
         <div id="t-lc-row" style="display:none"><span>Total (LC)</span><b id="t-lc">0.00</b></div></div>` : ""}
       <button class="btn" id="d-post" style="margin-top:12px">Add</button>
@@ -626,15 +630,40 @@ views.doc = async (c) => {
       before += total; vat += tax;
     });
     if (side === "I") return;
+    let freight = 0;
+    $$("#d-freight .fr-row").forEach((r) => {  // freight: no header discount, own tax code
+      const amt = round(Number($(".fr-amt", r).value || 0));
+      freight += amt; vat += round(amt * rate($(".fr-vat", r).value) / 100);
+    });
     const discount = round(before * disc);
     $("#t-before").textContent = fmt(before); $("#t-disc").textContent = fmt(discount); $("#t-vat").textContent = fmt(vat);
-    $("#t-total").textContent = fmt(before - discount + vat);
+    $("#t-freight").textContent = fmt(freight);
+    $("#t-total").textContent = fmt(before - discount + freight + vat);
     if ($("#t-lc")) $("#t-lc").textContent = fmt($$("#d-lines tr").reduce((s, tr) => {
       const net = round(Number(($(".l-total", tr) || {}).textContent?.replace(/[^0-9.-]/g, "") || 0) * (1 - disc));
       return s + round(net * docRate) + round(round(net * rate($(".l-vat", tr).value) / 100) * docRate);
     }, 0));
   };
   const reset = () => { head(); $("#d-lines").innerHTML = ""; addLine(); };
+  const addFreight = () => {  // freight / additional expense (OEXD) with amount and tax code
+    const fr = state.freight || [];
+    if (!fr.length) return toast("No freight codes (Administration -> Freight)", "bad");
+    const row = document.createElement("div");
+    row.className = "fr-row";
+    const taxOf = (code) => { const e = fr.find((x) => String(x.expns_code) === String(code)); return e ? (side === "S" ? e.vat_group_o : e.vat_group_i) : ""; };
+    row.innerHTML = `<select class="fr-code">${fr.map((e) => opt(e.expns_code, `${e.expns_code} — ${e.expns_name}`)).join("")}</select>
+      <input class="fr-amt" type="number" min="0" step="0.01" placeholder="Net amount">
+      <select class="fr-vat">${opt("", "")}${taxes.map((x) => opt(x.code, x.code)).join("")}</select>
+      <button class="btn small ghost fr-del" type="button">&#10005;</button>`;
+    $("#d-freight").appendChild(row);
+    const setDefault = () => { $(".fr-vat", row).value = taxOf($(".fr-code", row).value) || ""; const e = fr.find((x) => String(x.expns_code) === $(".fr-code", row).value);
+      if (e && Number(e.fix_amnt) && !$(".fr-amt", row).value) $(".fr-amt", row).value = Number(e.fix_amnt); recalc(); };
+    $(".fr-code", row).onchange = setDefault;
+    $(".fr-amt", row).oninput = recalc; $(".fr-vat", row).onchange = recalc;
+    $(".fr-del", row).onclick = () => { row.remove(); recalc(); };
+    setDefault();
+  };
+  if ($("#d-fr-add")) $("#d-fr-add").onclick = addFreight;
   if ($("#d-doc_type")) $("#d-doc_type").onchange = reset;
   if ($("#d-disc")) $("#d-disc").oninput = recalc;
   if ($("#d-card_code")) $("#d-card_code").onchange = () => applyPartner();
@@ -686,6 +715,8 @@ views.doc = async (c) => {
     const body = { ...h, doc_type: type(), lines: [] };
     if ($("#d-card_code")) body.card_code = bpCode() || null;
     if (side !== "I") body.disc_prcnt = Number($("#d-disc").value || 0);
+    if (side !== "I") body.expenses = $$("#d-freight .fr-row").map((r) => ({ expns_code: Number($(".fr-code", r).value),
+      amount: Number($(".fr-amt", r).value || 0), vat_group: $(".fr-vat", r).value || null })).filter((e) => e.amount > 0);
     $$("#d-lines tr").forEach((tr) => {
       const val = (cls) => { const e = $(cls, tr); return e && e.value !== "" ? e.value : null; };
       const num = (cls) => { const v = val(cls); return v === null ? null : Number(v); };
@@ -695,8 +726,27 @@ views.doc = async (c) => {
       else Object.assign(line, { item_code: val(".l-item"), quantity: num(".l-qty") || 0, whs_code: val(".l-whs"), from_whs_cod: val(".l-from") });
       if (line.item_code || line.acct_code) body.lines.push(line);
     });
-    const r = await act(() => post(`/documents/${obj}`, body), (d) => `${t.name} ${d.doc_num} added`);
-    if (r) { state.partners = await api("/partners"); location.hash = `#/docs?obj=${obj}&entry=${r.doc_entry}`; }
+    let r;
+    try {
+      r = await post(`/documents/${obj}`, body);
+    } catch (e) {
+      if (!e.message.includes("confirm to add anyway")) { toast(e.message, "bad"); return; }
+      // credit / commitment limit exceeded in warn mode (B1 asks before adding the document)
+      const box = $("#d-credit") || Object.assign(document.createElement("div"), { id: "d-credit", className: "credit-warn" });
+      box.innerHTML = `<b>${esc(e.message.replace(" (confirm to add anyway)", ""))}</b>
+        <div style="margin-top:6px;display:flex;gap:8px"><button class="btn small" id="d-credit-ok">Add anyway</button>
+        <button class="btn small secondary" id="d-credit-no">Do not add</button></div>`;
+      $("#d-post").insertAdjacentElement("beforebegin", box);
+      $("#d-credit-no").onclick = () => box.remove();
+      $("#d-credit-ok").onclick = async () => {
+        box.remove();
+        const r2 = await act(() => post(`/documents/${obj}`, { ...body, confirm_credit: true }), (d) => `${t.name} ${d.doc_num} added`);
+        if (r2) { state.partners = await api("/partners"); location.hash = `#/docs?obj=${obj}&entry=${r2.doc_entry}`; }
+      };
+      return;
+    }
+    toast(`${t.name} ${r.doc_num} added`, "good");
+    state.partners = await api("/partners"); location.hash = `#/docs?obj=${obj}&entry=${r.doc_entry}`;
   };
 };
 

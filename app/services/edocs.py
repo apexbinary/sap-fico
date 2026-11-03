@@ -164,6 +164,25 @@ def _lines(session: Session, doc, fc: bool, rate: Decimal) -> tuple[list[dict], 
         totals["SgstVal"] += sgst
         totals["IgstVal"] += igst
         totals["CesVal"] += cess
+    from app.models.admin import AdditionalExpense
+
+    for e in getattr(doc, "expenses", []):  # freight / additional expenses: service items with their SAC code
+        tg = session.get(TaxGroup, e.vat_group) if e.vat_group else None
+        ex = session.get(AdditionalExpense, e.expns_code)
+        net_fc = e.total_frgn if fc else e.line_total
+        comps = {name: (amount * rate).quantize(CENT) for _, amount, name in tax.split(session, tg, net_fc)}
+        ass = (net_fc * rate).quantize(CENT)
+        cgst, sgst, igst = comps.get("CGST", Decimal(0)), comps.get("SGST", Decimal(0)) + comps.get("UTGST", Decimal(0)), comps.get("IGST", Decimal(0))
+        if not (ex and ex.sac_code):
+            issues.append(f"freight {e.expns_code}: no SAC code (Administration -> Freight)")
+        items.append({"SlNo": str(len(items) + 1), "PrdDesc": ex.expns_name if ex else "Freight", "IsServc": "Y",
+                      "HsnCd": (ex.sac_code if ex else None) or "", "Qty": 1, "Unit": "OTH", "UnitPrice": _m(ass), "TotAmt": _m(ass),
+                      "Discount": 0, "AssAmt": _m(ass), "GstRt": float(tg.rate if tg else 0), "IgstAmt": _m(igst), "CgstAmt": _m(cgst),
+                      "SgstAmt": _m(sgst), "CesRt": 0, "CesAmt": 0, "TotItemVal": _m(ass + cgst + sgst + igst)})
+        totals["AssVal"] += ass
+        totals["CgstVal"] += cgst
+        totals["SgstVal"] += sgst
+        totals["IgstVal"] += igst
     return items, issues, totals
 
 

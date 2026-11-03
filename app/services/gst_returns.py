@@ -144,6 +144,21 @@ def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: dat
                 if not hsn:
                     doc.issues.append(f"line {l.line_num + 1}: item {l.item_code or '-'} has no HSN / SAC code")
                 doc.lines.append(line)
+            from app.models.admin import AdditionalExpense
+
+            for e in getattr(d, "expenses", []):  # freight / additional expenses: taxable services with their SAC
+                tg = session.get(TaxGroup, e.vat_group) if e.vat_group else None
+                ex = session.get(AdditionalExpense, e.expns_code)
+                net_fc = e.total_frgn if fc else e.line_total
+                line = Line(rate=tg.rate if tg else ZERO, taxable=_m(net_fc * rate), hsn=ex.sac_code if ex else None,
+                            description=ex.expns_name if ex else "Freight", uqc="NA", qty=ZERO, nil=tg is None or tg.rate == 0,
+                            kind=tax.gst_kind(session, tg))
+                for _, amount, name in tax.split(session, tg, net_fc):
+                    attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
+                    setattr(line, attr, getattr(line, attr) + _m(amount * rate))
+                if line.kind:
+                    kinds.add(line.kind)
+                doc.lines.append(line)
             if kinds == {"inter"}:
                 doc.inter = True
             elif kinds == {"intra"}:

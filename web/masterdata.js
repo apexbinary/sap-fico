@@ -407,7 +407,12 @@ const PROJECT_FIELDS = [
 views.setup = async (c) => {
   await reloadMasterData();
   state.company = await api("/admin/company");
-  const [periods, rates] = await Promise.all([api("/admin/periods"), api(`/admin/exchange-rates?rate_date=${today()}`)]);
+  const [periods, rates, credit] = await Promise.all([api("/admin/periods"), api(`/admin/exchange-rates?rate_date=${today()}`), api("/admin/credit-check")]);
+  const checkOpts = [["N", "No check"], ["W", "Warn (user may add the document)"], ["B", "Block the document"]];
+  const CREDIT_FIELDS = [
+    { k: "credit_check", label: "Credit limit (balance + open deliveries + open orders)", type: "select", blank: false, options: checkOpts },
+    { k: "commitment_check", label: "Commitment limit (balance, A/R invoices)", type: "select", blank: false, options: checkOpts },
+    { k: "documents", label: "Check the credit limit on", type: "multi", options: Object.entries(credit.types), span: 2 }];
   const L = state.lookups, M = state.master;
   const termsId = query().get("terms");
   const termsEdit = termsId && L.payment_terms.find((t) => String(t.group_num) === termsId);
@@ -415,6 +420,10 @@ views.setup = async (c) => {
   c.innerHTML = `<div class="page-head"><div><h1>Administration</h1><div class="sub">Company details, currencies, tax groups, payment terms, posting periods, sales employees, projects, manufacturers, transaction codes</div></div></div>
     <div class="card"><div class="card-head">Company details (OADM)</div><div class="card-body"><div class="form-grid">${fieldsHtml(COMPANY_FIELDS, state.company, "co")}</div>
       <button class="btn secondary" id="co-save" style="margin-top:8px">Update</button></div></div>
+    <div class="card"><div class="card-head">Business partners: credit limit check (General Settings → BP)</div><div class="card-body">
+      <div class="form-grid">${fieldsHtml(CREDIT_FIELDS, credit, "cr")}</div>
+      <div class="help">Limits are set per customer (Payment terms: credit limit / commitment limit); 0 = no limit.</div>
+      <button class="btn secondary" id="cr-save" style="margin-top:8px">Update</button></div></div>
     <div class="grid-2">
       <div class="card"><div class="card-head">Exchange rates today (ORTT)</div><table><tbody>
         ${rates.map((r) => `<tr><td>${esc(r.currency)}</td><td class="num">${Number(r.rate).toFixed(4)} ${esc(state.company.main_curncy)}</td></tr>`).join("") || `<tr><td class="empty">No rates for today.</td></tr>`}</tbody></table>
@@ -473,6 +482,7 @@ views.setup = async (c) => {
   bindCountryState("co");
   $("#co-state").value = state.company.state || "";
   save("#co-save", () => patch("/admin/company", readFields(COMPANY_FIELDS, "co")), "Company details updated");
+  save("#cr-save", () => api("/admin/credit-check", { method: "PUT", body: JSON.stringify(readFields(CREDIT_FIELDS, "cr")) }), "Credit limit check updated");
   save("#rt-save", () => post("/admin/exchange-rates", readFields([{ k: "currency", type: "select" }, { k: "rate_date", type: "date" }, { k: "rate", type: "number" }], "rt")), "Rate saved");
   const instRow = (v = {}) => {
     const tr = document.createElement("tr");

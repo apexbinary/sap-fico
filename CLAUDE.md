@@ -89,6 +89,9 @@ app/
   services/withholding.py TDS on A/P invoices / credit memos: OWHT codes, CRD4 per vendor, PCH5 / RPC5
                       rows, thresholds per financial year, report; api_withholding.py /api/withholding-tax,
                       /api/reports/tds; web/tds.js (#/withholding-tax, #/tds-report)
+  services/credit.py  credit / commitment limit check of customers (OADM CrdLmtChk / CmtLmtChk /
+                      CrdLmtDocs); documents.create_document compares the exposure before / after
+  api_freight.py      freight / additional expenses OEXD (web/freight.js); document freight QUT3 ... RPC3
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -247,6 +250,13 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - GSTR-3B liability / ITC must equal the output / input tax of the journal for the month
   (checked in verify_gstreturns).
 
+### Freight and credit limit (keep invariant)
+- Freight lines have no header discount and their own tax code (GST kind switched like lines);
+  DocTotal / VatSum include them; invoices / credit memos post them on OEXD RevAcct / ExpnsAcct.
+  GST returns and e-invoices take freight as a service with the OEXD SAC code.
+- Credit check: exposure = balance + DNotesBal + OrdersBal; a document is checked only when it
+  raises the exposure (copied lines do not). Warn mode needs confirm_credit; block refuses.
+
 ### Withholding tax / TDS (keep invariant)
 - A/P invoice of a vendor with WTLiable Y: base = net LC excl. GST, TDS in whole rupees; vendor
   line = DocTotal = gross - WTSum; the code's account (217000 TDS payable) credited. Every invoice
@@ -300,4 +310,4 @@ OACP column names are descriptive (B1's OACP has many more columns with other
 names). RDOC keeps template options in descriptive columns (Style, Color, Show*, Footer,
 Default) instead of B1's Print Layout Designer template; OADM LogoImage / EInvoice /
 EWayBill / EDocMode, EDOC, OCPT, OUSS, OCRD PANNo and the OWHT India columns (Section, Thr*,
-RateNoPAN) are not B1-verified either. Everything else uses B1's documented table and field names.
+RateNoPAN), OEXD SACCode and the OADM credit check columns are not B1-verified either. Everything else uses B1's documented table and field names.

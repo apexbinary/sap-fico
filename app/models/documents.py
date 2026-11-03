@@ -72,6 +72,8 @@ class DocumentHeader:
     doc_total_fc: Mapped[Decimal] = mapped_column("DocTotalFC", AMOUNT, default=Decimal("0"), server_default="0")  # Gross total (FC)
     wt_sum: Mapped[Decimal] = mapped_column("WTSum", AMOUNT, default=Decimal("0"), server_default="0")  # Withholding tax (TDS), LC
     wt_sum_fc: Mapped[Decimal] = mapped_column("WTSumFC", AMOUNT, default=Decimal("0"), server_default="0")
+    total_expns: Mapped[Decimal] = mapped_column("TotalExpns", AMOUNT, default=Decimal("0"), server_default="0")  # freight, net (LC)
+    total_exp_fc: Mapped[Decimal] = mapped_column("TotalExpFC", AMOUNT, default=Decimal("0"), server_default="0")
     paid_fc: Mapped[Decimal] = mapped_column("PaidFC", AMOUNT, default=Decimal("0"), server_default="0")  # Paid to date (FC)
     filler: Mapped[str | None] = mapped_column("Filler", String(8))  # From warehouse (transfer)
     to_whs_code: Mapped[str | None] = mapped_column("ToWhsCode", String(8))  # To warehouse (transfer)
@@ -185,6 +187,33 @@ for _obj, _table, _header in (("13", "inv6", "oinv"), ("18", "pch6", "opch")):
         "__doc__": f"{_table.upper()} - installments of {_header.upper()}.",
         "doc_entry": mapped_column("DocEntry", Integer, ForeignKey(f"{_header}.DocEntry"), primary_key=True),
     })
+
+
+class DocumentExpense:
+    """Columns shared by QUT3 ... RPC3: freight / additional expenses of a marketing document."""
+
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    expns_code: Mapped[int] = mapped_column("ExpnsCode", Integer)  # OEXD
+    line_total: Mapped[Decimal] = mapped_column("LineTotal", AMOUNT)  # net (LC)
+    total_frgn: Mapped[Decimal] = mapped_column("TotalFrgn", AMOUNT, default=Decimal("0"))  # net (FC)
+    vat_group: Mapped[str | None] = mapped_column("VatGroup", String(8))
+    vat_prcnt: Mapped[Decimal] = mapped_column("VatPrcnt", RATE, default=Decimal("0"))
+    vat_sum: Mapped[Decimal] = mapped_column("VatSum", AMOUNT, default=Decimal("0"))
+    vat_sum_frgn: Mapped[Decimal] = mapped_column("VatSumFrgn", AMOUNT, default=Decimal("0"))
+    grs_amount: Mapped[Decimal] = mapped_column("GrsAmount", AMOUNT, default=Decimal("0"))  # gross (LC)
+
+
+# object type -> freight class; the header gets .expenses
+FREIGHT_TABLES = [('23', 'qut3', 'oqut'), ('17', 'rdr3', 'ordr'), ('15', 'dln3', 'odln'), ('16', 'rdn3', 'ordn'), ('13', 'inv3', 'oinv'), ('14', 'rin3', 'orin'), ('540000006', 'pqt3', 'opqt'), ('22', 'por3', 'opor'), ('20', 'pdn3', 'opdn'), ('21', 'rpd3', 'orpd'), ('18', 'pch3', 'opch'), ('19', 'rpc3', 'orpc')]
+DOCUMENT_EXPENSES: dict[str, type] = {}
+for _obj, _table, _header in FREIGHT_TABLES:
+    DOCUMENT_EXPENSES[_obj] = type(f"{_table.upper()}Expense", (DocumentExpense, Base), {
+        "__tablename__": _table,
+        "__doc__": f"{_table.upper()} - freight of {_header.upper()}.",
+        "doc_entry": mapped_column("DocEntry", Integer, ForeignKey(f"{_header}.DocEntry"), primary_key=True),
+    })
+    DOCUMENT_CLASSES[_obj][0].expenses = relationship(DOCUMENT_EXPENSES[_obj], order_by=DOCUMENT_EXPENSES[_obj].line_num,
+                                                      cascade="all, delete-orphan")
 
 
 class DocumentWithholding:

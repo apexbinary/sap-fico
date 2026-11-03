@@ -125,6 +125,15 @@ class DocLineRequest:
 
 
 @dataclass
+class ExpenseRequest:
+    """Freight / additional expense of a document (OEXD code, net amount in the document currency)."""
+
+    expns_code: int
+    amount: Decimal
+    vat_group: str | None = None  # default: the expense's output / input tax code
+
+
+@dataclass
 class DocumentRequest:
     obj: str
     doc_date: date
@@ -147,6 +156,8 @@ class DocumentRequest:
     ref2: str | None = None
     doc_cur: str | None = None  # document currency (default: base document, BP currency, local currency)
     wt_codes: list[str] | None = None  # A/P invoices: withholding tax codes (None = the vendor's CRD4 codes, [] = none)
+    confirm_credit: bool = False  # add although the credit / commitment limit is exceeded (warn mode)
+    expenses: list[ExpenseRequest] = field(default_factory=list)  # freight (QUT3 ... RPC3)
 
 
 # ------------------------------------------------------------- stock movements
@@ -290,8 +301,13 @@ def _tax(session: Session, d: DocDef, code: str | None) -> TaxGroup | None:
 
 
 def create_document(session: Session, req: DocumentRequest, *, commit: bool = True):
+    from app.services import credit
+
     try:
+        bp = session.get(BusinessPartner, req.card_code) if req.card_code and DEFS.get(req.obj) and DEFS[req.obj].side == "S" else None
+        before = credit.snapshot(bp)
         doc = _create(session, req)
+        credit.check(session, req.obj, bp, before, req.confirm_credit)
         if commit:
             session.commit()
         else:
@@ -432,6 +448,30 @@ def _create(session: Session, req: DocumentRequest):
     net_total_fc = sum((x["net_fc"] for x in lines), ZERO)
     vat_total_fc = sum((x["vat_fc"] for x in lines), ZERO)
 
+    # freight / additional expenses: no header discount, own tax code (GST kind switched like lines)
+    from app.models.admin import AdditionalExpense
+
+    expenses = []
+    for n, er in enumerate(req.expenses or []):
+        if d.side == "I":
+            raise B1Error("Inventory documents have no freight")
+        ex = session.get(AdditionalExpense, int(er.expns_code))
+        if ex is None:
+            raise B1Error(f"Freight {n + 1}: additional expense {er.expns_code} does not exist")
+        net_fc = money(Decimal(er.amount))
+        if net_fc <= 0:
+            raise B1Error(f"Freight {n + 1}: the amount must be positive")
+        etg = _tax(session, d, er.vat_group or (ex.vat_group_o if d.side == "S" else ex.vat_group_i))
+        ekind = tax.gst_kind(session, etg)
+        if ekind and supply and ekind != supply:
+            etg = tax.matching_gst_group(session, etg, supply) or etg
+        comps = tax.split(session, etg, net_fc)
+        vat_comps = [(account, money(amount * rate)) for account, amount, _ in comps]
+        expenses.append(dict(ex=ex, tg=etg, net_fc=net_fc, vat_fc=sum((a for _, a, _ in comps), ZERO), net=money(net_fc * rate),
+                             vat=sum((a for _, a in vat_comps), ZERO), vat_comps=vat_comps))
+    exp_net, exp_vat = sum((e["net"] for e in expenses), ZERO), sum((e["vat"] for e in expenses), ZERO)
+    exp_net_fc, exp_vat_fc = sum((e["net_fc"] for e in expenses), ZERO), sum((e["vat_fc"] for e in expenses), ZERO)
+
     entry = (session.scalar(select(func.max(header_cls.doc_entry))) or 0) + 1
     doc = header_cls(
         doc_entry=entry, doc_num=next_number(session, d.obj), doc_type=req.doc_type, canceled="N", doc_status="O",
@@ -440,10 +480,11 @@ def _create(session: Session, req: DocumentRequest):
                                           if bp and d.kind in {"invoice", "credit"} else req.doc_date),
         card_code=bp.card_code if bp else None, card_name=bp.card_name if bp else None, num_at_card=req.num_at_card,
         doc_cur=cur, doc_rate=rate, group_num=bp.group_num if bp else None, disc_prcnt=hdisc,
-        disc_sum=total_before - net_total, vat_sum=vat_total,
-        doc_total=net_total + vat_total if d.side != "I" else net_total, paid_to_date=ZERO,
+        disc_sum=total_before - net_total, vat_sum=vat_total + exp_vat,
+        doc_total=net_total + vat_total + exp_net + exp_vat if d.side != "I" else net_total, paid_to_date=ZERO,
+        total_expns=exp_net, total_exp_fc=exp_net_fc if fc else ZERO,
         disc_sum_fc=total_before_fc - net_total_fc if fc else ZERO, vat_sum_fc=vat_total_fc if fc else ZERO,
-        doc_total_fc=net_total_fc + vat_total_fc if fc else ZERO, paid_fc=ZERO,
+        doc_total_fc=net_total_fc + vat_total_fc + exp_net_fc + exp_vat_fc if fc else ZERO, paid_fc=ZERO,
         filler=req.from_whs, to_whs_code=req.to_whs, comments=req.comments,
         jrnl_memo=(req.jrnl_memo or (f"{d.name} - {bp.card_code}" if bp else d.name))[:50],
         series=default_series(session, d.obj), ref2=req.ref2, user_sign=_current_user_id(), **header,
@@ -468,10 +509,26 @@ def _create(session: Session, req: DocumentRequest):
             total_frgn=x["line_total_fc"] if fc else ZERO, vat_sum_frgn=x["vat_fc"] if fc else ZERO,
             gtotal_fc=x["net_fc"] + x["vat_fc"] if fc else ZERO, currency=cur, rate=rate if fc else ZERO,
         ))
+    if expenses:
+        from app.models.documents import DOCUMENT_EXPENSES
+
+        ecls = DOCUMENT_EXPENSES[d.obj]
+        doc.expenses = [ecls(line_num=n, expns_code=e["ex"].expns_code, line_total=e["net"], total_frgn=e["net_fc"] if fc else ZERO,
+                             vat_group=e["tg"].code if e["tg"] else None, vat_prcnt=e["tg"].rate if e["tg"] else ZERO,
+                             vat_sum=e["vat"], vat_sum_frgn=e["vat_fc"] if fc else ZERO, grs_amount=e["net"] + e["vat"])
+                        for n, e in enumerate(expenses)]
     session.add(doc)
     session.flush()
 
     ctx = _Ctx(session=session, d=d, doc=doc, det=_determination(session, req.doc_date))
+    if d.kind in {"invoice", "credit"}:
+        # freight: revenue (sales) / expense (purchasing) account and its tax, signs as for the lines
+        for e in expenses:
+            out = (d.side, d.kind) in {("S", "invoice"), ("P", "credit")}
+            ctx.post(e["ex"].rev_acct if d.side == "S" else e["ex"].expns_acct, -e["net"] if out else e["net"])
+            for account, amount in e["vat_comps"]:
+                ctx.vat[account] += -amount if out else amount
+                ctx.vat_groups[account] = e["tg"].code
     for line, x in zip(doc.lines, lines):
         _post_line(ctx, line, x)
     _copy_effects(ctx, lines)

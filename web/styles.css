@@ -290,3 +290,10 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--border, #ccd); }
 /* multi-select checkbox list */
 .multi { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 0; }
 .multi label { font-weight: 400; display: flex; gap: 4px; align-items: center; text-transform: none; font-size: 13px; }
+
+.credit-warn { border: 1px solid var(--bad, #b42318); background: #fff4f2; color: #7a1a0e; padding: 10px 12px; border-radius: 6px; margin: 10px 0; }
+
+.freight-rows { display: flex; flex-direction: column; gap: 4px; }
+.fr-row { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.fr-row select, .fr-row input { width: auto; min-width: 90px; }
+.fr-row .fr-amt { width: 120px; text-align: right; }

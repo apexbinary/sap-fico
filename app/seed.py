@@ -61,6 +61,7 @@ CHART = [
     ("41", "Sales", 4, "4", "N", "I", "N", "N"),
     ("411000", "Sales - Goods", 4, "41", "Y", "I", "N", "N"),
     ("412000", "Sales - Services", 4, "41", "Y", "I", "N", "N"),
+    ("413000", "Freight and Charges Recovered", 4, "41", "Y", "I", "N", "N"),
     ("5", "Cost of Sales", 5, None, "N", "E", "N", "N"),
     ("51", "Cost of Goods Sold", 5, "5", "N", "E", "N", "N"),
     ("511000", "Cost of Goods Sold", 5, "51", "Y", "E", "N", "N"),
@@ -72,6 +73,7 @@ CHART = [
     ("612000", "Rent", 6, "61", "Y", "E", "N", "N"),
     ("613000", "Bank Charges", 6, "61", "Y", "E", "N", "N"),
     ("615000", "Cash Discount Allowed", 6, "61", "Y", "E", "N", "N"),
+    ("616000", "Freight and Charges Paid", 6, "61", "Y", "E", "N", "N"),
     ("7", "Other Income and Expenses", 7, None, "N", "N", "N", "N"),
     ("71", "Foreign Exchange", 7, "7", "N", "N", "N", "N"),
     ("711000", "Foreign Exchange Gain", 7, "71", "Y", "I", "N", "N"),
@@ -258,6 +260,11 @@ def seed() -> None:
         _seed_users(s)
         _seed_print_layouts(s)
         _seed_withholding(s)
+        from app.models.admin import AdditionalExpense
+
+        for code, name, sac in [(1, "Freight", "996511"), (2, "Insurance", "997136"), (3, "Packing", "998540")]:
+            put_new(AdditionalExpense(expns_code=code, expns_name=name, rev_acct="413000", expns_acct="616000",
+                                      vat_group_o="OCS18", vat_group_i="ICS18", sac_code=sac, fix_amnt=Decimal("0")), code)
         from app.models.admin import CompanyAddress
 
         put_new(CompanyAddress(code=1, street="42 MG Road", city="Bengaluru", zip_code="560001"), 1)

@@ -28,7 +28,7 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "doc_cur": doc.doc_cur, "doc_rate": doc.doc_rate, "doc_total_fc": doc.doc_total_fc, "vat_sum_fc": doc.vat_sum_fc,
            "disc_sum_fc": doc.disc_sum_fc, "paid_fc": doc.paid_fc, "disc_prcnt": doc.disc_prcnt, "disc_sum": doc.disc_sum, "vat_sum": doc.vat_sum,
            "doc_total": doc.doc_total, "paid_to_date": doc.paid_to_date, "trans_id": doc.trans_id,
-           "wt_sum": doc.wt_sum, "wt_sum_fc": doc.wt_sum_fc,
+           "wt_sum": doc.wt_sum, "wt_sum_fc": doc.wt_sum_fc, "total_expns": doc.total_expns, "total_exp_fc": doc.total_exp_fc,
            "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
            "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
@@ -45,6 +45,12 @@ def _doc_out(doc, detail: bool = False) -> dict:
         from app.services import withholding
 
         out["withholding"] = withholding.rows_of(object_session(doc), doc.obj_type, doc.doc_entry)
+        from app.models.admin import AdditionalExpense
+
+        out["expenses"] = [{"expns_code": e.expns_code, "expns_name": (object_session(doc).get(AdditionalExpense, e.expns_code).expns_name
+                                                                       if object_session(doc).get(AdditionalExpense, e.expns_code) else ""),
+                            "line_total": e.line_total, "total_frgn": e.total_frgn, "vat_group": e.vat_group, "vat_prcnt": e.vat_prcnt,
+                            "vat_sum": e.vat_sum, "grs_amount": e.grs_amount} for e in getattr(doc, "expenses", [])]
         out.update(address=doc.address, address2=doc.address2, pay_to_code=doc.pay_to_code,
                    ship_to_code=doc.ship_to_code)
         out["lines"] = [{"line_num": l.line_num, "line_status": l.line_status, "item_code": l.item_code,
@@ -126,6 +132,8 @@ class DocumentIn(BaseModel):
     ref2: str | None = Field(None, max_length=11)
     doc_cur: str | None = Field(None, max_length=3)
     wt_codes: list[str] | None = None
+    confirm_credit: bool = False
+    expenses: list[dict] | None = None  # [{expns_code, amount, vat_group}]
     lines: list[DocLineIn]
 
 
@@ -134,7 +142,11 @@ def create_document(obj: str, body: DocumentIn, s: Session = Depends(get_session
     _check(obj)
     data = body.model_dump()
     lines = [documents.DocLineRequest(**l) for l in data.pop("lines")]
-    doc = run(lambda: documents.create_document(s, documents.DocumentRequest(obj=obj, lines=lines, **data)))
+    try:
+        expenses = [documents.ExpenseRequest(**e) for e in (data.pop("expenses") or [])]
+    except TypeError as exc:
+        raise HTTPException(status_code=422, detail="Freight: expns_code, amount and vat_group are expected") from exc
+    doc = run(lambda: documents.create_document(s, documents.DocumentRequest(obj=obj, lines=lines, expenses=expenses, **data)))
     return _doc_out(doc, detail=True)
 
 

@@ -280,7 +280,7 @@ Trial balance, balance sheet, profit and loss: period / as-of selection (date), 
 | Payment terms | GroupNum (OCTG) | dropdown | ✅ due dates on invoices |
 | Price list | ListNum (OPLN) | dropdown | ✅ default prices |
 | Total discount % | Discount | number | ✅ default document discount |
-| Credit limit / commitment limit | CreditLine / DebtLine | number | ✅ stored; ⏸ credit-limit warning on documents |
+| Credit limit / commitment limit | CreditLine / DebtLine | number | ✅ checked on documents (see Credit / commitment limit check) |
 | Dunning term | DunTerm (ODUT) | dropdown | ✅ customers |
 | Interest on arrears % p.a. | IntrstRate | number | ✅ else the dunning term's rate |
 | Priority, effective discount groups, bank details, payment methods | … | — | ⏸ BP bank accounts and payment methods not in scope |
@@ -420,7 +420,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Discount / tax / total in the document currency | DiscSumFC / VatSumFC / DocTotalFC | number | 🔒 FC documents |
 | Paid to date (FC) | PaidFC | number | 🔒 |
 | Applied amount / balance due (invoices, credit memos) | PaidToDate | number | 🔒 |
-| Freight (additional expenses), rounding, down payment, owner, shipping type, payment method, installments, indicator, cancellation date | TotalExpns, RoundDif, DpmAmnt, OwnerCode, TrnspCode, PeyMethod, Installmnt, Indicator, … | — | ⏸ freight/expenses, down payments, HR owner and payment wizard not built |
+| Rounding, down payment, owner, shipping type, payment method, installments, indicator, cancellation date | RoundDif, DpmAmnt, OwnerCode, TrnspCode, PeyMethod, Installmnt, Indicator, … | — | ⏸ down payments and HR owner not built (freight: see Freight; installments: see Cash discount and installments) |
 
 ### Contents tab — lines (QUT1 … RPC1)
 | Field | Column | Type | Status |
@@ -449,6 +449,22 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
+### Freight / additional expenses (Administration -> Freight, document form)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Code, name, revenue account, expense account, output / input tax code, SAC code, default amount | OEXD ExpnsCode / ExpnsName / RevAcct / ExpnsAcct / VatGroupO / VatGroupI / SACCode / FixAmnt | text / dropdown / number | ✅ seeded: 1 Freight, 2 Insurance, 3 Packing |
+| Document freight lines: code, net amount, tax code, tax, gross; header total freight | QUT3 ... RPC3 ExpnsCode / LineTotal / TotalFrgn / VatGroup / VatPrcnt / VatSum / GrsAmount; TotalExpns / TotalExpFC | dropdown / number | ✅ no header discount, GST kind switched like lines, posted on invoices / credit memos |
+| Freight in GST returns (SAC, taxable value), e-invoice (service item), print | | — | ✅ |
+| Distribution method (to item cost / landed costs), freight copied from the base document, freight in installments by line, freight on inventory documents | DistrbMthd | — | ⏸ |
+
+### Credit / commitment limit check (Administration Setup -> BP credit limit check)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Credit limit check: none / warn / block; document types (sales orders, deliveries, A/R invoices) | OADM CrdLmtChk / CrdLmtDocs | dropdown / multi-select | ✅ exposure = balance + open deliveries + open orders; copied value is not new exposure |
+| Commitment limit check (balance, A/R invoices) | OADM CmtLmtChk | dropdown | ✅ |
+| Warn mode: "Add anyway" on the document form | | button | ✅ |
+| Approval procedure for exceeded limits, open checks in the commitment | | — | ⏸ |
 
 ### Withholding tax / TDS (Administration -> Withholding Tax, BP Accounting, A/P documents, TDS Report)
 | Field / function | Column | Type | Status |

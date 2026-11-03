@@ -51,6 +51,10 @@ class Company(Base):
     e_invoice: Mapped[str] = mapped_column("EInvoice", String(1), default="N", server_default="N")
     e_way_bill: Mapped[str] = mapped_column("EWayBill", String(1), default="N", server_default="N")
     edoc_mode: Mapped[str] = mapped_column("EDocMode", String(1), default="T", server_default="T")
+    # credit / commitment limit check of customers: N none, W warn, B block; checked sales document types
+    crd_lmt_chk: Mapped[str] = mapped_column("CrdLmtChk", String(1), default="N", server_default="N")
+    cmt_lmt_chk: Mapped[str] = mapped_column("CmtLmtChk", String(1), default="N", server_default="N")
+    crd_lmt_docs: Mapped[str | None] = mapped_column("CrdLmtDocs", String(30), default="17,15,13", server_default="17,15,13")
 
 
 class CompanyAddress(Base):
@@ -392,3 +396,21 @@ class WithholdingTax(Base):
     thr_type: Mapped[str] = mapped_column("ThrType", String(1), default="A")
     rate_no_pan: Mapped[Decimal] = mapped_column("RateNoPAN", Numeric(19, 6), default=Decimal("20"))
     inactive: Mapped[str] = mapped_column("Inactive", String(1), default="N")
+
+
+class AdditionalExpense(Base):
+    """OEXD — Freight / additional expenses: revenue (sales) and expense (purchasing) accounts and tax codes.
+
+    SACCode (India: SAC of the charge for GST returns / e-invoices) is not B1-verified.
+    """
+
+    __tablename__ = "oexd"
+
+    expns_code: Mapped[int] = mapped_column("ExpnsCode", primary_key=True)
+    expns_name: Mapped[str] = mapped_column("ExpnsName", String(20))
+    rev_acct: Mapped[str] = mapped_column("RevAcct", String(15), ForeignKey("oact.AcctCode"))  # sales
+    expns_acct: Mapped[str] = mapped_column("ExpnsAcct", String(15), ForeignKey("oact.AcctCode"))  # purchasing
+    vat_group_o: Mapped[str | None] = mapped_column("VatGroupO", String(8))  # output tax code (sales)
+    vat_group_i: Mapped[str | None] = mapped_column("VatGroupI", String(8))  # input tax code (purchasing)
+    sac_code: Mapped[str | None] = mapped_column("SACCode", String(8))
+    fix_amnt: Mapped[Decimal] = mapped_column("FixAmnt", Numeric(19, 6), default=Decimal("0"))  # default amount

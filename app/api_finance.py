@@ -447,3 +447,25 @@ def tax_report(date_from: date, date_to: date, s: Session = Depends(get_session)
 @router.get("/reports/balance-sheet", tags=["Financial reports"])
 def balance_sheet(as_of: date, s: Session = Depends(get_session)) -> dict:
     return reports.balance_sheet(s, as_of, date(as_of.year, 1, 1))
+
+
+# ------------------------------------------------------------- business partner and cash reports
+@router.get("/reports/aging", tags=["Financial reports"], summary="Customer / vendor aging on a date")
+def aging_report(on: date, card_type: str = "C", s: Session = Depends(get_session)) -> dict:
+    from app.services import bp_reports
+
+    return run(lambda: bp_reports.aging(s, on, card_type))
+
+
+@router.get("/reports/statement", tags=["Financial reports"], summary="Account statement of a business partner")
+def statement_report(card_code: str, date_from: date, date_to: date, s: Session = Depends(get_session)) -> dict:
+    from app.services import bp_reports
+
+    return run(lambda: bp_reports.statement(s, card_code, date_from, date_to))
+
+
+@router.get("/reports/cash-flow", tags=["Financial reports"], summary="Cash flow of cash and bank accounts")
+def cash_flow_report(date_from: date, date_to: date, s: Session = Depends(get_session)) -> dict:
+    from app.services import bp_reports
+
+    return run(lambda: bp_reports.cash_flow(s, date_from, date_to))

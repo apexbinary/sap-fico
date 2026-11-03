@@ -450,6 +450,14 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Aging, account statement, cash flow (Financial Reports)
+| Report | Source | Status |
+|---|---|---|
+| Customer / vendor aging on a date: not due, 1-30, 31-60, 61-90, 91-120, over 120 days by due date, netted per partner, document detail | JDT1 BalDueDeb / BalDueCred / DueDate | ✅ |
+| Account statement of a business partner: opening balance, movements with running balance, closing balance, open items, print / PDF | JDT1 partner lines | ✅ |
+| Cash flow (direct): opening / closing cash and bank (OACT Finanse), receipts and payments by origin and by account | JDT1 | ✅ |
+| Aging by document date, in FC, statements by e-mail, cash flow forecast (open items, orders), indirect cash flow statement | | ⏸ |
+
 ### Fixed assets (Financials -> Fixed Assets)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

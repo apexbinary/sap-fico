@@ -40,6 +40,7 @@ PERMISSIONS = {
     "DUNNING": "Dunning",
     "FXREVAL": "Exchange rate differences",
     "COCKPIT": "Cockpit",
+    "SERVICE": "Service (service calls, contracts, equipment cards)",
 }
 SALES_OBJS, PURCH_OBJS, INV_OBJS = {"23", "17", "15", "16", "13", "14", "203"}, {"540000006", "22", "20", "21", "18", "19", "204"}, {"59", "60", "67"}
 
@@ -50,7 +51,7 @@ ROUTES = [
     ("/api/projects", "ADMIN"), ("/api/manufacturers", "ITEMS"), ("/api/transaction-codes", "ADMIN"),
     ("/api/master", "ADMIN"), ("/api/print-layouts", "ADMIN"),
     ("/api/accounts", "COA"), ("/api/journal-entries", "JE"),
-    ("/api/reports", "FINRPT"), ("/api/gst-returns", "FINRPT"), ("/api/e-documents", "SALES"), ("/api/withholding-tax", "ADMIN"), ("/api/freight", "ADMIN"), ("/api/batches", "INV"), ("/api/cost-accounting", "ADMIN"), ("/api/budgets", "FINRPT"), ("/api/recurring-postings", "JE"), ("/api/period-end-closing", "ADMIN"), ("/api/fixed-assets", "COA"), ("/api/approvals", "ADMIN"), ("/api/approval-requests", None), ("/api/alerts/setup", "ADMIN"), ("/api/alerts", None), ("/api/import", "ADMIN"), ("/api/production", "INV"), ("/api/crm", "BP"), ("/api/export", None), ("/api/exchange-rate-differences", "FXREVAL"),
+    ("/api/reports", "FINRPT"), ("/api/gst-returns", "FINRPT"), ("/api/e-documents", "SALES"), ("/api/withholding-tax", "ADMIN"), ("/api/freight", "ADMIN"), ("/api/batches", "INV"), ("/api/cost-accounting", "ADMIN"), ("/api/budgets", "FINRPT"), ("/api/recurring-postings", "JE"), ("/api/period-end-closing", "ADMIN"), ("/api/fixed-assets", "COA"), ("/api/approvals", "ADMIN"), ("/api/approval-requests", None), ("/api/alerts/setup", "ADMIN"), ("/api/alerts", None), ("/api/import", "ADMIN"), ("/api/production", "INV"), ("/api/crm", "BP"), ("/api/service", "SERVICE"), ("/api/export", None), ("/api/exchange-rate-differences", "FXREVAL"),
     ("/api/partners", "BP"), ("/api/partner-groups", "BP"),
     ("/api/items", "ITEMS"), ("/api/item-groups", "ITEMS"), ("/api/warehouses", "ITEMS"), ("/api/price-lists", "ITEMS"),
     ("/api/inventory", "INV"),

@@ -132,6 +132,9 @@ app/
                       purchase / production orders; api_production.py; web/production.js
   services/crm.py     CRM: OOST stages, OOPR / OPR1 opportunities, OCLG activities (models/crm.py), pipeline;
                       api_crm.py /api/crm/*; web/crm.js (opportunities, activities, calendar, pipeline)
+  services/service.py service: OINS equipment cards (from deliveries of serial numbers), OCTR / CTR1 contracts,
+                      OSCL service calls with contract deadlines (models/service.py); api_service.py /api/service/*
+                      (area SERVICE); web/service.js (service calls, contracts, equipment cards)
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)

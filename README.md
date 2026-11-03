@@ -18,6 +18,7 @@ trademarks of SAP SE.
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
 | Printed documents — GST layout (tax invoice, credit note, delivery challan, orders ...) with HSN summary and amount in words, print / PDF | ✅ |
 | CRM — sales opportunities with stages, activities, calendar, pipeline | ✅ |
+| Service — service calls with contract deadlines, service contracts, customer equipment cards | ✅ |
 | Production (bills of materials, production orders with backflush and variance) and MRP | ✅ |
 | Data import (CSV / Excel with simulation) and Excel export of every table | ✅ |
 | Approval procedures (stages, templates, conditions, decisions) and alerts | ✅ |

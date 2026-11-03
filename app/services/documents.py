@@ -595,6 +595,9 @@ def _create(session: Session, req: DocumentRequest):
     if bp is not None:
         refresh_partner(session, bp)
     session.flush()
+    from app.services import service
+
+    service.register_from_document(session, doc)  # equipment cards for serial numbers delivered to a customer
     return doc
 
 
@@ -1162,6 +1165,9 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
     ctx = _Ctx(session=session, d=d, doc=doc, det=_determination(session, doc.doc_date))
     from app.services import batches
 
+    from app.services import service
+
+    service.unregister_document(session, obj, doc_entry)
     batches.reverse(session, obj, doc_entry)
     rows = session.scalars(select(WarehouseJournal).where(WarehouseJournal.trans_type == d.obj,
                                                           WarehouseJournal.created_by == doc.doc_entry)

@@ -43,6 +43,7 @@ from app.models.recurring import RecurringPosting, RecurringPostingLine
 from app.models.assets import AssetClass, AssetTransaction, FixedAsset
 from app.models.production import BillOfMaterials, BomLine, ProductionOrder, ProductionOrderLine
 from app.models.crm import Activity, Opportunity, OpportunityStage, SalesStage
+from app.models.service import CustomerEquipment, ServiceCall, ServiceContract, ServiceContractLine
 from app.models.approvals import (Alert, AlertRecipient, ApprovalDecision, ApprovalRequest, ApprovalStage, ApprovalStageUser,
                                   ApprovalTemplate, ApprovalTemplateCondition, ApprovalTemplateDocument, ApprovalTemplateStage,
                                   ApprovalTemplateUser)

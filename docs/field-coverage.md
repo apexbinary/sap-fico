@@ -460,6 +460,18 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Calendar (month, mine / all), pipeline by stage and sales employee, won / lost, win rate | | — | ✅ |
 | Competitors, partners, interest levels, information sources, recurring activities, reminders by e-mail, campaigns, service module | | — | ⏸ |
 
+### Service (Service -> Service Calls, Service Contracts, Customer Equipment Cards)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Equipment card: mfr serial no., serial no., item, customer, status (active / returned / terminated / loaned / in repair lab), delivery date and document, installation street / city | OINS manufSN / internalSN / itemCode / itemName / customer / status / dlvryDate / dlvryType / dlvryEntry / street / city | text / dropdown | ✅ created by deliveries / A/R invoices of serial-managed items; canceling the document removes unused cards |
+| Service contract: customer, type (customer / items / serial numbers), start / end date, status, response / resolution time, parts / labor / travel included, description | OCTR CstmrCode / CntrcType / StartDate / EndDate / Status / RspnsTime / ResolTime / InclPart / InclLabor / InclTrvl / Descriptio | dropdown / date / number / checkbox | ✅ |
+| Contract lines: covered item / serial number | CTR1 ItemCode / InternalSN | dropdown / text | ✅ the most specific approved contract valid on the day applies |
+| Service call: customer, equipment card, item, serial no., subject, origin, call type, problem type, priority, technician, description | OSCL customer / insID / itemCode / internalSN / subject / origin / callType / problemTyp / priority / assignee / descrption | dropdown / text | ✅ |
+| Call status open / pending / closed, contract, response-by / resolve-by deadlines, responded on, closed on, resolution | OSCL status / contractID / responseBy / resolOnDat / respOnDate / closeDate / resolution | dropdown / textarea | ✅ closing needs a resolution; late calls flagged; alert "My open service calls" |
+| Activities linked to a call | OCLG DocType 191 / DocEntry | — | ✅ |
+| Service call overview: open, pending, overdue, closed, average hours, by technician | | — | ✅ |
+| Solutions knowledge base, contract templates, expenses / items consumed on a call (invoicing), queues, escalation | OSLT, OCTT, SCL2 ... | — | ⏸ |
+
 ### Production and MRP (Production -> Bills of Materials, Production Orders, MRP)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

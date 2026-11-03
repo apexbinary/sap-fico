@@ -158,6 +158,7 @@ input[readonly] { background: #f3f3f3; }
 .status.O { background: #e6f3ea; color: var(--good); }
 .status.C { background: #eee; color: var(--muted); }
 .status.X { background: #fce8e8; color: var(--bad); }
+.status.P { background: #fff4e0; color: #a66a00; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
 /* document totals (bottom right, as in B1 marketing documents) */

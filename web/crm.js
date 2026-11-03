@@ -78,6 +78,7 @@ views.activities = async (c) => {
   if ($("#ac-save")) $("#ac-save").onclick = async () => {
     const body = readFields(defs, "ac");
     if (!edit && q.get("opr")) body.opr_id = Number(q.get("opr"));
+    if (!edit && q.get("call")) Object.assign(body, { doc_type: "191", doc_entry: Number(q.get("call")) });  // linked service call
     const r = edit ? await act(() => patch(`/crm/activities/${edit.clg_code}`, body), "Activity updated") : await act(() => post("/crm/activities", body), "Activity added");
     if (r) { location.hash = `#/activities?r=${Date.now()}`; if (typeof refreshAlertBell === "function") refreshAlertBell(); }
   };

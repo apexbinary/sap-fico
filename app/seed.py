@@ -279,7 +279,8 @@ def seed() -> None:
 
         for code, name, typ, param in [(1, "Items below minimum stock", "MINSTOCK", None), (2, "Customer items overdue > 30 days", "OVERDUE", 30),
                                        (3, "Customers over the credit limit", "CREDIT", None), (4, "Batches expiring in 30 days", "EXPIRY", 30),
-                                       (5, "Approval requests", "APPROVAL", None), (6, "My activities due", "ACTIVITY", None)]:
+                                       (5, "Approval requests", "APPROVAL", None), (6, "My activities due", "ACTIVITY", None),
+                                       (7, "My open service calls", "SERVICE", None)]:
             if s.get(Alert, code) is None:
                 s.add(Alert(code=code, name=name, alert_type=typ, param=param, active="Y", recipients=[AlertRecipient(user_id=1)]))
                 s.flush()
@@ -377,7 +378,7 @@ def _seed_users(s) -> None:
 
     users = [(1, "manager", "Manager", "Y", os.environ.get("B1_MANAGER_PASSWORD", "manager"), {}),
              (2, "sales", "Sales clerk", "N", os.environ.get("B1_DEMO_PASSWORD", "sales2026"),
-              {"SALES": "F", "BP": "F", "ITEMS": "R", "INV": "R", "COCKPIT": "F", "DUNNING": "R"}),
+              {"SALES": "F", "BP": "F", "ITEMS": "R", "INV": "R", "COCKPIT": "F", "DUNNING": "R", "SERVICE": "F"}),
              (3, "accountant", "Accountant", "N", os.environ.get("B1_DEMO_PASSWORD", "account2026"),
               {"COA": "F", "JE": "F", "FINRPT": "F", "BANK": "F", "FXREVAL": "F", "DUNNING": "F", "BP": "R",
                "SALES": "R", "PURCH": "R", "INV": "R", "ITEMS": "R", "COCKPIT": "F"})]

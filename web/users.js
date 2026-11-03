@@ -6,7 +6,7 @@ const AREA_OF_VIEW = {
   partners: "BP", dunning: "DUNNING", items: "ITEMS", warehouses: "ITEMS", "inventory-audit": "INV",
   payments: "BANK", "payment-wizard": "BANK", deposits: "BANK", "bank-statements": "BANK", "bank-reconciliation": "BANK",
   "trial-balance": "FINRPT", "balance-sheet": "FINRPT", "profit-loss": "FINRPT", "tax-report": "FINRPT", "gst-returns": "FINRPT",
-  setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN", "print-layouts": "ADMIN", "e-documents": "SALES",
+  setup: "ADMIN", "tax-setup": "ADMIN", users: "ADMIN", "print-layouts": "ADMIN", "e-documents": "SALES", "withholding-tax": "ADMIN", "tds-report": "FINRPT",
 };
 const SALES_OBJS = ["23", "17", "15", "16", "13", "14"], PURCH_OBJS = ["540000006", "22", "20", "21", "18", "19"];
 const areaOfObj = (obj) => (SALES_OBJS.includes(obj) ? "SALES" : PURCH_OBJS.includes(obj) ? "PURCH" : "INV");

@@ -28,6 +28,7 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "doc_cur": doc.doc_cur, "doc_rate": doc.doc_rate, "doc_total_fc": doc.doc_total_fc, "vat_sum_fc": doc.vat_sum_fc,
            "disc_sum_fc": doc.disc_sum_fc, "paid_fc": doc.paid_fc, "disc_prcnt": doc.disc_prcnt, "disc_sum": doc.disc_sum, "vat_sum": doc.vat_sum,
            "doc_total": doc.doc_total, "paid_to_date": doc.paid_to_date, "trans_id": doc.trans_id,
+           "wt_sum": doc.wt_sum, "wt_sum_fc": doc.wt_sum_fc,
            "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
            "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
@@ -41,6 +42,9 @@ def _doc_out(doc, detail: bool = False) -> dict:
                                 "status": i.status, "inst_prcnt": i.inst_prcnt}
                                for i in object_session(doc).scalars(select(cls).where(cls.doc_entry == doc.doc_entry)
                                                                     .order_by(cls.instlmnt_id))] if cls else []
+        from app.services import withholding
+
+        out["withholding"] = withholding.rows_of(object_session(doc), doc.obj_type, doc.doc_entry)
         out.update(address=doc.address, address2=doc.address2, pay_to_code=doc.pay_to_code,
                    ship_to_code=doc.ship_to_code)
         out["lines"] = [{"line_num": l.line_num, "line_status": l.line_status, "item_code": l.item_code,
@@ -121,6 +125,7 @@ class DocumentIn(BaseModel):
     jrnl_memo: str | None = Field(None, max_length=50)
     ref2: str | None = Field(None, max_length=11)
     doc_cur: str | None = Field(None, max_length=3)
+    wt_codes: list[str] | None = None
     lines: list[DocLineIn]
 
 

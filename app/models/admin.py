@@ -368,3 +368,27 @@ class PrintLayout(Base):
     show_sign: Mapped[str] = mapped_column("ShowSign", String(1), default="Y")
     footer: Mapped[str | None] = mapped_column("Footer", String(254))
     default: Mapped[str] = mapped_column("Default", String(1), default="N")
+
+
+class WithholdingTax(Base):
+    """OWHT — Withholding tax codes (India: TDS sections).
+
+    Section, thresholds (ThrSingle per invoice, ThrAnnual per financial year, ThrType A = whole
+    amount once crossed / E = only the excess, 194Q) and RateNoPAN (206AA) are India columns not
+    verified against B1's OWHT / WHT1.
+    """
+
+    __tablename__ = "owht"
+
+    wt_code: Mapped[str] = mapped_column("WTCode", String(4), primary_key=True)
+    wt_name: Mapped[str] = mapped_column("WTName", String(50))
+    rate: Mapped[Decimal] = mapped_column("Rate", Numeric(19, 6))
+    category: Mapped[str] = mapped_column("Category", String(1), default="I")  # I invoice (P payment not built)
+    base_type: Mapped[str] = mapped_column("BaseType", String(1), default="N")  # N net (excl. GST)
+    account: Mapped[str] = mapped_column("Account", String(15), ForeignKey("oact.AcctCode"))
+    section: Mapped[str] = mapped_column("Section", String(10))
+    thr_single: Mapped[Decimal] = mapped_column("ThrSingle", Numeric(19, 6), default=Decimal("0"))
+    thr_annual: Mapped[Decimal] = mapped_column("ThrAnnual", Numeric(19, 6), default=Decimal("0"))
+    thr_type: Mapped[str] = mapped_column("ThrType", String(1), default="A")
+    rate_no_pan: Mapped[Decimal] = mapped_column("RateNoPAN", Numeric(19, 6), default=Decimal("20"))
+    inactive: Mapped[str] = mapped_column("Inactive", String(1), default="N")

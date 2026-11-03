@@ -290,7 +290,7 @@ Trial balance, balance sheet, profit and loss: period / as-of selection (date), 
 |---|---|---|---|
 | Control account (A/R or A/P) | DebPayAcct | choose | ✅ |
 | Tax group | VatGroup | dropdown | ✅ |
-| Down payment clearing accounts, consolidating BP, withholding tax | DpmClear, FatherCard, WTLiable | — | ⏸ down payments, consolidation, withholding tax not built |
+| Down payment clearing accounts, consolidating BP | DpmClear, FatherCard | — | ⏸ down payments, consolidation not built (withholding tax: see Withholding tax / TDS) |
 
 ### Remarks tab
 | Field | Column | Type | Status |
@@ -449,6 +449,18 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
+### Withholding tax / TDS (Administration -> Withholding Tax, BP Accounting, A/P documents, TDS Report)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Code, name, section, rate, rate without PAN (206AA), TDS account | OWHT WTCode / WTName / Section / Rate / RateNoPAN / Account | text / number / dropdown | ✅ seeded: 194C, 194H, 194I(a)/(b), 194J(a)/(b), 194Q (FY 2025-26 rates and thresholds) |
+| Thresholds per invoice / per financial year, whole amount once crossed or only the excess | OWHT ThrSingle / ThrAnnual / ThrType | number / dropdown | ✅ |
+| Category (invoice), base type (net excl. GST), inactive | OWHT Category / BaseType / Inactive | — / checkbox | ✅ payment category ⏸ |
+| BP: subject to withholding tax, PAN, withholding tax codes | OCRD WTLiable / PANNo, CRD4 | checkbox / text / multi-select | ✅ PAN from the GSTIN when empty |
+| Document: TDS lines (code, section, rate, base, amount, account, no PAN), total TDS, total payment due | PCH5 / RPC5, OPCH / ORPC WTSum / WTSumFC | — | 🔒 computed on posting; codes can be overridden through the API (wt_codes) — ⏸ in the form |
+| Credit memo copied from an A/P invoice reverses its TDS in proportion | RPC5 | — | ✅ |
+| TDS report: register, summary per section and month, deposit due date | | — | ✅ |
+| TDS on payments, TCS (206C) on sales, lower deduction certificates (197), Form 26Q / 16A, challan entry | | — | ⏸ |
 
 ### E-documents: e-invoice (IRN) and e-way bill (Administration -> E-Documents, document panel)
 | Field / function | Column | Type | Status |

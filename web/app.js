@@ -47,6 +47,11 @@ function fieldHtml(d, v, p = "f") {
   if (d.type === "check") {
     return `<div class="field check"><label><input id="${id}" type="checkbox"${val === true || val === "Y" ? " checked" : ""}${ro}> ${esc(d.label)}</label></div>`;
   }
+  if (d.type === "multi") {  // several values of a list (e.g. withholding tax codes CRD4)
+    const o = typeof d.options === "function" ? d.options() : d.options, sel = Array.isArray(val) ? val.map(String) : [];
+    return `<div class="field"${d.span ? ` style="grid-column:span ${d.span}"` : ""}><label>${esc(d.label)}</label><div class="multi" id="${id}">${o.map(([ov, ol]) =>
+      `<label><input type="checkbox" value="${esc(ov)}"${sel.includes(String(ov)) ? " checked" : ""}${d.ro ? " disabled" : ""}> ${esc(ol)}</label>`).join("") || '<span class="help">none defined</span>'}</div></div>`;
+  }
   let input;
   if (d.type === "number") {
     input = `<input id="${id}" type="number" step="${d.step ?? "any"}"${d.min != null ? ` min="${d.min}"` : ""}${d.maxv != null ? ` max="${d.maxv}"` : ""} value="${val === "" || val == null ? "" : Number(val)}"${ro}>`;
@@ -69,6 +74,7 @@ function readFields(defs, p = "f") {
     const e = $(`#${p}-${d.k}`);
     if (!e) return;
     if (d.type === "check") out[d.k] = e.checked;
+    else if (d.type === "multi") out[d.k] = $$("input:checked", e).map((x) => x.value);
     else if (d.type === "number") out[d.k] = e.value === "" ? null : Number(e.value);
     else if (d.type === "select") out[d.k] = e.value === "" ? null : d.int ? Number(e.value) : e.value;
     else out[d.k] = e.value === "" ? null : e.value;
@@ -85,6 +91,7 @@ function bindCountryState(p, countryKey = "country", stateKey = "state") {
 }
 // dropdown sources (B1 dropdowns and choose-from lists)
 const O = {
+  wtCodes: () => (state.wtCodes || []).filter((w) => !w.inactive).map((w) => [w.wt_code, `${w.wt_code} — ${w.section} ${w.wt_name} (${Number(w.rate)} %)`]),
   currencies: () => state.lookups.currencies.map((c) => [c.code, `${c.code} — ${c.name}`]),
   countries: () => state.master.countries.map((c) => [c.code, c.name]),
   states: (country) => state.master.states.filter((x) => x.country === country).map((x) => [x.code, x.name]),
@@ -135,6 +142,7 @@ async function reloadMasterData() {
   [state.accounts, state.lookups, state.partners, state.master, state.priceLists, state.warehouses, state.taxSetup] = await Promise.all([
     api("/accounts"), api("/admin/lookups"), api("/partners"), api("/master/lookups"), api("/price-lists"), api("/warehouses"),
     api("/tax/setup")]);
+  state.wtCodes = await api("/withholding-tax").catch(() => []);
 }
 
 const views = {};
@@ -152,7 +160,7 @@ function route() {
     .catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
 }
 // list + form screens: a "New" link or a chosen row opens the form below the list; bring it into view
-const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first" };
+const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first", "withholding-tax": "last" };
 function revealForm(c, view) {
   const q = query();
   if (!FORM_VIEWS[view] || !["new", "id", "code", "rule"].some((k) => q.has(k))) return;
@@ -438,7 +446,9 @@ async function docDetail(el, t, entry) {
     ${t.side !== "I" ? `<div class="card-body"><div class="totals">
       <div><span>Total before discount</span><b>${fmt(d.lines.reduce((s, l) => s + Number(l.line_total), 0))}</b></div>
       <div><span>Discount ${Number(d.disc_prcnt) ? `${Number(d.disc_prcnt)} %` : ""}</span><b>${fmt(d.disc_sum)}</b></div>
-      <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div><div class="grand"><span>Total (LC)</span><b>${fmt(d.doc_total)} ${esc(state.company.main_curncy)}</b></div>
+      <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div>
+      ${Number(d.wt_sum) ? `<div><span>Withholding tax (TDS) ${d.withholding.map((w) => `${esc(w.wt_code)} ${esc(w.section)} ${Number(w.rate)} %${w.no_pan ? " (no PAN)" : ""}`).join(", ")}</span><b>-${fmt(d.wt_sum)}</b></div>` : ""}
+      <div class="grand"><span>${Number(d.wt_sum) ? "Total payment due (LC)" : "Total (LC)"}</span><b>${fmt(d.doc_total)} ${esc(state.company.main_curncy)}</b></div>
       ${fcDoc ? `<div><span>Tax (FC)</span><b>${fmt(d.vat_sum_fc)}</b></div><div class="grand"><span>Total (${esc(d.doc_cur)}) at ${Number(d.doc_rate)}</span><b>${fmt(d.doc_total_fc)} ${esc(d.doc_cur)}</b></div>` : ""}
       ${isAR(t) ? `<div><span>Applied amount</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Balance due</span><b>${fmt(d.doc_total - d.paid_to_date)}</b></div>
         ${fcDoc ? `<div><span>Applied amount (FC)</span><b>${fmt(d.paid_fc)}</b></div><div><span>Balance due (FC)</span><b>${fmt(d.doc_total_fc - d.paid_fc)}</b></div>` : ""}` : ""}

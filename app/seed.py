@@ -51,6 +51,7 @@ CHART = [
     ("216100", "Output CGST", 2, "21", "Y", "N", "N", "N"),
     ("216200", "Output SGST", 2, "21", "Y", "N", "N", "N"),
     ("216300", "Output IGST", 2, "21", "Y", "N", "N", "N"),
+    ("217000", "TDS Payable", 2, "21", "Y", "N", "N", "N"),
     ("3", "Capital and Reserves", 3, None, "N", "N", "N", "N"),
     ("31", "Shareholders' Funds", 3, "3", "N", "N", "N", "N"),
     ("311000", "Share Capital", 3, "31", "Y", "N", "N", "N"),
@@ -256,6 +257,7 @@ def seed() -> None:
                                  gl_account="112000", acct_name="HDFC current account", country="IN", currency=LOCAL), 1)
         _seed_users(s)
         _seed_print_layouts(s)
+        _seed_withholding(s)
         from app.models.admin import CompanyAddress
 
         put_new(CompanyAddress(code=1, street="42 MG Road", city="Bengaluru", zip_code="560001"), 1)
@@ -343,6 +345,26 @@ def _seed_users(s) -> None:
             s.flush()
             for perm in PERMISSIONS:
                 s.add(UserPermission(user_link=uid, perm_id=perm, permission=perms.get(perm, "N") if sup == "N" else "F"))
+            s.flush()
+
+
+def _seed_withholding(s) -> None:
+    """TDS sections (rates and thresholds of FY 2025-26) as withholding tax codes; created once."""
+    from app.models.admin import WithholdingTax
+
+    for code, name, section, rate, single, annual, typ in [
+            ("C1", "Contractors - individual / HUF", "194C", "1", "30000", "100000", "A"),
+            ("C2", "Contractors - others", "194C", "2", "30000", "100000", "A"),
+            ("H", "Commission / brokerage", "194H", "2", "0", "20000", "A"),
+            ("I1", "Rent - plant and machinery", "194I(a)", "2", "50000", "0", "A"),
+            ("I2", "Rent - land, building, furniture", "194I(b)", "10", "50000", "0", "A"),
+            ("J1", "Fees for technical services", "194J(a)", "2", "0", "50000", "A"),
+            ("J2", "Fees for professional services", "194J(b)", "10", "0", "50000", "A"),
+            ("Q", "Purchase of goods", "194Q", "0.1", "0", "5000000", "E")]:
+        if s.get(WithholdingTax, code) is None:
+            s.add(WithholdingTax(wt_code=code, wt_name=name, section=section, rate=Decimal(rate), thr_single=Decimal(single),
+                                 thr_annual=Decimal(annual), thr_type=typ, rate_no_pan=Decimal("20"), account="217000",
+                                 category="I", base_type="N", inactive="N"))
             s.flush()
 
 

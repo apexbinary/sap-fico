@@ -61,6 +61,8 @@ class BusinessPartner(Base):
     debt_line: Mapped[Decimal] = mapped_column("DebtLine", AMOUNT, default=Decimal("0"), server_default="0")  # Commitment limit
     free_text: Mapped[str | None] = mapped_column("Free_Text", String(254))  # Remarks tab
     dun_term: Mapped[str | None] = mapped_column("DunTerm", String(8))  # Dunning term (ODUT)
+    wt_liable: Mapped[str] = mapped_column("WTLiable", String(1), default="N", server_default="N")  # subject to withholding tax
+    pan_no: Mapped[str | None] = mapped_column("PANNo", String(10))  # India: PAN (not B1-verified)
     intrst_rate: Mapped[Decimal] = mapped_column("IntrstRate", AMOUNT, default=Decimal("0"), server_default="0")  # Interest on arrears % p.a.
     address: Mapped[str | None] = mapped_column("Address", String(100))  # Bill-to street
     zip_code: Mapped[str | None] = mapped_column("ZipCode", String(20))
@@ -116,3 +118,12 @@ class PartnerAddress(Base):
     building: Mapped[str | None] = mapped_column("Building", String(100))
     gst_regn_no: Mapped[str | None] = mapped_column("GSTRegnNo", String(15))  # India: GSTIN of this address
     gst_type: Mapped[str | None] = mapped_column("GstType", String(1))  # India: R regular, U unregistered, C composition, E SEZ
+
+
+class PartnerWithholding(Base):
+    """CRD4 — Withholding tax codes of a business partner."""
+
+    __tablename__ = "crd4"
+
+    card_code: Mapped[str] = mapped_column("CardCode", String(15), ForeignKey("ocrd.CardCode"), primary_key=True)
+    wt_code: Mapped[str] = mapped_column("WTCode", String(4), ForeignKey("owht.WTCode"), primary_key=True)

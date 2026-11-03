@@ -27,7 +27,7 @@ WIDGETS = [  # (id, title) in the default order
 def _net_sales(session: Session, obj: str, start: date, end: date) -> Decimal:
     """Net (excl. tax) LC total of documents of a type in a period, canceled ones left out."""
     cls = DOCUMENT_CLASSES[obj][0]
-    total = session.scalar(select(func.coalesce(func.sum(cls.doc_total - cls.vat_sum), 0)).where(
+    total = session.scalar(select(func.coalesce(func.sum(cls.doc_total + cls.wt_sum - cls.vat_sum), 0)).where(
         cls.canceled == "N", cls.doc_date >= start, cls.doc_date <= end))
     return Decimal(total or 0)
 

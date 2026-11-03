@@ -146,6 +146,7 @@ class DocumentRequest:
     jrnl_memo: str | None = None
     ref2: str | None = None
     doc_cur: str | None = None  # document currency (default: base document, BP currency, local currency)
+    wt_codes: list[str] | None = None  # A/P invoices: withholding tax codes (None = the vendor's CRD4 codes, [] = none)
 
 
 # ------------------------------------------------------------- stock movements
@@ -475,6 +476,20 @@ def _create(session: Session, req: DocumentRequest):
         _post_line(ctx, line, x)
     _copy_effects(ctx, lines)
     _commitments(session, d, doc, +1)
+    if d.obj in {"18", "19"} and bp is not None:
+        # withholding tax (TDS): the vendor line carries the total less TDS, the code's account the TDS
+        from app.services import withholding
+
+        base_invoice = next((x["base"] for x in lines if x["base"] is not None and x["lr"].base_type == "18"), None)
+        rows = withholding.compute(session, d.obj, doc, bp, net_total, rate, req.wt_codes, base_invoice)
+        wt = withholding.store(session, d.obj, doc, rows, rate, fc)
+        if wt:
+            doc.wt_sum = wt
+            doc.wt_sum_fc = money(wt / rate) if fc else ZERO
+            doc.doc_total -= wt
+            doc.doc_total_fc -= doc.wt_sum_fc
+            for r in rows:
+                ctx.je[r["account"]] += -r["wt_amnt"] if d.obj == "18" else r["wt_amnt"]
     if d.side != "I" and d.kind in {"invoice", "credit"}:
         sign = 1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit")} else -1
         ctx.je[("BP", doc.card_code)] += sign * doc.doc_total

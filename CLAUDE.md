@@ -86,6 +86,9 @@ app/
                       the portal response; models/edocs.py EDOC register, ADM1 company address;
                       api_edocs.py /api/documents/{obj}/{entry}/edocs|einvoice*|ewaybill*, /api/e-documents,
                       /api/admin/e-documents; web/edocs.js (document panel, #/e-documents)
+  services/withholding.py TDS on A/P invoices / credit memos: OWHT codes, CRD4 per vendor, PCH5 / RPC5
+                      rows, thresholds per financial year, report; api_withholding.py /api/withholding-tax,
+                      /api/reports/tds; web/tds.js (#/withholding-tax, #/tds-report)
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -244,6 +247,13 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - GSTR-3B liability / ITC must equal the output / input tax of the journal for the month
   (checked in verify_gstreturns).
 
+### Withholding tax / TDS (keep invariant)
+- A/P invoice of a vendor with WTLiable Y: base = net LC excl. GST, TDS in whole rupees; vendor
+  line = DocTotal = gross - WTSum; the code's account (217000 TDS payable) credited. Every invoice
+  of such a vendor writes PCH5 rows (also with 0 TDS) so the year's base counts for thresholds.
+- Threshold type A: once the year's base crosses ThrAnnual, TDS = rate x year's base - TDS so far.
+- A credit memo copied from an A/P invoice reverses that invoice's TDS in proportion (RPC5).
+
 ### E-documents (keep invariant)
 - A document with an active IRN or e-way bill cannot be canceled (documents._cancel asks
   edocs.blocks_cancel); an IRN is canceled only after its e-way bill, within 24 hours.
@@ -289,4 +299,5 @@ S00001 (non-inventory service).
 OACP column names are descriptive (B1's OACP has many more columns with other
 names). RDOC keeps template options in descriptive columns (Style, Color, Show*, Footer,
 Default) instead of B1's Print Layout Designer template; OADM LogoImage / EInvoice /
-EWayBill / EDocMode, EDOC, OCPT and OUSS are not B1-verified either. Everything else uses B1's documented table and field names.
+EWayBill / EDocMode, EDOC, OCPT, OUSS, OCRD PANNo and the OWHT India columns (Section, Thr*,
+RateNoPAN) are not B1-verified either. Everything else uses B1's documented table and field names.

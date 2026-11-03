@@ -119,7 +119,15 @@ def _bp_out(bp: BusinessPartner) -> dict:
             "bill_to_def": bp.bill_to_def, "ship_to_def": bp.ship_to_def, "credit_line": bp.credit_line,
             "debt_line": bp.debt_line, "discount": bp.discount, "balance": bp.balance, "dnotes_bal": bp.dnotes_bal,
             "orders_bal": bp.orders_bal, "frozen": bp.frozen_for == "Y", "notes": bp.notes, "free_text": bp.free_text,
-            "dun_term": bp.dun_term, "intrst_rate": bp.intrst_rate}
+            "dun_term": bp.dun_term, "intrst_rate": bp.intrst_rate, **_wt_out(bp)}
+
+
+def _wt_out(bp: BusinessPartner) -> dict:
+    from sqlalchemy.orm import object_session
+
+    from app.services import withholding
+
+    return withholding.partner_out(object_session(bp), bp)
 
 
 @router.get("/partner-groups", tags=["Business partners"], summary="Business partner groups (OCRG)")
@@ -161,6 +169,12 @@ class PartnerFields(BaseModel):
     free_text: str | None = Field(None, max_length=254)
     dun_term: str | None = Field(None, max_length=8)
     intrst_rate: Decimal | None = Field(None, ge=0, lt=100)
+    wt_liable: bool | None = None  # withholding tax (TDS)
+    pan_no: str | None = Field(None, max_length=10)
+    wt_codes: list[str] | None = None
+
+
+WT_KEYS = ("wt_liable", "pan_no", "wt_codes")
 
 
 class PartnerIn(PartnerFields):
@@ -176,7 +190,18 @@ class PartnerIn(PartnerFields):
 @router.post("/partners", tags=["Business partners"], summary="Create a business partner")
 def create_partner(body: PartnerIn, s: Session = Depends(get_session)) -> dict:
     data = {k: v for k, v in body.model_dump().items() if v is not None}
-    return _bp_out(run(lambda: masterdata.create_partner(s, masterdata.PartnerRequest(**data))))
+    wt = {k: data.pop(k) for k in WT_KEYS if k in data}
+    bp = run(lambda: masterdata.create_partner(s, masterdata.PartnerRequest(**data), commit=False))
+    if wt:
+        from app.services import withholding
+
+        try:
+            run(lambda: withholding.set_partner(s, bp, wt))
+        except Exception:
+            s.rollback()
+            raise
+    s.commit()
+    return _bp_out(bp)
 
 
 def _bp_or_404(s: Session, card_code: str) -> BusinessPartner:
@@ -229,6 +254,15 @@ class PartnerUpdate(PartnerFields):
 def update_partner(card_code: str, body: PartnerUpdate, s: Session = Depends(get_session)) -> dict:
     bp = _bp_or_404(s, card_code)
     data = body.model_dump(exclude_unset=True)
+    wt = {k: data.pop(k) for k in WT_KEYS if k in data}
+    if wt:
+        from app.services import withholding
+
+        try:
+            run(lambda: withholding.set_partner(s, bp, wt))
+        except Exception:
+            s.rollback()
+            raise
     if "frozen" in data:
         bp.frozen_for = yn(data.pop("frozen"))
     run(lambda: masterdata.validate_partner_fields(s, data, bp.card_type))

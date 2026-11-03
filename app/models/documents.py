@@ -70,6 +70,8 @@ class DocumentHeader:
     disc_sum_fc: Mapped[Decimal] = mapped_column("DiscSumFC", AMOUNT, default=Decimal("0"), server_default="0")
     vat_sum_fc: Mapped[Decimal] = mapped_column("VatSumFC", AMOUNT, default=Decimal("0"), server_default="0")
     doc_total_fc: Mapped[Decimal] = mapped_column("DocTotalFC", AMOUNT, default=Decimal("0"), server_default="0")  # Gross total (FC)
+    wt_sum: Mapped[Decimal] = mapped_column("WTSum", AMOUNT, default=Decimal("0"), server_default="0")  # Withholding tax (TDS), LC
+    wt_sum_fc: Mapped[Decimal] = mapped_column("WTSumFC", AMOUNT, default=Decimal("0"), server_default="0")
     paid_fc: Mapped[Decimal] = mapped_column("PaidFC", AMOUNT, default=Decimal("0"), server_default="0")  # Paid to date (FC)
     filler: Mapped[str | None] = mapped_column("Filler", String(8))  # From warehouse (transfer)
     to_whs_code: Mapped[str | None] = mapped_column("ToWhsCode", String(8))  # To warehouse (transfer)
@@ -181,6 +183,31 @@ for _obj, _table, _header in (("13", "inv6", "oinv"), ("18", "pch6", "opch")):
     DOCUMENT_INSTALLMENTS[_obj] = type(f"{_table.upper()}Installment", (DocumentInstallment, Base), {
         "__tablename__": _table,
         "__doc__": f"{_table.upper()} - installments of {_header.upper()}.",
+        "doc_entry": mapped_column("DocEntry", Integer, ForeignKey(f"{_header}.DocEntry"), primary_key=True),
+    })
+
+
+class DocumentWithholding:
+    """Columns shared by PCH5 and RPC5: withholding tax (TDS) of an A/P invoice / credit memo."""
+
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    wt_code: Mapped[str] = mapped_column("WTCode", String(4))
+    rate: Mapped[Decimal] = mapped_column("Rate", RATE)
+    taxble_amnt: Mapped[Decimal] = mapped_column("TaxbleAmnt", AMOUNT)  # base (net, LC)
+    wt_amnt: Mapped[Decimal] = mapped_column("WTAmnt", AMOUNT)  # deducted (LC, whole rupees)
+    wt_amnt_fc: Mapped[Decimal] = mapped_column("WTAmntFC", AMOUNT, default=Decimal("0"))
+    account: Mapped[str] = mapped_column("Account", String(15))
+    category: Mapped[str] = mapped_column("Category", String(1), default="I")  # I invoice
+    section: Mapped[str | None] = mapped_column("Section", String(10))  # India: TDS section (194C ...)
+    no_pan: Mapped[str] = mapped_column("NoPAN", String(1), default="N")  # higher rate, section 206AA
+
+
+# object type -> withholding tax class (A/P invoice PCH5, A/P credit memo RPC5)
+DOCUMENT_WITHHOLDING: dict[str, type] = {}
+for _obj, _table, _header in (("18", "pch5", "opch"), ("19", "rpc5", "orpc")):
+    DOCUMENT_WITHHOLDING[_obj] = type(f"{_table.upper()}Withholding", (DocumentWithholding, Base), {
+        "__tablename__": _table,
+        "__doc__": f"{_table.upper()} - withholding tax of {_header.upper()}.",
         "doc_entry": mapped_column("DocEntry", Integer, ForeignKey(f"{_header}.DocEntry"), primary_key=True),
     })
 

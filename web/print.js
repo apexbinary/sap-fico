@@ -55,7 +55,9 @@ views.print = async (c) => {
           <tr><td>Total before discount</td><td class="num">${money(p.totals.before_discount)}</td></tr>
           ${Number(p.totals.discount) ? `<tr><td>Discount ${Number(p.totals.disc_prcnt)}%</td><td class="num">-${money(p.totals.discount)}</td></tr>` : ""}
           <tr><td>Tax</td><td class="num">${money(p.totals.tax)}</td></tr>
-          <tr class="pp-grand"><td>Total (${esc(p.currency)})</td><td class="num">${money(p.totals.total)}</td></tr>
+          ${Number(p.totals.wt) ? `<tr><td>Total before TDS</td><td class="num">${money(Number(p.totals.total) + Number(p.totals.wt))}</td></tr>
+            <tr><td>Less TDS deducted</td><td class="num">-${money(p.totals.wt)}</td></tr>` : ""}
+          <tr class="pp-grand"><td>${Number(p.totals.wt) ? "Amount payable" : "Total"} (${esc(p.currency)})</td><td class="num">${money(p.totals.total)}</td></tr>
           ${Number(p.totals.paid) ? `<tr><td>Paid</td><td class="num">${money(p.totals.paid)}</td></tr><tr><td>Balance due</td><td class="num">${money(p.totals.total - p.totals.paid)}</td></tr>` : ""}</tbody></table></div></div>
       <div class="pp-words">Amount in words: <b>${esc(p.amount_in_words)}</b></div>`}
       <div class="pp-grid2 pp-foot">

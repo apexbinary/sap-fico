@@ -84,6 +84,9 @@ const PARTNER_PAYMENT = (vendor) => [
 ];
 const PARTNER_ACCOUNTING = (vendor) => [
   { k: "vat_group", label: "Tax group", type: "select", options: O.taxes(vendor ? "I" : "O") },
+  ...(vendor ? [{ k: "wt_liable", label: "Subject to withholding tax (TDS)", type: "check" },
+    { k: "pan_no", label: "PAN (empty: from the GSTIN)", max: 10 },
+    { k: "wt_codes", label: "Withholding tax codes", type: "multi", options: () => O.wtCodes(), span: 2 }] : []),
 ];
 const ADDRESS_FIELDS = [
   { k: "adres_type", label: "Type", type: "select", blank: false, options: [["B", "Bill to"], ["S", "Ship to"]] },

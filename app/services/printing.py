@@ -249,6 +249,7 @@ def print_data(session: Session, obj: str, doc_entry: int, layout_code: str | No
         "totals": {"before_discount": sum(((l.total_frgn if fc else l.line_total) for l in doc.lines), ZERO),
                    "discount": doc.disc_sum_fc if fc else doc.disc_sum, "disc_prcnt": doc.disc_prcnt,
                    "tax": doc.vat_sum_fc if fc else doc.vat_sum, "total": total,
+                   "wt": doc.wt_sum_fc if fc else doc.wt_sum,
                    "paid": doc.paid_fc if fc else doc.paid_to_date},
         "amount_in_words": amount_in_words(total, doc.doc_cur),
         "payment_terms": terms.pymnt_group if terms else None, "comments": doc.comments,

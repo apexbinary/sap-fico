@@ -81,6 +81,7 @@ def _doc_out(doc, detail: bool = False) -> dict:
                          "base_entry": l.base_entry, "base_line": l.base_line, "base_ref": l.base_ref,
                          "target_type": l.target_type, "trget_entry": l.trget_entry, "ship_date": l.ship_date,
                          "free_txt": l.free_txt, "project": l.project, "slp_code": l.slp_code,
+                         "ocr_codes": [l.ocr_code, l.ocr_code2, l.ocr_code3, l.ocr_code4, l.ocr_code5],
                          "price_af_vat": l.price_af_vat, "total_frgn": l.total_frgn, "vat_sum_frgn": l.vat_sum_frgn,
                          "gtotal_fc": l.gtotal_fc, "currency": l.currency, "rate": l.rate} for l in doc.lines]
     return out
@@ -130,6 +131,7 @@ class DocLineIn(BaseModel):
     slp_code: int | None = None
     batches: list[dict] | None = None  # [{number, quantity, exp_date, mnf_date}]
     serials: list[dict] | None = None  # [{number, exp_date, mnf_date}]
+    ocr_codes: list[str | None] | None = None  # distribution rules of dimensions 1 - 5
 
 
 class DocumentIn(BaseModel):

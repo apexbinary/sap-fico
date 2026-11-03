@@ -117,6 +117,11 @@ class JournalLine(Base):
     base_ref: Mapped[str | None] = mapped_column("BaseRef", String(11))  # Source DocNum
     vat_group: Mapped[str | None] = mapped_column("VatGroup", String(8))  # Tax group of a tax line
     project: Mapped[str | None] = mapped_column("Project", String(20))
+    profit_code: Mapped[str | None] = mapped_column("ProfitCode", String(8))  # distribution rule, dimension 1 (OOCR)
+    ocr_code2: Mapped[str | None] = mapped_column("OcrCode2", String(8))  # dimensions 2 - 5
+    ocr_code3: Mapped[str | None] = mapped_column("OcrCode3", String(8))
+    ocr_code4: Mapped[str | None] = mapped_column("OcrCode4", String(8))
+    ocr_code5: Mapped[str | None] = mapped_column("OcrCode5", String(8))
     ref1: Mapped[str | None] = mapped_column("Ref1", String(100))  # Line reference 1
     ref2: Mapped[str | None] = mapped_column("Ref2", String(100))  # Line reference 2
     ref3_line: Mapped[str | None] = mapped_column("Ref3Line", String(27))  # Line reference 3

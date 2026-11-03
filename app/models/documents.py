@@ -112,6 +112,11 @@ class DocumentLine:
     acct_code: Mapped[str | None] = mapped_column("AcctCode", String(15))  # G/L account (service lines, offsets)
     unit_msr: Mapped[str | None] = mapped_column("unitMsr", String(100))
     num_per_msr: Mapped[Decimal] = mapped_column("NumPerMsr", QTY, default=Decimal("1"), server_default="1")  # inventory units per unit of the line
+    ocr_code: Mapped[str | None] = mapped_column("OcrCode", String(8))  # distribution rules, dimensions 1 - 5 (OOCR)
+    ocr_code2: Mapped[str | None] = mapped_column("OcrCode2", String(8))
+    ocr_code3: Mapped[str | None] = mapped_column("OcrCode3", String(8))
+    ocr_code4: Mapped[str | None] = mapped_column("OcrCode4", String(8))
+    ocr_code5: Mapped[str | None] = mapped_column("OcrCode5", String(8))
     ship_date: Mapped[date | None] = mapped_column("ShipDate", Date)  # Line delivery date
     free_txt: Mapped[str | None] = mapped_column("FreeTxt", String(100))  # Free text
     project: Mapped[str | None] = mapped_column("Project", String(20))

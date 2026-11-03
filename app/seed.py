@@ -264,6 +264,11 @@ def seed() -> None:
         _seed_users(s)
         _seed_print_layouts(s)
         _seed_withholding(s)
+        from app.models.costacct import Dimension
+
+        for code, name, active in [(1, "Department", "Y"), (2, "Region", "Y"), (3, "Dimension 3", "N"), (4, "Dimension 4", "N"),
+                                   (5, "Dimension 5", "N")]:
+            put_new(Dimension(dim_code=code, dim_name=name, dim_active=active), code)
         from app.models.admin import AdditionalExpense
 
         for code, name, sac in [(1, "Freight", "996511"), (2, "Insurance", "997136"), (3, "Packing", "998540")]:

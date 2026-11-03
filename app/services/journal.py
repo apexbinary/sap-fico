@@ -30,6 +30,15 @@ ZERO = Decimal("0")
 CENT = Decimal("0.01")
 
 
+
+def _ocr(session: Session, codes, on: date) -> dict:
+    """JDT1 columns of the distribution rules of a line (validated)."""
+    if not codes or not any(codes):
+        return {}
+    from app.services.costacct import JDT1_COLS, check_codes
+
+    return dict(zip(JDT1_COLS, check_codes(session, codes, on)))
+
 def money(value: Decimal) -> Decimal:
     return Decimal(value).quantize(CENT, ROUND_HALF_UP)
 
@@ -53,6 +62,7 @@ class JournalLineRequest:
     ref1: str | None = None  # Line references
     ref2: str | None = None
     ref3_line: str | None = None
+    ocr_codes: tuple | None = None  # distribution rules of dimensions 1 - 5 (JDT1 ProfitCode, OcrCode2 .. 5)
 
 
 @dataclass
@@ -205,6 +215,7 @@ def _post(session: Session, req: JournalRequest) -> JournalEntry:
             line_memo=(l.line_memo or req.memo), ref_date=req.ref_date, due_date=l.due_date or req.due_date or req.ref_date,
             trans_type=req.trans_type, created_by=req.created_by, base_ref=req.base_ref, vat_group=l.vat_group,
             project=l.project or req.project, ref1=l.ref1, ref2=l.ref2, ref3_line=l.ref3_line,
+            **_ocr(session, l.ocr_codes, req.ref_date),
         ))
         if req.manual:
             check_project(session, l.project, req.ref_date)
@@ -244,6 +255,7 @@ def _reverse(session: Session, orig: JournalEntry, ref_date: date) -> JournalEnt
             debit=l.credit, credit=l.debit, fc_debit=l.fc_credit, fc_credit=l.fc_debit, fc_currency=l.fc_currency,
             line_memo=l.line_memo, vat_group=l.vat_group, project=l.project, ref1=l.ref1, ref2=l.ref2,
             ref3_line=l.ref3_line, due_date=l.due_date,
+            ocr_codes=(l.profit_code, l.ocr_code2, l.ocr_code3, l.ocr_code4, l.ocr_code5),
         ) for l in orig.lines],
     )
     rev = _post(session, req)

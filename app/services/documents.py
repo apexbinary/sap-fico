@@ -125,6 +125,7 @@ class DocLineRequest:
     project: str | None = None
     slp_code: int | None = None
     batches: list[dict] | None = None  # batch managed items: [{number, quantity, exp_date, mnf_date}] (inventory units)
+    ocr_codes: list[str | None] | None = None  # distribution rules of dimensions 1 - 5 (default: the base line's)
     serials: list[dict] | None = None  # serial managed items: [{number, exp_date, mnf_date}]
 
 
@@ -186,13 +187,20 @@ class _Ctx:
     vat: dict = field(default_factory=lambda: defaultdict(lambda: ZERO))  # account -> (debit - credit), by tax group
     vat_groups: dict = field(default_factory=dict)
     oinm: list = field(default_factory=list)
+    dims: tuple | None = None  # distribution rules of the line being posted (revenue / expense accounts keep them)
+    pl_cache: dict = field(default_factory=dict)
     installments: list = field(default_factory=list)  # invoice installments (INV6 / PCH6): the partner line splits
     bp_fc: Decimal = ZERO  # foreign-currency amount of the partner line (debit positive)
 
     def post(self, account: str, amount: Decimal) -> None:
         """Debit (positive) or credit (negative) a G/L account."""
         if amount:
-            self.je[account] += amount
+            from app.services.costacct import pl_account
+
+            if self.dims and any(self.dims) and pl_account(self.session, account, self.pl_cache):
+                self.je[("ACC", account, self.dims)] += amount  # revenue / expense with its distribution rules
+            else:
+                self.je[account] += amount
 
 
 def _warehouse_row(session: Session, item_code: str, whs_code: str) -> ItemWarehouse:
@@ -515,6 +523,7 @@ def _create(session: Session, req: DocumentRequest):
             acct_code=x["acct"],
             unit_msr=(x["base_line"].unit_msr if x["base_line"] else _uom(item, d.side)[0]) if item else None,
             num_per_msr=x["base_line"].num_per_msr if x["base_line"] else (_uom(item, d.side)[1] if item else Decimal(1)),
+            **_line_dims(session, lr, x["base_line"], req.doc_date),
             stock_price=x["base_line"].stock_price if x["base_line"] else ZERO,
             base_type=lr.base_type, base_entry=x["base"].doc_entry if x["base"] else None,
             base_line=lr.base_line if x["base"] else None, base_ref=str(x["base"].doc_num) if x["base"] else None,
@@ -546,7 +555,9 @@ def _create(session: Session, req: DocumentRequest):
                 ctx.vat[account] += -amount if out else amount
                 ctx.vat_groups[account] = e["tg"].code
     for line, x in zip(doc.lines, lines):
+        ctx.dims = tuple(getattr(line, c) for c in ("ocr_code", "ocr_code2", "ocr_code3", "ocr_code4", "ocr_code5"))
         _post_line(ctx, line, x)
+    ctx.dims = None
     _copy_effects(ctx, lines)
     _commitments(session, d, doc, +1)
     if d.obj in {"18", "19"} and bp is not None:
@@ -632,6 +643,16 @@ def _header_defaults(session: Session, d: DocDef, req: DocumentRequest, bp, pick
             out[field_text] = ", ".join(filter(None, [bp.address, " ".join(filter(None, [bp.zip_code, bp.city])), bp.country]))
     out.pop("card_code")
     return out
+
+
+def _line_dims(session: Session, lr, base_line, on: date) -> dict:
+    """OcrCode .. OcrCode5 of a new line: entered, else the base line's."""
+    from app.services.costacct import LINE_COLS, check_codes
+
+    codes = lr.ocr_codes if lr.ocr_codes is not None else ([getattr(base_line, c) for c in LINE_COLS] if base_line else None)
+    if not codes or not any(codes):
+        return {}
+    return dict(zip(LINE_COLS, check_codes(session, codes, on)))
 
 
 def _uom(item: Item, side: str) -> tuple[str | None, Decimal]:
@@ -818,6 +839,8 @@ def _post_journal(ctx: _Ctx) -> None:
                                                 due_date=due, fc_debit=fcd if ctx.bp_fc else ZERO,
                                                 fc_credit=fcc if ctx.bp_fc else ZERO,
                                                 fc_currency=ctx.doc.doc_cur if ctx.bp_fc else None, line_memo=memo))
+        elif isinstance(key, tuple) and key[0] == "ACC":
+            lines.append(JournalLineRequest(account=key[1], debit=debit, credit=credit, ocr_codes=key[2]))
         elif isinstance(key, tuple):
             lines.append(JournalLineRequest(account=key[1], debit=debit, credit=credit, vat_group=ctx.vat_groups.get(key[1])))
         else:

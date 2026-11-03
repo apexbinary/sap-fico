@@ -450,6 +450,14 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Recurring postings (Financials -> Recurring Postings)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Code, description, frequency (daily, weekly, monthly, quarterly, semiannually, annually, one time), next due date, valid until, number of postings, memo, active | ORCR RcurCode / RcurDesc / Frequency / NextDeu / ValidUntil / LimitRtrns / Memo / Active (+ Day) | text / dropdown / date / number / checkbox | ✅ |
+| Template lines: G/L account or business partner, debit / credit, line memo, distribution rules (dimensions 1-2) | RCR1 | dropdown / number / text | ✅ balanced, at least two lines |
+| Due postings up to a date, execution with catch-up, month ends kept, postings made / last posted | ORCR Instance / LastDate | — | ✅ journal entries with Ref3 RC:<code> |
+| Reminder at login, recurring transactions of documents (A/R / A/P invoices), templates with tax codes | | — | ⏸ |
+
 ### Budgets (Financial Reports -> Budgets)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

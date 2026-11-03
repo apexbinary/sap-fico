@@ -39,6 +39,7 @@ from app.models.batches import Batch, BatchQuantity, InventoryLog, InventoryLogL
 from app.models.counting import InventoryCounting, InventoryCountingLine, InventoryPosting, InventoryPostingLine
 from app.models.costacct import Dimension, DistributionRule, DistributionShare, ProfitCenter
 from app.models.budgets import Budget, BudgetMonth, BudgetScenario
+from app.models.recurring import RecurringPosting, RecurringPostingLine
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
 
 __all__ = [

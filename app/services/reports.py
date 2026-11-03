@@ -20,9 +20,11 @@ from app.models.finance import BALANCE_SHEET_DRAWERS, DRAWERS, Account, JournalE
 ZERO = Decimal("0")
 
 
-def _balances(session: Session, date_from: date | None, date_to: date) -> dict[str, tuple[Decimal, Decimal]]:
+def _balances(session: Session, date_from: date | None, date_to: date, include_closing: bool = True) -> dict[str, tuple[Decimal, Decimal]]:
     stmt = select(JournalLine.account, func.sum(JournalLine.debit), func.sum(JournalLine.credit)).join(
         JournalEntry, JournalEntry.trans_id == JournalLine.trans_id).where(JournalEntry.ref_date <= date_to)
+    if not include_closing:  # period-end closing entries (TransType -3)
+        stmt = stmt.where(JournalEntry.trans_type != "-3")
     if date_from:
         stmt = stmt.where(JournalEntry.ref_date >= date_from)
     return {acct: (Decimal(d or 0), Decimal(c or 0)) for acct, d, c in session.execute(stmt.group_by(JournalLine.account))}
@@ -74,8 +76,9 @@ def _tree(session: Session, drawers: set[int], balances: dict[str, Decimal], sig
     return [build(r, 0) for r in roots]
 
 
-def profit_and_loss(session: Session, date_from: date, date_to: date) -> dict:
-    period = _balances(session, date_from, date_to)
+def profit_and_loss(session: Session, date_from: date, date_to: date, include_closing: bool = False) -> dict:
+    """P&L of a period; period-end closing entries are left out unless include_closing."""
+    period = _balances(session, date_from, date_to, include_closing)
     bal = {k: d - c for k, (d, c) in period.items()}
     drawers = [{"group_mask": g, "name": DRAWERS[g], "accounts": _tree(session, {g}, bal, -1)} for g in range(4, 10)]
     for d in drawers:
@@ -95,7 +98,7 @@ def balance_sheet(session: Session, as_of: date, fiscal_year_start: date) -> dic
     pl_accounts = {a.acct_code for a in session.scalars(select(Account).where(Account.group_mask.notin_(BALANCE_SHEET_DRAWERS)))}
     earlier = -sum((v for k, v in _balance_map(session, None, date.fromordinal(fiscal_year_start.toordinal() - 1)).items()
                     if k in pl_accounts), ZERO)
-    current = profit_and_loss(session, fiscal_year_start, as_of)["net_profit"]
+    current = profit_and_loss(session, fiscal_year_start, as_of, include_closing=True)["net_profit"]
     total_assets = sum((a["amount"] for a in assets), ZERO)
     total_liab = sum((a["amount"] for a in liabilities), ZERO)
     total_capital = sum((a["amount"] for a in capital), ZERO) + earlier + current

@@ -450,6 +450,14 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### Period-end closing (Administration -> Period-End Closing)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Financial year, closing account (retained earnings, drawer 3), lock the periods | | number / dropdown / checkbox | ✅ |
+| Closing entry: every P&L account's balance of the year to zero against the closing account, on the last day | OJDT TransType -3, Ref3 PEC:<year> | — | ✅ one per year; P&L report excludes it, balance sheet includes it |
+| Cancel the closing (reversal, the year's periods unlocked) | | button | ✅ |
+| Closing per period range, closing of BP / inventory accounts, opening balance transfer to a new company database | | — | ⏸ balance sheet accounts carry forward in one database |
+
 ### Recurring postings (Financials -> Recurring Postings)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

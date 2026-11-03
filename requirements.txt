@@ -8,3 +8,5 @@ httpx==0.28.1
 # PostgreSQL driver (optional - SQLite works out of the box for dev)
 psycopg[binary]==3.2.3
 alembic==1.14.0
+segno==1.6.1
+tzdata==2024.2

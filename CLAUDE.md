@@ -81,6 +81,11 @@ app/
                       again as posted: net after header discount, components rounded in the document
                       currency x rate); set_off (IGST credit first); JSON in the GSTN offline tool layout;
                       api_gst.py /api/gst-returns/gstr1|gstr3b[/json] (area FINRPT); web/gst.js
+  services/edocs.py   e-invoice (INV-01 JSON, IRN = SHA-256 of GSTIN+FY+type+no., QR via segno) and
+                      e-way bill (validity, Part B); test mode makes IRN / EWB here, live mode imports
+                      the portal response; models/edocs.py EDOC register, ADM1 company address;
+                      api_edocs.py /api/documents/{obj}/{entry}/edocs|einvoice*|ewaybill*, /api/e-documents,
+                      /api/admin/e-documents; web/edocs.js (document panel, #/e-documents)
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -239,6 +244,11 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - GSTR-3B liability / ITC must equal the output / input tax of the journal for the month
   (checked in verify_gstreturns).
 
+### E-documents (keep invariant)
+- A document with an active IRN or e-way bill cannot be canceled (documents._cancel asks
+  edocs.blocks_cancel); an IRN is canceled only after its e-way bill, within 24 hours.
+- An imported IRP response must carry the IRN computed for the document.
+
 ### Exchange rate differences (keep invariant)
 - BP open FC items: difference (open FC x rate of the date - open LC) posted on the control
   account against unrealized gain / loss (OACP UnrlzGainAcct / UnrlzLossAcct), reversed on the
@@ -278,5 +288,5 @@ S00001 (non-inventory service).
 ### Not B1-verified
 OACP column names are descriptive (B1's OACP has many more columns with other
 names). RDOC keeps template options in descriptive columns (Style, Color, Show*, Footer,
-Default) instead of B1's Print Layout Designer template; OADM LogoImage, OCPT and OUSS are
-not B1-verified either. Everything else uses B1's documented table and field names.
+Default) instead of B1's Print Layout Designer template; OADM LogoImage / EInvoice /
+EWayBill / EDocMode, EDOC, OCPT and OUSS are not B1-verified either. Everything else uses B1's documented table and field names.

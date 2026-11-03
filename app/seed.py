@@ -256,6 +256,9 @@ def seed() -> None:
                                  gl_account="112000", acct_name="HDFC current account", country="IN", currency=LOCAL), 1)
         _seed_users(s)
         _seed_print_layouts(s)
+        from app.models.admin import CompanyAddress
+
+        put_new(CompanyAddress(code=1, street="42 MG Road", city="Bengaluru", zip_code="560001"), 1)
         _seed_partners_and_items(s, put)
         s.commit()
         print("Seed complete: Demo Trading India Pvt Ltd (INR, GST), chart of accounts, periods 2025-2027, "

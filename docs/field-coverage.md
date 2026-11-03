@@ -450,6 +450,20 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
 
+### E-documents: e-invoice (IRN) and e-way bill (Administration -> E-Documents, document panel)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| E-invoicing active, e-way bills active, mode test / live | OADM EInvoice / EWayBill / EDocMode | checkbox / dropdown | ✅ |
+| Company street, city, PIN code | ADM1 Street / City / ZipCode | text | ✅ PIN checked (6 digits) |
+| E-invoice JSON (INV-01 v1.1: TranDtls, DocDtls, SellerDtls, BuyerDtls, ShipDtls, ItemList, ValDtls, ExpDtls) of A/R invoices / credit memos | | download | ✅ B2B, SEZ, export; B2C refused |
+| IRN (SHA-256 of GSTIN, FY, type, number), ack. no. / date, signed QR code | EDOC Irn / AckNo / AckDate / SignedQR | — | 🔒 test: made here (QR marked TEST); live: IRP response imported and its IRN checked |
+| Cancel IRN: reason (1-4), remark, within 24 hours; document cancel blocked while an IRN / e-way bill is active | EDOC CnclReason / CnclRemark / CnclDate | dropdown / text | ✅ |
+| E-way bill of A/R invoices and deliveries: transport mode, distance, vehicle no. / type, transporter ID / name, transport doc. no. / date | EDOC TransMode / Distance / VehicleNo / VehicleTyp / TransId / TransName / TransDocNo / TransDocDt | dropdown / number / text / date | ✅ required flag above 50,000 (goods) |
+| E-way bill no., date, valid until (1 day per 200 km, ODC 20 km, until 23:59:59), Part B vehicle update, cancel within 24 hours | EDOC EwbNo / EwbDate / ValidUntil | — | ✅ Part A only (no vehicle) is not valid until Part B |
+| IRN, ack. and QR code / e-way bill on the printed invoice | | — | ✅ |
+| Register and documents still needing an IRN / e-way bill | | — | ✅ |
+| Direct GSP / IRP API connection, e-way bill extension / consolidation / rejection, inward e-way bills, multi-vehicle | | — | ⏸ needs GSP credentials |
+
 ### GST returns (Financial Reports -> GST Returns)
 | Table / element | Source | Status |
 |---|---|---|
@@ -477,7 +491,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Template style (classic / modern / compact), accent colour | RDOC Style / Color | dropdown / colour picker | ✅ |
 | Print company logo, HSN / SAC summary, bank details, authorised signatory, footer text | RDOC ShowLogo / ShowHSN / ShowBank / ShowSign / Footer | checkbox / text | ✅ |
 | Company logo (PNG / JPEG / GIF, at most 512 KB) | OADM LogoImage | file upload | ✅ |
-| Print Layout Designer (free field placement) / Crystal templates, default layout per user or BP, e-mailing, e-invoice IRN / QR code | | ⏸ |
+| Print Layout Designer (free field placement) / Crystal templates, default layout per user or BP, e-mailing | | ⏸ |
 
 ## Inventory documents (goods receipt OIGN, goods issue OIGE, inventory transfer OWTR)
 | Field | Column | Type | Status |

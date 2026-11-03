@@ -34,6 +34,7 @@ from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatem
 from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_INSTALLMENTS, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.users import User, UserPermission, UserSession
+from app.models.edocs import EDocument
 from app.models.partners import BusinessPartner, ContactPerson, PartnerAddress, PartnerGroup
 
 __all__ = [

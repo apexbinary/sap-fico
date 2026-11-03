@@ -47,6 +47,22 @@ class Company(Base):
     e_mail: Mapped[str | None] = mapped_column("E_Mail", String(100))
     manager: Mapped[str | None] = mapped_column("Manager", String(100))  # Manager / contact
     logo_image: Mapped[str | None] = mapped_column("LogoImage", Text)  # company logo (data URL) on printed documents
+    # India e-documents (not B1-verified): e-invoicing (IRN) / e-way bill active, mode T test / L live
+    e_invoice: Mapped[str] = mapped_column("EInvoice", String(1), default="N", server_default="N")
+    e_way_bill: Mapped[str] = mapped_column("EWayBill", String(1), default="N", server_default="N")
+    edoc_mode: Mapped[str] = mapped_column("EDocMode", String(1), default="T", server_default="T")
+
+
+class CompanyAddress(Base):
+    """ADM1 — Company address details (street, city, ZIP code)."""
+
+    __tablename__ = "adm1"
+
+    code: Mapped[int] = mapped_column("Code", primary_key=True, default=1)
+    street: Mapped[str | None] = mapped_column("Street", String(100))
+    block: Mapped[str | None] = mapped_column("Block", String(100))
+    city: Mapped[str | None] = mapped_column("City", String(100))
+    zip_code: Mapped[str | None] = mapped_column("ZipCode", String(20))
 
 
 class Currency(Base):

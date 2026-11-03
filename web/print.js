@@ -24,7 +24,11 @@ views.print = async (c) => {
         <div><div class="pp-company">${esc(p.company.name)}</div><div>${esc(p.company.address || "")}</div>
         <div>GSTIN: <b>${esc(p.company.gstin || "")}</b>${p.company.state ? ` · State: ${esc(p.company.state)} (${esc(p.company.state_code || "")})` : ""}</div>
         <div>${esc([p.company.phone, p.company.e_mail].filter(Boolean).join(" · "))}</div></div></div>
-        <div class="pp-title">${esc(p.title)}${p.canceled ? '<div class="pp-cancel">CANCELED</div>' : ""}</div></div>
+        <div class="pp-title">${esc(p.title)}${p.canceled ? '<div class="pp-cancel">CANCELED</div>' : ""}
+          ${p.edoc && p.edoc.qr_svg ? `<div class="pp-qr">${p.edoc.qr_svg}${p.edoc.test ? '<div class="pp-test">TEST</div>' : ""}</div>` : ""}</div></div>
+      ${p.edoc ? `<div class="pp-edoc">${p.edoc.irn ? `<div>IRN: <span class="mono">${esc(p.edoc.irn)}</span></div>
+        <div>Ack. no.: <b>${esc(p.edoc.ack_no)}</b> · Ack. date: ${esc(String(p.edoc.ack_date).replace("T", " ").slice(0, 16))}${p.edoc.test ? " · <b>TEST — not registered with the IRP</b>" : ""}</div>` : ""}
+        ${p.edoc.ewb_no ? `<div>E-way bill: <b>${esc(p.edoc.ewb_no)}</b> · ${esc(String(p.edoc.ewb_date).replace("T", " ").slice(0, 16))}${p.edoc.valid_until ? ` · valid until ${esc(String(p.edoc.valid_until).replace("T", " ").slice(0, 16))}` : ""}${p.edoc.vehicle_no ? ` · vehicle ${esc(p.edoc.vehicle_no)}` : ""}${p.edoc.ewb_test ? " · TEST" : ""}</div>` : ""}</div>` : ""}
       <div class="pp-grid">
         <div class="pp-box"><table class="pp-kv"><tbody>
           <tr><td>No.</td><td><b>${p.doc_num}</b></td></tr><tr><td>Date</td><td>${p.doc_date}</td></tr>

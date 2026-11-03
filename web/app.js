@@ -448,6 +448,7 @@ async function docDetail(el, t, entry) {
       <td class="num">${Number(i.inst_prcnt)}</td><td class="num">${fmt(i.ins_total)}</td><td class="num">${fmt(i.paid_to_date)}</td>
       <td>${i.status === "O" ? '<span class="status O">Open</span>' : '<span class="status C">Closed</span>'}</td></tr>`).join("")}</tbody></table></div>` : ""}</div>`;
   const reload = () => { location.hash = `#/docs?obj=${t.obj}&entry=${d.doc_entry}&r=${Date.now()}`; };
+  if (typeof edocPanel === "function") edocPanel(el, t, d);  // e-invoice / e-way bill (India)
   const cl = $("#doc-close");
   if (cl) cl.onclick = async () => { if (await act(() => post(`/documents/${t.obj}/${d.doc_entry}/close`, {}), "Document closed")) reload(); };
   const cn = $("#doc-cancel");

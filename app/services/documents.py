@@ -926,6 +926,11 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
     doc = get_document(session, obj, doc_entry)
     if doc.canceled == "Y":
         raise B1Error(f"{d.name} {doc.doc_num} is already canceled")
+    from app.services.edocs import blocks_cancel
+
+    blocked = blocks_cancel(session, obj, doc_entry)
+    if blocked:
+        raise B1Error(f"{d.name} {doc.doc_num} cannot be canceled: {blocked}")
     if d.side != "I" and any(l.open_qty < l.quantity for l in doc.lines):
         raise B1Error(f"{d.name} {doc.doc_num} was copied to a target document; cancel that document first")
     if doc.trans_id and _paid_by_payment(session, doc.trans_id):

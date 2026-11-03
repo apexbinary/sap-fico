@@ -224,7 +224,16 @@ def print_data(session: Session, obj: str, doc_entry: int, layout_code: str | No
     house = session.scalars(select(HouseBankAccount).order_by(HouseBankAccount.abs_entry)).first()
     bank = session.scalar(select(Bank).where(Bank.bank_code == house.bank_code)) if house else None
     total = doc.doc_total_fc if fc else doc.doc_total
+    from app.services import edocs
+
+    irn, ewb = edocs.active(session, obj, doc_entry, "I"), edocs.active(session, obj, doc_entry, "E")
+    edoc = {"irn": irn.irn, "ack_no": irn.ack_no, "ack_date": irn.ack_date, "test": irn.mode == "T",
+            "qr_svg": edocs.qr_svg(irn.signed_qr)} if irn else None
+    if ewb:
+        edoc = {**(edoc or {}), "ewb_no": ewb.ewb_no, "ewb_date": ewb.ewb_date, "valid_until": ewb.valid_until,
+                "vehicle_no": ewb.vehicle_no, "ewb_test": ewb.mode == "T"}
     return {
+        "edoc": edoc,
         "obj": obj, "title": TITLES[obj], "layout": lay,
         "layouts": [{"doc_code": l.doc_code, "doc_name": l.doc_name, "default": l.default == "Y"} for l in layouts(session, obj)], "doc_name": DEFS[obj].name, "no_prices": obj in NO_PRICES,
         "doc_num": doc.doc_num, "doc_date": doc.doc_date, "doc_due_date": doc.doc_due_date, "tax_date": doc.tax_date,

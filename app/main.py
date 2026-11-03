@@ -14,6 +14,7 @@ from app.api_banking import router as banking_router
 from app.api_cockpit import router as cockpit_router
 from app.api_printing import router as printing_router
 from app.api_gst import router as gst_router
+from app.api_edocs import router as edocs_router
 from app.api_documents import router as documents_router
 from app.api_dunning import router as dunning_router
 from app.api_finance import router as finance_router
@@ -42,6 +43,7 @@ app.include_router(paywiz_router, prefix="/api")
 app.include_router(cockpit_router, prefix="/api")
 app.include_router(printing_router, prefix="/api")
 app.include_router(gst_router, prefix="/api")
+app.include_router(edocs_router, prefix="/api")
 app.include_router(tax_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 

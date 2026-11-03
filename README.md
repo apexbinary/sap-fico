@@ -17,6 +17,7 @@ trademarks of SAP SE.
 | Foreign currency — documents and journal entries in foreign currencies, open FC amounts, realized exchange differences on payment and reconciliation | ✅ |
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
 | Printed documents — GST layout (tax invoice, credit note, delivery challan, orders ...) with HSN summary and amount in words, print / PDF | ✅ |
+| Cost accounting — dimensions, profit centers, distribution rules on journal and document lines, profit center report | ✅ |
 | Inventory counting and posting, item groups maintenance | ✅ |
 | Batches and serial numbers — on every stock move, automatic selection by expiry, transfers, returns, history | ✅ |
 | Units of measure — documents in sales / purchase units (packs, reams ...), stock in inventory units | ✅ |

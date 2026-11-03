@@ -102,6 +102,9 @@ app/
                       differences post through a goods receipt (surplus) / goods issue (shortage);
                       api_counting.py /api/inventory/counting*; web/counting.js; item groups:
                       POST / PATCH /api/item-groups, web/itemgroups.js
+  services/costacct.py cost accounting (models/costacct.py ODIM OPRC OOCR OCR1): JDT1 ProfitCode / OcrCode2-5,
+                      document lines OcrCode-5; _Ctx.post keeps a line's rules on revenue / expense
+                      accounts; profit center report; api_costacct.py; web/costacct.js
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -272,6 +275,11 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   OBTQ / OSRQ per warehouse always add up to OITW OnHand (checked in verify_batches).
 - Receipts need the numbers (or take the base line's); issues take named, base or automatic
   (earliest expiry, not expired) numbers; serial numbers are unique units.
+
+### Cost accounting (keep invariant)
+- A rule code belongs to one dimension (position 1-5 in ocr_codes); only active dimensions / rules.
+  Documents keep the line's rules only on revenue / expense accounts (ActType I / E); reversals
+  carry the rules. Each profit center has a direct rule with its code (100 %).
 
 ### Units of measure (keep invariant)
 - A line's Quantity / OpenQty / price are in its unit (unitMsr); NumPerMsr = inventory units per

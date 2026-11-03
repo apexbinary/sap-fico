@@ -89,6 +89,13 @@ function bindCountryState(p, countryKey = "country", stateKey = "state") {
   c.addEventListener("change", fill);
   fill();
 }
+// cost accounting: one distribution rule dropdown per active dimension (OOCR of that dimension)
+const dimCols = () => ((state.costacct || {}).dimensions || []).filter((d) => d.active);
+const dimHead = () => dimCols().map((d) => `<th>${esc(d.dim_name)}</th>`).join("");
+const dimCells = (vals) => dimCols().map((d) => `<td><select class="l-dim" data-dim="${d.dim_code}">${opt("", "")}${state.costacct.rules
+  .filter((r) => r.dim_code === d.dim_code && r.active).map((r) => opt(r.ocr_code, `${r.ocr_code} — ${r.ocr_name}`, (vals || [])[d.dim_code - 1] || "")).join("")}</select></td>`).join("");
+const readDims = (tr) => { const v = [null, null, null, null, null]; $$(".l-dim", tr).forEach((s) => { v[Number(s.dataset.dim) - 1] = s.value || null; }); return v.some(Boolean) ? v : null; };
+const dimText = (codes) => (codes || []).filter(Boolean).join(" / ");
 // dropdown sources (B1 dropdowns and choose-from lists)
 const O = {
   wtCodes: () => (state.wtCodes || []).filter((w) => !w.inactive).map((w) => [w.wt_code, `${w.wt_code} — ${w.section} ${w.wt_name} (${Number(w.rate)} %)`]),
@@ -144,6 +151,7 @@ async function reloadMasterData() {
     api("/tax/setup")]);
   state.wtCodes = await api("/withholding-tax").catch(() => []);
   state.freight = await api("/freight").catch(() => []);
+  state.costacct = await api("/cost-accounting").catch(() => ({ dimensions: [], rules: [], centers: [] }));
 }
 
 const views = {};
@@ -161,7 +169,7 @@ function route() {
     .catch((e) => (c.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`));
 }
 // list + form screens: a "New" link or a chosen row opens the form below the list; bring it into view
-const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first", "withholding-tax": "last", freight: "last", "item-groups": "last" };
+const FORM_VIEWS = { users: "last", "print-layouts": "last", partners: "last", items: "last", "tax-setup": "first", "withholding-tax": "last", freight: "last", "item-groups": "last", "cost-accounting": "last" };
 function revealForm(c, view) {
   const q = query();
   if (!FORM_VIEWS[view] || !["new", "id", "code", "rule"].some((k) => q.has(k))) return;
@@ -221,7 +229,7 @@ views["journal-entry"] = async (c) => {
     <div class="card"><div class="card-body"><div class="form-grid">${fieldsHtml(JE_HEADER, {}, "je")}</div></div></div>
     <div class="card"><div class="card-body" style="overflow-x:auto">
       <table class="lines"><thead><tr><th>G/L acct / BP code</th><th>Control acct</th><th>Currency</th><th class="num">Debit (FC)</th><th class="num">Credit (FC)</th><th class="num w-amt">Debit</th><th class="num w-amt">Credit</th>
-        <th>Due date</th><th>Line remarks</th><th>Ref. 1</th><th>Ref. 2</th><th>Project</th><th></th></tr></thead><tbody id="je-lines"></tbody></table>
+        <th>Due date</th><th>Line remarks</th><th>Ref. 1</th><th>Ref. 2</th><th>Project</th>${dimHead()}<th></th></tr></thead><tbody id="je-lines"></tbody></table>
       <button class="btn secondary small" id="je-add" style="margin-top:8px">+ Line</button>
       <div class="balance-row"><span>Debit <span class="amt" id="je-d">0.00</span></span><span>Credit <span class="amt" id="je-c">0.00</span></span><span id="je-chip" class="chip no">Not balanced</span></div>
       <button class="btn" id="je-post" disabled>Add</button>
@@ -239,7 +247,7 @@ views["journal-entry"] = async (c) => {
       <td class="num"><input class="je-debit" type="number" step="0.01" min="0"></td><td class="num"><input class="je-credit" type="number" step="0.01" min="0"></td>
       <td><input class="je-due" type="date"></td><td><input class="je-lm" maxlength="50"></td>
       <td><input class="je-r1" maxlength="100" style="width:90px"></td><td><input class="je-r2" maxlength="100" style="width:90px"></td>
-      <td><select class="je-prj">${opt("", "")}${projects}</select></td><td><button class="btn ghost small je-del">✕</button></td>`;
+      <td><select class="je-prj">${opt("", "")}${projects}</select></td>${dimCells()}<td><button class="btn ghost small je-del">✕</button></td>`;
     $("#je-lines").appendChild(tr);
     const sel = $(".je-acct", tr);
     sel.onchange = () => {  // a BP line shows the control account it posts to
@@ -281,7 +289,7 @@ views["journal-entry"] = async (c) => {
     const lines = $$("#je-lines tr").map((tr) => ({ ...target($(".je-acct", tr).value), fc_currency: val(tr, ".je-cur"),
       fc_debit: Number($(".je-fcd", tr).value || 0), fc_credit: Number($(".je-fcc", tr).value || 0), debit: Number($(".je-debit", tr).value || 0),
       credit: Number($(".je-credit", tr).value || 0), due_date: val(tr, ".je-due"), line_memo: val(tr, ".je-lm"),
-      ref1: val(tr, ".je-r1"), ref2: val(tr, ".je-r2"), project: val(tr, ".je-prj") }));
+      ref1: val(tr, ".je-r1"), ref2: val(tr, ".je-r2"), project: val(tr, ".je-prj"), ocr_codes: readDims(tr) }));
     const head = readFields(JE_HEADER, "je");
     const r = await act(() => post("/journal-entries", { ...head, lines }), (e) => `Journal entry ${e.number} added`);
     if (r) { state.partners = await api("/partners"); location.hash = `#/journal?id=${r.trans_id}`; }
@@ -308,14 +316,14 @@ views.journal = async (c) => {
     <div class="card-body"><div class="form-grid">${fieldsHtml(JE_HEADER.map((d) => ({ ...d, ro: true, value: undefined })), values, "jd")}</div></div>
     <div style="overflow-x:auto"><table><thead><tr><th>#</th><th>G/L acct / BP code</th><th>Name</th><th>Control acct</th><th>Contra account</th><th class="num">Debit</th><th class="num">Credit</th>
       <th>Currency</th><th class="num">Debit (FC)</th><th class="num">Credit (FC)</th><th class="num">Open (FC)</th>
-      <th>Due date</th><th>Remarks</th><th>Ref. 1</th><th>Ref. 2</th><th>Project</th><th>Tax group</th></tr></thead>
+      <th>Due date</th><th>Remarks</th><th>Ref. 1</th><th>Ref. 2</th><th>Project</th><th>Tax group</th><th>Distribution rules</th></tr></thead>
     <tbody>${e.lines.map((l) => `<tr><td>${l.line_id + 1}</td><td class="mono">${esc(l.short_name)}</td><td>${esc(name(l.short_name))}</td>
       <td class="mono help">${l.short_name !== l.account ? esc(l.account) : ""}</td><td class="mono help">${esc(l.contra_act || "")}</td>
       <td class="num">${Number(l.debit) ? fmt(l.debit) : ""}</td><td class="num">${Number(l.credit) ? fmt(l.credit) : ""}</td>
       <td>${esc(l.fc_currency || "")}</td><td class="num">${Number(l.fc_debit) ? fmt(l.fc_debit) : ""}</td><td class="num">${Number(l.fc_credit) ? fmt(l.fc_credit) : ""}</td>
       <td class="num">${Number(l.bal_fc_deb) || Number(l.bal_fc_cred) ? fmt(Number(l.bal_fc_deb) - Number(l.bal_fc_cred)) : ""}</td>
       <td>${esc(l.due_date || "")}</td><td>${esc(l.line_memo || "")}</td><td>${esc(l.ref1 || "")}</td><td>${esc(l.ref2 || "")}</td>
-      <td>${esc(l.project || "")}</td><td>${esc(l.vat_group || "")}</td></tr>`).join("")}</tbody></table></div></div>`;
+      <td>${esc(l.project || "")}</td><td>${esc(l.vat_group || "")}</td><td>${esc(dimText(l.ocr_codes))}</td></tr>`).join("")}</tbody></table></div></div>`;
   const rev = $("#je-rev");
   if (rev) rev.onclick = async () => {
     if (!confirm(`Reverse journal entry ${e.number}?`)) return;
@@ -433,6 +441,7 @@ async function docDetail(el, t, entry) {
        ...(fcDoc ? [["Gross total (FC)", (l) => fmt(l.gtotal_fc), 1]] : []), ["Gross total (LC)", (l) => fmt(l.gtotal), 1],
        ...(svc ? [] : [["Whs", (l) => esc(l.whs_code || "")], ["Item cost", (l) => (Number(l.stock_price) ? fmt(l.stock_price) : ""), 1]]),
        ["Del. date", (l) => esc(l.ship_date || "")], ["Project", (l) => esc(l.project || "")], ["Free text", (l) => esc(l.free_txt || "")]];
+  if (d.lines.some((l) => (l.ocr_codes || []).some(Boolean))) cols.push(["Distribution rules", (l) => esc(dimText(l.ocr_codes))]);
   const alloc = d.batch_allocations || {};
   if (Object.keys(alloc).length) cols.push(["Batches / serial no.", (l) => (alloc[l.line_num] || []).map((a) =>
     `${esc(a.number)} ${qtyFmt(Math.abs(a.quantity))}${a.whs_code ? ` (${esc(a.whs_code)})` : ""}${a.reversed ? " ↺" : ""}`).join("<br>")]);
@@ -570,17 +579,17 @@ views.doc = async (c) => {
     const S = type() === "S";
     $("#d-head").innerHTML = side === "I"
       ? `<tr><th>Item No.</th><th>Description</th><th class="num">Quantity</th><th>UoM</th>${t.kind === "transfer" ? "<th>From whs</th><th>To whs</th>" : "<th>Whs</th>"}
-         ${t.kind === "receipt" ? '<th class="num w-amt">Unit cost</th><th class="num">Total</th>' : ""}${t.kind === "transfer" ? "" : "<th>G/L account</th>"}<th>Project</th><th></th></tr>`
+         ${t.kind === "receipt" ? '<th class="num w-amt">Unit cost</th><th class="num">Total</th>' : ""}${t.kind === "transfer" ? "" : "<th>G/L account</th>"}<th>Project</th>${dimHead()}<th></th></tr>`
       : `<tr>${S ? "<th>Description</th><th>G/L account</th>" : '<th>Item No.</th><th>Description</th><th class="num">Quantity</th><th>UoM</th>'}
          <th class="num w-amt">${S ? "Amount" : "Unit price"}</th>${S ? "" : '<th class="num">Disc. %</th><th class="num">Price after disc.</th>'}<th>Tax code</th>
-         <th class="num">Tax amount</th><th class="num">Total (LC)</th><th class="num">Gross total</th>${S ? "" : "<th>Whs</th>"}<th>Del. date</th><th>Project</th><th>Free text</th><th>Base</th><th></th></tr>`;
+         <th class="num">Tax amount</th><th class="num">Total (LC)</th><th class="num">Gross total</th>${S ? "" : "<th>Whs</th>"}<th>Del. date</th><th>Project</th>${dimHead()}<th>Free text</th><th>Base</th><th></th></tr>`;
   };
   const addLine = (v = {}) => {
     const tr = document.createElement("tr");
     tr.base = v.base_type ? { base_type: v.base_type, base_entry: v.base_entry, base_line: v.base_line } : null;
     const lock = tr.base ? " disabled" : "";
     const vat = v.vat_group || ((bpRow() || {}).vat_group);
-    const tail = `<td><input class="l-ship" type="date" value="${esc(v.ship_date || "")}"></td><td><select class="l-prj">${prjOpts(v.project)}</select></td>
+    const tail = `<td><input class="l-ship" type="date" value="${esc(v.ship_date || "")}"></td><td><select class="l-prj">${prjOpts(v.project)}</select></td>${dimCells(v.ocr_codes)}
       <td><input class="l-free" maxlength="100" value="${esc(v.free_txt || "")}"></td>
       <td class="help">${tr.base ? `${esc(transTypeName(v.base_type))} ${esc(v.base_ref)}` : ""}</td><td><button class="btn ghost small l-del">✕</button></td>`;
     const amounts = `<td><select class="l-vat">${taxes.map((x) => opt(x.code, x.code, vat)).join("")}</select></td>
@@ -594,7 +603,7 @@ views.doc = async (c) => {
           : `<td><select class="l-whs">${whsOpts(v.whs_code || (it && it.dflt_wh) || "01")}</select></td>`}
         ${t.kind === "receipt" ? '<td class="num"><input class="l-price" type="number" step="0.01" min="0"></td><td class="num l-total">0.00</td>' : ""}
         ${t.kind === "transfer" ? "" : `<td><select class="l-acct">${opt("", "default (inventory offset)")}${accountOptions((a) => !a.control)}</select></td>`}
-        <td><select class="l-prj">${prjOpts(v.project)}</select></td><td><button class="btn ghost small l-del">✕</button></td>`;
+        <td><select class="l-prj">${prjOpts(v.project)}</select></td>${dimCells(v.ocr_codes)}<td><button class="btn ghost small l-del">✕</button></td>`;
     } else if (type() === "S") {
       tr.innerHTML = `<td><input class="l-desc" maxlength="100" value="${esc(v.dscription || "")}"></td>
         <td><select class="l-acct"${lock}>${opt("", "— account —")}${accountOptions((a) => !a.control).replace(`value="${esc(v.acct_code)}"`, `value="${esc(v.acct_code)}" selected`)}</select></td>
@@ -762,6 +771,7 @@ views.doc = async (c) => {
         dscription: val(".l-desc"), ship_date: val(".l-ship"), free_txt: val(".l-free"), project: val(".l-prj"), acct_code: val(".l-acct") };
       if (side !== "I" && type() === "S") line.quantity = 1;
       else Object.assign(line, { item_code: val(".l-item"), quantity: num(".l-qty") || 0, whs_code: val(".l-whs"), from_whs_cod: val(".l-from") });
+      line.ocr_codes = readDims(tr);
       const bat = $(".l-bat", tr);
       if (bat && bat.value.trim() && bat.dataset.kind === "B") {  // LOT:qty@expiry; ...
         line.batches = bat.value.split(/[;\n]/).map((x) => x.trim()).filter(Boolean).map((x) => {

@@ -52,7 +52,26 @@ def main() -> None:
         delta = lambda k, f: (r[k][f] if k in r else 0) - (before[k][f] if k in before else 0)  # noqa: E731
         assert delta(sal, "revenue") == 1000
         print(f"1 Centers {sal} / {adm}, rule {shr} 60/40; invoice {inv.doc_num} revenue 1,000 on {sal} (tax line without rule)")
-        print(f"2 A/P invoice {ap.doc_num} with {shr}: report expenses {sal} {delta(sal, 'expenses')}, {adm} {delta(adm, 'expenses')}")
+        from app.services import journal
+        from app.services.journal import JournalLineRequest as JL
+        from app.services.journal import JournalRequest as JR
+
+        je = journal.post_entry(s, JR(ref_date=DAY, memo="Office rent shared", lines=[
+            JL(account="612000", debit=D(1000), ocr_codes=(shr,)), JL(account="112000", credit=D(1000))]))
+        r = {c["prc_code"]: c for c in costacct.report(s, DAY, DAY)["centers"]}
+        assert delta(sal, "expenses") == 600 and delta(adm, "expenses") == 400, (delta(sal, "expenses"), delta(adm, "expenses"))
+        assert [l.profit_code for l in je.lines] == [shr, None]
+        rev_je = journal.reverse_entry(s, je.trans_id, ref_date=DAY)
+        assert rev_je.lines[0].profit_code == shr
+        r = {c["prc_code"]: c for c in costacct.report(s, DAY, DAY)["centers"]}
+        assert delta(sal, "expenses") == 0 and delta(adm, "expenses") == 0
+        try:
+            journal.post_entry(s, JR(ref_date=DAY, lines=[JL(account="612000", debit=D(1), ocr_codes=(None, None, sal)), JL(account="112000", credit=D(1))]))
+            raise AssertionError("dimension 3 accepted")
+        except B1Error:
+            s.rollback()
+        print(f"2 A/P invoice {ap.doc_num} of a stock item posts to inventory (no rule kept); rent 1,000 with {shr}: "
+              f"{sal} 600 / {adm} 400; its reversal carries the rule and cancels both; a rule on an inactive dimension is refused")
         print("\nOK - cost accounting keeps the distribution rules and splits the report.")
     finally:
         s.close()

@@ -197,7 +197,7 @@ STC1 lines (one tax authority each). Every part is maintained on the Tax Setup s
 | Open amount (BP lines) | BalDueDeb / BalDueCred | — | 🔒 |
 | Currency / debit (FC) / credit (FC) | FCCurrency / FCDebit / FCCredit | dropdown / number | ✅ local amounts at the rate of the posting date |
 | Open amount (FC) of partner lines | BalFcDeb / BalFcCred | — | 🔒 reduced by payments and reconciliations |
-| Distribution rules, tax amount, base amount, system currency amounts | OcrCode, … | — | ⏸ cost accounting and system-currency reporting not built |
+| Distribution rules, tax amount, base amount, system currency amounts | OcrCode, … | — | ✅ distribution rules (see Cost accounting); ⏸ system-currency reporting |
 
 ### Dunning (Business Partners -> Dunning Wizard)
 | Field | Column | Type | Status |
@@ -449,6 +449,16 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Installment no. / due date / share % / amount (LC, FC) / paid (LC, FC) / status | InstlmntID / DueDate / InstPrcnt / InsTotal, InsTotalFC / PaidToDate, PaidFC / Status | — | 🔒 from the payment terms; one partner journal line per installment |
 | Credit memo copied from an installment invoice | — | — | reconciled with the installments in a payment (no automatic reconciliation) |
 | Installments of credit memos and other documents | RIN6, … | — | ⏸ |
+
+### Cost accounting (Administration -> Cost Accounting, Financial Reports -> Profit Center Report)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Dimensions 1-5: name, description, active | ODIM DimCode / DimName / DimDesc / DimActive | text / checkbox | ✅ seeded: 1 Department, 2 Region active |
+| Profit center: code, name, dimension, valid from / to, active (gets a direct rule) | OPRC PrcCode / PrcName / DimCode / ValidFrom / ValidTo / Active | text / dropdown / date / checkbox | ✅ |
+| Distribution rule: code, name, dimension, shares per profit center, total, direct, active | OOCR OcrCode / OcrName / DimCode / OcrTotal / Direct / Active, OCR1 PrcCode / PrcAmount | text / dropdown / number | ✅ shares cannot change once the rule is used |
+| Rules on journal entry lines and document lines (copied from the base line) | JDT1 ProfitCode / OcrCode2-5, xxx1 OcrCode-OcrCode5 | dropdown per active dimension | ✅ kept on revenue / expense postings |
+| Profit center report: revenue, expenses, result per center (split by the shares), accounts, not assigned | | — | ✅ |
+| Rules on payment / deposit lines, default rules per user / item / BP / warehouse, rule validity periods, budgets per center, cost accounting summary report | | — | ⏸ |
 
 ### Inventory counting and inventory posting (Inventory -> Inventory Counting)
 | Field / function | Column | Type | Status |

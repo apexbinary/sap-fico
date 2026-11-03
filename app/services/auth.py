@@ -62,7 +62,7 @@ ROUTES = [
 # reference data every logged-in user may read (GET), whatever the area
 SHARED_READS = re.compile(r"^/api/(admin/(company|lookups|exchange-rates)|master/lookups|tax/setup|accounts$|partners(/[^/]+)?$|"
                           r"partner-groups$|items(/[^/]+(/price)?)?$|item-groups$|warehouses$|price-lists$|documents/types$|"
-                          r"payments/open-items$|house-banks$|dunning/terms$|print-layouts$|withholding-tax$|freight$)")
+                          r"payments/open-items$|house-banks$|dunning/terms$|print-layouts$|withholding-tax$|freight$|cost-accounting$)")
 
 
 def hash_password(password: str) -> str:

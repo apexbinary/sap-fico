@@ -354,6 +354,7 @@ class JELineIn(BaseModel):
     ref1: str | None = Field(None, max_length=100)
     ref2: str | None = Field(None, max_length=100)
     ref3_line: str | None = Field(None, max_length=27)
+    ocr_codes: list[str | None] | None = None  # distribution rules of dimensions 1 - 5
 
 
 class JournalEntryIn(BaseModel):
@@ -385,7 +386,8 @@ def _je_out(e: JournalEntry) -> dict:
                        "due_date": l.due_date, "project": l.project, "ref1": l.ref1, "ref2": l.ref2,
                        "fc_currency": l.fc_currency, "fc_debit": l.fc_debit, "fc_credit": l.fc_credit,
                        "bal_fc_deb": l.bal_fc_deb, "bal_fc_cred": l.bal_fc_cred,
-                       "ref3_line": l.ref3_line} for l in e.lines]}
+                       "ref3_line": l.ref3_line,
+                       "ocr_codes": [l.profit_code, l.ocr_code2, l.ocr_code3, l.ocr_code4, l.ocr_code5]} for l in e.lines]}
 
 
 @router.post("/journal-entries", tags=["Financials"], summary="Post a manual journal entry")
@@ -397,7 +399,8 @@ def post_journal_entry(body: JournalEntryIn, s: Session = Depends(get_session)) 
         lines=[journal.JournalLineRequest(account=l.account or None, card_code=l.card_code or None, debit=l.debit,
                                           credit=l.credit, fc_currency=l.fc_currency or None, fc_debit=l.fc_debit,
                                           fc_credit=l.fc_credit, line_memo=l.line_memo, due_date=l.due_date,
-                                          project=l.project or None, ref1=l.ref1, ref2=l.ref2, ref3_line=l.ref3_line)
+                                          project=l.project or None, ref1=l.ref1, ref2=l.ref2, ref3_line=l.ref3_line,
+                                          ocr_codes=tuple(l.ocr_codes) if l.ocr_codes else None)
                for l in body.lines])))
     return _je_out(entry)
 

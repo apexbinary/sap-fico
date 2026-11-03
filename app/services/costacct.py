@@ -111,7 +111,8 @@ def save_center(session: Session, data: dict, code: str | None = None) -> Profit
         raise B1Error("Enter the profit center name")
     for key in ("valid_from", "valid_to"):
         if key in data:
-            setattr(p, key, data[key])
+            v = data[key]
+            setattr(p, key, date.fromisoformat(v) if isinstance(v, str) and v else (v or None))
     if data.get("active") is not None:
         p.active = "Y" if data["active"] else "N"
         direct = session.get(DistributionRule, p.prc_code)

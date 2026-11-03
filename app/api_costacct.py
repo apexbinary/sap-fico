@@ -31,6 +31,18 @@ def add_center(body: dict = Body(...), s: Session = Depends(get_session)) -> dic
     return costacct.setup(s)
 
 
+@router.patch("/cost-accounting/centers/{code}", tags=["Cost accounting"], summary="Change a profit center")
+def change_center(code: str, body: dict = Body(...), s: Session = Depends(get_session)) -> dict:
+    run(lambda: costacct.save_center(s, body, code))
+    return costacct.setup(s)
+
+
+@router.patch("/cost-accounting/rules/{code}", tags=["Cost accounting"], summary="Change a distribution rule")
+def change_rule(code: str, body: dict = Body(...), s: Session = Depends(get_session)) -> dict:
+    run(lambda: costacct.save_rule(s, body, code))
+    return costacct.setup(s)
+
+
 @router.post("/cost-accounting/rules", tags=["Cost accounting"], summary="Add a distribution rule")
 def add_rule(body: dict = Body(...), s: Session = Depends(get_session)) -> dict:
     run(lambda: costacct.save_rule(s, body))

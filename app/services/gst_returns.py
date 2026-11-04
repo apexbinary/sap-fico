@@ -62,6 +62,7 @@ class Line:
     qty: Decimal = ZERO
     nil: bool = False  # nil-rated / exempt tax code (rate 0)
     kind: str | None = None  # intra / inter
+    rc: str = "N"  # tax code's RevCharge: N normal, Y reverse charge, I import of goods
 
     @property
     def tax(self) -> Decimal:
@@ -124,17 +125,27 @@ def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: dat
             rate = d.doc_rate or Decimal(1)
             fc = d.doc_cur != comp.main_curncy
             kinds = set()
+            boe_bases = {}  # import of goods with a bill of entry value: IGST base per line (LC), as posted
+            if getattr(d, "boe_value", None):
+                imp = [l for l in d.lines if l.vat_group and (session.get(TaxGroup, l.vat_group).rev_charge == "I")]
+                nets = [_m(_m((l.total_frgn if fc else l.line_total) * (1 - d.disc_prcnt / 100)) * rate) for l in imp]
+                boe_bases = {l.line_num: b for l, b in zip(imp, tax.apportion(d.boe_value, nets))}
             for l in d.lines:
                 tg = session.get(TaxGroup, l.vat_group) if l.vat_group else None
                 net_fc = _m((l.total_frgn if fc else l.line_total) * (1 - d.disc_prcnt / 100))
                 comps = tax.split(session, tg, net_fc)
+                if l.line_num in boe_bases:
+                    comps = [(a, amount / rate, name) for a, amount, name in tax.split(session, tg, boe_bases[l.line_num])]
                 item = session.get(Item, l.item_code) if l.item_code else None
                 hsn = item.chapter_id if item else None
                 unit = l.unit_msr or (item.sal_unit_msr if side == "S" else item.buy_unit_msr) if item else l.unit_msr
                 uqc, has_qty = _uqc(unit, hsn)
                 line = Line(rate=tg.rate if tg else ZERO, taxable=_m(net_fc * rate), hsn=hsn,
                             description=(item.item_name if item else None) or l.dscription, uqc=uqc,
-                            qty=l.quantity if has_qty else ZERO, nil=tg is None or tg.rate == 0, kind=tax.gst_kind(session, tg))
+                            qty=l.quantity if has_qty else ZERO, nil=tg is None or tg.rate == 0, kind=tax.gst_kind(session, tg),
+                            rc=tg.rev_charge if tg else "N")
+                if l.line_num in boe_bases:
+                    line.taxable = boe_bases[l.line_num]
                 for _, amount, name in comps:
                     lc = _m(amount * rate)
                     attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
@@ -152,7 +163,7 @@ def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: dat
                 net_fc = e.total_frgn if fc else e.line_total
                 line = Line(rate=tg.rate if tg else ZERO, taxable=_m(net_fc * rate), hsn=ex.sac_code if ex else None,
                             description=ex.expns_name if ex else "Freight", uqc="NA", qty=ZERO, nil=tg is None or tg.rate == 0,
-                            kind=tax.gst_kind(session, tg))
+                            kind=tax.gst_kind(session, tg), rc=tg.rev_charge if tg else "N")
                 for _, amount, name in tax.split(session, tg, net_fc):
                     attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
                     setattr(line, attr, getattr(line, attr) + _m(amount * rate))
@@ -337,6 +348,8 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
                 r["taxable"] += sign * l.taxable
                 r["igst"] += sign * l.igst
     itc = {h: ZERO for h in HEADS}
+    # 4A: (1) import of goods, (2) import of services, (3) inward supplies liable to reverse charge, (5) all other ITC
+    itc_by = {k: {h: ZERO for h in HEADS} for k in ("impg", "imps", "isrc", "oth")}
     exempt_in = {"inter": ZERO, "intra": ZERO}
     issues = []
     for d in in_docs:
@@ -346,10 +359,18 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
         for l in d.lines:
             if l.nil:
                 exempt_in["inter" if d.inter else "intra"] += sign * l.taxable
+            if l.rc == "Y":  # 3.1(d): tax the company owes on inward supplies (incl. import of services)
+                for k in ("taxable", *HEADS):
+                    t31["d"][k] += sign * getattr(l, k)
+            box = "impg" if l.rc == "I" else ("imps" if d.export else "isrc") if l.rc == "Y" else "oth"
             for h in HEADS:
                 itc[h] += sign * getattr(l, h)
-    liability = {h: t31["a"][h] + t31["b"][h] for h in HEADS}
-    payment = set_off(liability, itc)
+                itc_by[box][h] += sign * getattr(l, h)
+    liability = {h: t31["a"][h] + t31["b"][h] + t31["d"][h] for h in HEADS}
+    payment = set_off({h: t31["a"][h] + t31["b"][h] for h in HEADS}, itc)
+    payment["reverse_charge_cash"] = {h: max(t31["d"][h], ZERO) for h in HEADS}  # reverse charge is paid in cash, never from ITC
+    for h in HEADS:
+        payment["cash"][h] += payment["reverse_charge_cash"][h]
     comp = company(session)
     return {
         "gstin": comp.tax_id, "period": f"{month:02d}{year}", "date_from": date_from, "date_to": date_to,
@@ -357,7 +378,8 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
                     "d_reverse_charge": t31["d"], "e_non_gst": t31["e"]},
         "inter_state_unregistered": sorted(unreg.values(), key=lambda r: r["pos"] or ""),
         "inter_state_composition": sorted(comp_sup.values(), key=lambda r: r["pos"] or ""),
-        "itc": {"available_other": itc, "reversed": {h: ZERO for h in HEADS}, "net": dict(itc), "ineligible": {h: ZERO for h in HEADS}},
+        "itc": {"available_other": itc_by["oth"], "import_goods": itc_by["impg"], "import_services": itc_by["imps"],
+                "reverse_charge": itc_by["isrc"], "available": itc, "reversed": {h: ZERO for h in HEADS}, "net": dict(itc), "ineligible": {h: ZERO for h in HEADS}},
         "exempt_inward": exempt_in,
         "liability": liability,
         "payment": payment,
@@ -448,7 +470,9 @@ def gstr3b_json(session: Session, year: int, month: int) -> dict:
         "inter_sup": {"unreg_details": [{"pos": x["pos"], "txval": _f(x["taxable"]), "iamt": _f(x["igst"])} for x in r["inter_state_unregistered"]],
                       "comp_details": [{"pos": x["pos"], "txval": _f(x["taxable"]), "iamt": _f(x["igst"])} for x in r["inter_state_composition"]],
                       "uin_details": []},
-        "itc_elg": {"itc_avl": [{"ty": "IMPG", **zero}, {"ty": "IMPS", **zero}, {"ty": "ISRC", **zero}, {"ty": "ISD", **zero},
+        "itc_elg": {"itc_avl": [{"ty": "IMPG", **heads(itc["import_goods"]), "camt": 0.0, "samt": 0.0},
+                                {"ty": "IMPS", **heads(itc["import_services"]), "camt": 0.0, "samt": 0.0},
+                                {"ty": "ISRC", **heads(itc["reverse_charge"])}, {"ty": "ISD", **zero},
                                 {"ty": "OTH", **heads(itc["available_other"])}],
                     "itc_rev": [{"ty": "RUL", **zero}, {"ty": "OTH", **zero}],
                     "itc_net": heads(itc["net"]),

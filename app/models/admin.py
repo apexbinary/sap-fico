@@ -135,6 +135,9 @@ class TaxGroup(Base):
     account: Mapped[str] = mapped_column("Account", String(15))  # Tax G/L account
     inactive: Mapped[bool] = mapped_column("Inactive", default=False)
     effec_date: Mapped[date | None] = mapped_column("EffecDate")  # Effective from
+    # India: N normal, Y reverse charge (recipient pays: input tax against the authorities' RCM liability),
+    # I import of goods (IGST paid at customs: input tax against OACP ImpTaxAcct); not B1-verified
+    rev_charge: Mapped[str] = mapped_column("RevCharge", String(1), default="N", server_default="N")
 
 
 class PaymentTerms(Base):
@@ -254,6 +257,7 @@ class TaxAuthority(Base):
     type: Mapped[str | None] = mapped_column("Type", String(8), ForeignKey("ostt.Code"))  # Tax type
     sales_tax: Mapped[str] = mapped_column("SalesTax", String(15))  # Output tax account
     purch_tax: Mapped[str] = mapped_column("PurchTax", String(15))  # Input tax account
+    rvs_chrg_act: Mapped[str | None] = mapped_column("RvsChrgAct", String(15))  # Reverse charge liability account (not B1-verified)
 
 
 class TaxComponent(Base):

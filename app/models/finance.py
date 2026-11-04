@@ -162,6 +162,7 @@ class AccountDetermination(Base):
     dunning_fee: Mapped[str] = mapped_column("DunFeeAcct", String(15), server_default="723000")  # Dunning fees
     wip_acct: Mapped[str] = mapped_column("WipAcct", String(15), server_default="118000")  # Work in progress (production)
     wip_var_acct: Mapped[str] = mapped_column("WipVarAcct", String(15), server_default="514000")  # Production variance
+    imp_tax_acct: Mapped[str] = mapped_column("ImpTaxAcct", String(15), server_default="218000")  # IGST on imports payable to customs
 
 
 class ExchangeRateRun(Base):

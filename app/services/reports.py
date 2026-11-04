@@ -125,6 +125,7 @@ def tax_report(session: Session, date_from: date, date_to: date) -> dict:
     authorities = session.scalars(select(TaxAuthority)).all()
     by_account = {a.sales_tax: (a.code, "output") for a in authorities}
     by_account.update({a.purch_tax: (a.code, "input") for a in authorities})
+    by_account.update({a.rvs_chrg_act: (a.code, "output") for a in authorities if a.rvs_chrg_act})  # reverse charge liability
     rows: dict[tuple, dict] = {}
     for l in session.scalars(select(JournalLine).where(JournalLine.vat_group.is_not(None),
                                                        JournalLine.ref_date >= date_from, JournalLine.ref_date <= date_to)):

@@ -79,7 +79,7 @@ def lookups(s: Session = Depends(get_session)) -> dict:
     return {
         "currencies": [{"code": c.curr_code, "name": c.curr_name} for c in s.scalars(select(Currency))],
         "tax_groups": [{"code": t.code, "name": t.name, "category": t.category, "rate": t.rate, "account": t.account,
-                        "inactive": t.inactive, "gst": tax.gst_kind(s, t),
+                        "inactive": t.inactive, "gst": tax.gst_kind(s, t), "rev_charge": t.rev_charge,
                         "components": [{"sta_code": a.code, "rate": r} for a, r in tax.components(s, t)]}
                        for t in s.scalars(select(TaxGroup).order_by(TaxGroup.category.desc(), TaxGroup.rate, TaxGroup.code))],
         "payment_terms": [_terms_out(p) for p in s.scalars(select(PaymentTerms).order_by(PaymentTerms.group_num))],

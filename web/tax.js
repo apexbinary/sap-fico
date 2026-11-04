@@ -8,7 +8,9 @@ const AUTHORITY_FIELDS = () => [
   { k: "type", label: "Tax type", type: "select", options: () => state.taxSetup.types.map((t) => [t.code, `${t.code} — ${t.name}`]) },
   { k: "sales_tax", label: "Output tax account", type: "select", blank: false, options: O.accounts((a) => !a.control) },
   { k: "purch_tax", label: "Input tax account", type: "select", blank: false, options: O.accounts((a) => !a.control) },
+  { k: "rvs_chrg_act", label: "Reverse charge liability account", type: "select", options: O.accounts((a) => !a.control) },
 ];
+const RC_NAMES = { N: "", Y: "reverse charge", I: "import of goods" };
 const HSN_FIELDS = [
   { k: "chapter_id", label: "HSN / SAC code", req: true, max: 20 }, { k: "dscription", label: "Description", req: true, max: 254, span: 2 },
   { k: "item_type", label: "Type", type: "select", blank: false, options: [["I", "Goods (HSN)"], ["S", "Services (SAC)"]] },
@@ -43,21 +45,23 @@ views["tax-setup"] = async (c) => {
       <div class="card"><div class="card-head">Tax types (OSTT)</div><table><tbody>
         ${T.types.map((t) => `<tr><td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td></tr>`).join("") || `<tr><td class="empty">No tax types.</td></tr>`}</tbody></table>
         <div class="card-body"><div class="form-grid">${fieldsHtml(TYPE_FIELDS, {}, "tt")}</div><button class="btn secondary small" id="tt-save" style="margin-top:8px">Add / update</button></div></div>
-      <div class="card"><div class="card-head">Tax authorities (OSTA)</div><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Output account</th><th>Input account</th></tr></thead><tbody>
-        ${T.authorities.map((a) => `<tr><td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td><td>${esc(a.type || "")}</td><td class="mono">${esc(a.sales_tax)}</td><td class="mono">${esc(a.purch_tax)}</td></tr>`).join("")}</tbody></table>
+      <div class="card"><div class="card-head">Tax authorities (OSTA)</div><table><thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Output account</th><th>Input account</th><th>Reverse charge</th></tr></thead><tbody>
+        ${T.authorities.map((a) => `<tr><td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td><td>${esc(a.type || "")}</td><td class="mono">${esc(a.sales_tax)}</td><td class="mono">${esc(a.purch_tax)}</td><td class="mono">${esc(a.rvs_chrg_act || "")}</td></tr>`).join("")}</tbody></table>
         <div class="card-body"><div class="form-grid">${fieldsHtml(AUTHORITY_FIELDS(), {}, "ta")}</div><button class="btn secondary small" id="ta-save" style="margin-top:8px">Add / update</button></div></div>
     </div>
     <div class="card"><div class="card-head">Tax codes (OVTG + components STC1) — click a code to change it</div><div style="max-height:360px;overflow:auto"><table><thead><tr><th>Code</th><th>Name</th><th>Category</th><th class="num">Rate</th><th>Components</th><th>GST</th><th>Used</th><th>Active</th></tr></thead><tbody>
       ${T.codes.map((t) => `<tr style="cursor:pointer" onclick="location.hash='#/tax-setup?code=${encodeURIComponent(t.code)}'"><td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td>
         <td>${t.category === "O" ? "Output" : "Input"}</td><td class="num">${Number(t.rate)}%</td>
         <td>${t.components.length ? t.components.map((x) => `${esc(x.sta_code)} ${Number(x.rate)}% <span class="help">(${esc(t.category === "O" ? auth(x.sta_code).sales_tax : auth(x.sta_code).purch_tax)})</span>`).join(" + ") : `account <span class="mono">${esc(t.account)}</span>`}</td>
-        <td>${t.gst ? (t.gst === "intra" ? "intra-state" : "inter-state") : ""}</td><td>${yesNo(t.used)}</td><td>${yesNo(!t.inactive)}</td></tr>`).join("")}</tbody></table></div>
+        <td>${t.gst ? (t.gst === "intra" ? "intra-state" : "inter-state") : ""}${t.rev_charge !== "N" ? ` <span class="status P">${RC_NAMES[t.rev_charge]}</span>` : ""}</td><td>${yesNo(t.used)}</td><td>${yesNo(!t.inactive)}</td></tr>`).join("")}</tbody></table></div>
       <div class="card-body"><h3 class="section">${edit ? `Change tax code ${esc(edit.code)} <a class="btn small ghost" href="#/tax-setup">New</a>${edit.used ? ' <span class="help">used in postings: only name and active can change</span>' : ""}` : "New tax code"}</h3>
         <div class="form-grid">${fieldsHtml([
           { k: "code", label: "Tax code", req: true, max: 8, ro: !!edit }, { k: "name", label: "Name", req: true, max: 30, span: 2 },
           { k: "category", label: "Category", type: "select", blank: false, options: [["O", "Output (sales)"], ["I", "Input (purchasing)"]], ro: !!(edit && edit.used) },
           { k: "rate", label: "Rate % (without components)", type: "number", step: "0.01", min: 0, maxv: 99.99, ro: !!(edit && edit.used) },
           { k: "account", label: "Tax account (without components)", type: "select", options: O.accounts((a) => !a.control), ro: !!(edit && edit.used) },
+          { k: "rev_charge", label: "Reverse charge (purchasing)", type: "select", blank: false, ro: !!(edit && edit.used),
+            options: [["N", "No — vendor charges the tax"], ["Y", "Reverse charge — company pays (RCM)"], ["I", "Import of goods — IGST paid at customs"]] },
           { k: "inactive", label: "Inactive", type: "check" }], edit ? { ...edit, rate: edit.components.length ? "" : edit.rate, account: edit.components.length ? "" : edit.account } : {}, "tc")}</div>
         <table class="lines" style="margin-top:8px"><thead><tr><th>Component (tax authority)</th><th class="num">Rate %</th><th></th></tr></thead><tbody id="tc-comps"></tbody></table>
         <button class="btn secondary small" id="tc-add" style="margin-top:6px">+ Component</button> <b style="margin-left:12px">Total rate: <span id="tc-total">0</span>%</b>
@@ -102,7 +106,8 @@ views["tax-setup"] = async (c) => {
   $("#hs-save").onclick = async () => done(await act(() => post("/tax/hsn", readFields(HSN_FIELDS, "hs")), "HSN / SAC code added"));
   $("#tc-save").onclick = async () => {
     const h = readFields([{ k: "code" }, { k: "name" }, { k: "category", type: "select" }, { k: "rate", type: "number" },
-      { k: "account", type: "select" }, { k: "inactive", type: "check" }], "tc");
+      { k: "account", type: "select" }, { k: "rev_charge", type: "select" }, { k: "inactive", type: "check" }], "tc");
+    if (edit && edit.used) h.rev_charge = edit.rev_charge;  // read-only field
     if (edit) h.code = edit.code;
     const body = { ...h, components: $$("#tc-comps tr").map((tr) => ({ sta_code: $(".tc-sta", tr).value, rate: Number($(".tc-rate", tr).value || 0) })) };
     done(await act(() => post("/tax/codes", body), (x) => `Tax code ${x.code} saved (${Number(x.rate)} %)`));

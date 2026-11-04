@@ -386,6 +386,10 @@ function docHeaderDefs(t, mode) {
     { k: "address2", label: "Ship-to address", type: "textarea", ro: true },
     { k: "group_num", label: "Payment terms", type: "select", int: true, options: () => O.terms(), ro: true },
     { k: "lic_trad_num", label: "Federal tax ID", ro: true },
+    ...(["18", "19"].includes(t.obj) ? [  // import of goods (India): bill of entry; the value is the IGST base in local currency
+      { k: "boe_num", label: "Bill of entry no.", max: 20, ro }, { k: "boe_date", label: "Bill of entry date", type: "date", ro },
+      { k: "boe_value", label: "Bill of entry value (IGST base, LC)", type: "number", step: "0.01", min: 0, ro },
+      { k: "port_code", label: "Port code", max: 6, ro }] : []),
     { k: "jrnl_memo", label: "Journal remark", max: 50, ro, span: 2 },
     { k: "comments", label: "Remarks", type: "textarea", max: 254, ro, span: 2 },
   ];
@@ -490,7 +494,8 @@ views.doc = async (c) => {
   const items = await api("/items");
   const L = state.lookups, side = t.side;
   const taxes = L.tax_groups.filter((x) => x.category === (side === "S" ? "O" : "I"));
-  const rate = (code) => Number((L.tax_groups.find((x) => x.code === code) || {}).rate || 0);
+  // reverse charge / import codes: the company pays the tax itself, so the vendor's total has none
+  const rate = (code) => { const g = L.tax_groups.find((x) => x.code === code) || {}; return g.rev_charge && g.rev_charge !== "N" ? 0 : Number(g.rate || 0); };
   const sellable = items.filter((i) => !i.frozen && (side === "S" ? i.sell_item : side === "P" ? i.prchse_item : i.invnt_item)
     && (["delivery", "return"].includes(t.kind) ? i.invnt_item : true));
   const whsOpts = (sel) => state.warehouses.map((w) => opt(w.whs_code, w.whs_code, sel)).join("");

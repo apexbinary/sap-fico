@@ -172,6 +172,10 @@ class DocumentRequest:
     confirm_credit: bool = False  # add although the credit / commitment limit is exceeded (warn mode)
     expenses: list[ExpenseRequest] = field(default_factory=list)  # freight (QUT3 ... RPC3)
     down_payments: list[DownPaymentDraw] = field(default_factory=list)  # invoices: paid down payments to draw (INV9 / PCH9)
+    boe_num: str | None = None  # A/P invoice / credit memo, import of goods: bill of entry no., date, value (IGST base, LC), port
+    boe_date: date | None = None
+    boe_value: Decimal | None = None
+    port_code: str | None = None
 
 
 # ------------------------------------------------------------- stock movements
@@ -457,12 +461,14 @@ def _create(session: Session, req: DocumentRequest):
     for x in lines:  # amounts in the document currency (_fc), then in local currency at the document rate
         x["line_total_fc"] = x["line_total"]
         x["net_fc"] = money(x["line_total_fc"] * (1 - hdisc / 100))
-        comps = tax.split(session, x["tg"], x["net_fc"])  # each tax component rounded on its own
+        rc = x["tg"] is not None and x["tg"].rev_charge != "N"  # reverse charge / import: the company pays the tax itself
+        comps = [] if rc else tax.split(session, x["tg"], x["net_fc"])  # each tax component rounded on its own
         x["vat_fc"] = sum((amount for _, amount, _ in comps), ZERO)
         x["vat_comps"] = [(account, money(amount * rate)) for account, amount, _ in comps]
         x["line_total"] = money(x["line_total_fc"] * rate)
         x["net"] = money(x["net_fc"] * rate)
         x["vat"] = sum((amount for _, amount in x["vat_comps"]), ZERO)
+    _reverse_charge(session, d, req, hb, lines, rate)
     total_before = sum((x["line_total"] for x in lines), ZERO)
     net_total = sum((x["net"] for x in lines), ZERO)
     vat_total = sum((x["vat"] for x in lines), ZERO)
@@ -487,10 +493,12 @@ def _create(session: Session, req: DocumentRequest):
         ekind = tax.gst_kind(session, etg)
         if ekind and supply and ekind != supply:
             etg = tax.matching_gst_group(session, etg, supply) or etg
-        comps = tax.split(session, etg, net_fc)
+        erc = etg is not None and etg.rev_charge != "N"  # e.g. goods transport agency freight under reverse charge
+        comps = [] if erc else tax.split(session, etg, net_fc)
         vat_comps = [(account, money(amount * rate)) for account, amount, _ in comps]
+        rc_comps = [(i, o, money(a * rate)) for i, o, a, _ in tax.reverse_charge(session, etg, net_fc, _determination(session, req.doc_date).imp_tax_acct)]
         expenses.append(dict(ex=ex, tg=etg, net_fc=net_fc, vat_fc=sum((a for _, a, _ in comps), ZERO), net=money(net_fc * rate),
-                             vat=sum((a for _, a in vat_comps), ZERO), vat_comps=vat_comps))
+                             vat=sum((a for _, a in vat_comps), ZERO), vat_comps=vat_comps, rc_comps=rc_comps))
     exp_net, exp_vat = sum((e["net"] for e in expenses), ZERO), sum((e["vat"] for e in expenses), ZERO)
     exp_net_fc, exp_vat_fc = sum((e["net_fc"] for e in expenses), ZERO), sum((e["vat_fc"] for e in expenses), ZERO)
 
@@ -511,6 +519,11 @@ def _create(session: Session, req: DocumentRequest):
         jrnl_memo=(req.jrnl_memo or (f"{d.name} - {bp.card_code}" if bp else d.name))[:50],
         series=default_series(session, d.obj), ref2=req.ref2, user_sign=_current_user_id(), **header,
     )
+    if d.obj in {"18", "19"}:  # bill of entry (import of goods); a credit memo keeps its base invoice's number / date / port
+        doc.boe_num = req.boe_num or (hb.boe_num if hb is not None and hb.obj_type == "18" else None)
+        doc.boe_date = req.boe_date or (hb.boe_date if hb is not None and hb.obj_type == "18" else None)
+        doc.port_code = req.port_code or (hb.port_code if hb is not None and hb.obj_type == "18" else None)
+        doc.boe_value = money(Decimal(req.boe_value)) if req.boe_value else None
     for n, x in enumerate(lines):
         lr, item = x["lr"], x["item"]
         doc.lines.append(line_cls(
@@ -554,6 +567,7 @@ def _create(session: Session, req: DocumentRequest):
             for account, amount in e["vat_comps"]:
                 ctx.vat[account] += -amount if out else amount
                 ctx.vat_groups[account] = e["tg"].code
+            _post_reverse_charge(ctx, e["tg"], e["rc_comps"])
     for line, x in zip(doc.lines, lines):
         ctx.dims = tuple(getattr(line, c) for c in ("ocr_code", "ocr_code2", "ocr_code3", "ocr_code4", "ocr_code5"))
         _post_line(ctx, line, x)
@@ -668,6 +682,41 @@ def _uom(item: Item, side: str) -> tuple[str | None, Decimal]:
     return item.invntry_uom, Decimal(1)
 
 
+def _reverse_charge(session: Session, d: DocDef, req: DocumentRequest, hb, lines: list[dict], rate: Decimal) -> None:
+    """Reverse charge / import of goods lines: x["rc_comps"] = [(input account, liability account, LC amount)].
+    The tax is not charged by the vendor (not in VatSum / DocTotal). Imported goods are taxed on the bill of
+    entry value (LC) when given, apportioned over the import lines by their net amount."""
+    for x in lines:
+        x["rc_comps"] = []
+    if d.obj not in {"18", "19"} and (req.boe_value or req.boe_num):
+        raise B1Error("A bill of entry belongs to an A/P invoice or A/P credit memo")
+    if d.side != "P":
+        return
+    imp_acct = _determination(session, req.doc_date).imp_tax_acct
+    imports = [x for x in lines if x["tg"] is not None and x["tg"].rev_charge == "I"]
+    if req.boe_value is not None:
+        if Decimal(req.boe_value) <= 0:
+            raise B1Error("The bill of entry value must be positive")
+        if not imports:
+            raise B1Error("The bill of entry value needs lines with an import tax code (IMP..)")
+        for x, base in zip(imports, tax.apportion(Decimal(req.boe_value), [x["net"] for x in imports])):
+            x["rc_comps"] = [(i, o, a) for i, o, a, _ in tax.reverse_charge(session, x["tg"], base, imp_acct)]  # base in LC
+    for x in lines:
+        if x["tg"] is not None and x["tg"].rev_charge != "N" and not x["rc_comps"]:
+            x["rc_comps"] = [(i, o, money(a * rate)) for i, o, a, _ in tax.reverse_charge(session, x["tg"], x["net_fc"], imp_acct)]
+
+
+def _post_reverse_charge(ctx: _Ctx, tg, rc_comps: list) -> None:
+    """Dr input tax / Cr reverse charge liability (import: IGST payable to customs, without tax group)."""
+    sign = -1 if ctx.d.kind == "credit" else 1
+    for inp, offset, amount in rc_comps:
+        ctx.vat[inp] += sign * amount
+        ctx.vat_groups[inp] = tg.code
+        ctx.vat[offset] -= sign * amount
+        if tg.rev_charge == "Y":
+            ctx.vat_groups[offset] = tg.code
+
+
 def _post_line(ctx: _Ctx, line, x: dict) -> None:
     """Stock movement and G/L amounts of one line (quantities in inventory units: Quantity x NumPerMsr)."""
     d, item, qty, net = ctx.d, x["item"], line.quantity * (line.num_per_msr or 1), x["net"]
@@ -681,6 +730,8 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
         for account, amount in x["vat_comps"]:
             ctx.vat[account] += sign * amount
             ctx.vat_groups[account] = x["tg"].code
+    if d.side == "P" and d.kind in {"invoice", "credit"}:
+        _post_reverse_charge(ctx, x["tg"], x["rc_comps"])
 
     if d.side == "S":
         revenue = group.revenues_ac if group else line.acct_code

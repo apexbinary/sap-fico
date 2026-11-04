@@ -54,7 +54,11 @@ CHART = [
     ("216100", "Output CGST", 2, "21", "Y", "N", "N", "N"),
     ("216200", "Output SGST", 2, "21", "Y", "N", "N", "N"),
     ("216300", "Output IGST", 2, "21", "Y", "N", "N", "N"),
+    ("216400", "CGST Payable (Reverse Charge)", 2, "21", "Y", "N", "N", "N"),
+    ("216500", "SGST Payable (Reverse Charge)", 2, "21", "Y", "N", "N", "N"),
+    ("216600", "IGST Payable (Reverse Charge)", 2, "21", "Y", "N", "N", "N"),
     ("217000", "TDS Payable", 2, "21", "Y", "N", "N", "N"),
+    ("218000", "IGST Payable on Imports (Customs)", 2, "21", "Y", "N", "N", "N"),
     ("3", "Capital and Reserves", 3, None, "N", "N", "N", "N"),
     ("31", "Shareholders' Funds", 3, "3", "N", "N", "N", "N"),
     ("311000", "Share Capital", 3, "31", "Y", "N", "N", "N"),
@@ -92,9 +96,9 @@ CHART = [
     ("723000", "Dunning Fees", 7, "72", "Y", "I", "N", "N"),
 ]
 
-# GST tax authorities (OSTA): code, name, output account, input account
-TAX_AUTHORITIES = [("CGST", "Central GST", "216100", "116100"), ("SGST", "State GST", "216200", "116200"),
-                   ("IGST", "Integrated GST", "216300", "116300")]
+# GST tax authorities (OSTA): code, name, output account, input account, reverse charge liability account
+TAX_AUTHORITIES = [("CGST", "Central GST", "216100", "116100", "216400"), ("SGST", "State GST", "216200", "116200", "216500"),
+                   ("IGST", "Integrated GST", "216300", "116300", "216600")]
 GST_RATES = ["5", "12", "18", "28"]
 
 # Object types with their document numbering start (NNM1)
@@ -137,6 +141,19 @@ def _gst_tax_groups() -> list[tuple[str, str, str, Decimal, str, list[tuple[str,
                         rate, other, [("CGST", half), ("SGST", half)]))
             out.append((f"{prefix}IG{r}", f"{label} IGST {r}%", cat, rate, other, [("IGST", rate)]))
         out.append((f"{prefix}NIL", f"{label} GST nil / exempt", cat, Decimal("0"), other, []))
+    return out
+
+
+def _rcm_tax_groups() -> list[tuple[str, str, str, Decimal, str, list[tuple[str, Decimal]], str]]:
+    """Input codes paid by the recipient: RCS18 = reverse charge CGST 9 % + SGST 9 %, RIG18 = reverse charge
+    IGST 18 % (also import of services), IMP18 = IGST 18 % on imported goods (paid at customs)."""
+    out = []
+    for r in GST_RATES:
+        rate, half = Decimal(r), Decimal(r) / 2
+        h = f"{half.normalize():f}"
+        out.append((f"RCS{r}", f"RCM GST {r}% (CGST {h}+SGST {h})", "I", rate, "116000", [("CGST", half), ("SGST", half)], "Y"))
+        out.append((f"RIG{r}", f"RCM IGST {r}%", "I", rate, "116000", [("IGST", rate)], "Y"))
+        out.append((f"IMP{r}", f"Import IGST {r}%", "I", rate, "116000", [("IGST", rate)], "I"))
     return out
 
 
@@ -206,13 +223,18 @@ def seed() -> None:
                             act_type=act_type, loc_man_tran=control, finanse=cash), code)
 
         # tax setup is maintained by users (Administration -> Tax setup): created once, never overwritten
-        for code, name, _, _ in TAX_AUTHORITIES:
+        for code, name, *_ in TAX_AUTHORITIES:
             put_new(TaxType(code=code, name=name), code)
-        for code, name, sales, purch in TAX_AUTHORITIES:
-            put_new(TaxAuthority(code=code, name=name, type=code, sales_tax=sales, purch_tax=purch), code)
+        for code, name, sales, purch, rcm in TAX_AUTHORITIES:
+            put_new(TaxAuthority(code=code, name=name, type=code, sales_tax=sales, purch_tax=purch, rvs_chrg_act=rcm), code)
         for code, name, category, rate, account, comps in _gst_tax_groups():
             if s.get(TaxGroup, code) is None:
                 put(TaxGroup(code=code, name=name, category=category, rate=rate, account=account))
+                for line, (authority, comp_rate) in enumerate(comps):
+                    put(TaxComponent(stc_code=code, line=line, sta_code=authority, efctiv_rate=comp_rate))
+        for code, name, category, rate, account, comps, rc in _rcm_tax_groups():  # reverse charge / import codes (once)
+            if s.get(TaxGroup, code) is None and all(s.get(TaxAuthority, a) is not None for a, _ in comps):
+                put(TaxGroup(code=code, name=name, category=category, rate=rate, account=account, rev_charge=rc))
                 for line, (authority, comp_rate) in enumerate(comps):
                     put(TaxComponent(stc_code=code, line=line, sta_code=authority, efctiv_rate=comp_rate))
         for n, (chapter, descr, kind) in enumerate(HSN_CODES, start=1):

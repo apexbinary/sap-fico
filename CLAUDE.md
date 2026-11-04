@@ -250,6 +250,10 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   intra (CGST + SGST) or inter (IGST); a code of the wrong kind is switched to the one of
   the same rate, except when the deciding OTCD rule has its own supply condition.
 - A tax code used in postings keeps its category, rate and components.
+- Reverse charge (OVTG RevCharge Y) / import of goods (I): input codes only; the vendor is not charged the
+  tax (not in VatSum / DocTotal); each component posts Dr input account / Cr OSTA RvsChrgAct (import: Cr OACP
+  ImpTaxAcct without tax group). Import IGST is on BoEValue (LC) when given. GSTR-3B: 3.1(d) and liability
+  include reverse charge (paid in cash, never from ITC); ITC 4A(1) imports, 4A(2) foreign RCM, 4A(3) RCM.
 - Tax setup data is maintained by users: the seed creates it once.
 
 ### Banking (keep invariant)
@@ -376,4 +380,5 @@ OACP column names are descriptive (B1's OACP has many more columns with other
 names). RDOC keeps template options in descriptive columns (Style, Color, Show*, Footer,
 Default) instead of B1's Print Layout Designer template; OADM LogoImage / EInvoice /
 EWayBill / EDocMode, EDOC, OCPT, OUSS, OCRD PANNo and the OWHT India columns (Section, Thr*,
-RateNoPAN), OEXD SACCode and the OADM credit check columns are not B1-verified either. Everything else uses B1's documented table and field names.
+RateNoPAN), OEXD SACCode, the OADM credit check columns, OVTG RevCharge, OSTA RvsChrgAct and the bill of entry
+columns (BoENum / BoEDate / BoEValue / PortCode) are not B1-verified either. Everything else uses B1's documented table and field names.

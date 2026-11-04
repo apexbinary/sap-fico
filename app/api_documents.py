@@ -30,6 +30,7 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "doc_total": doc.doc_total, "paid_to_date": doc.paid_to_date, "trans_id": doc.trans_id,
            "wt_sum": doc.wt_sum, "wt_sum_fc": doc.wt_sum_fc, "total_expns": doc.total_expns, "total_exp_fc": doc.total_exp_fc,
            "dpm_amnt": doc.dpm_amnt, "dpm_appl": doc.dpm_appl,
+           "boe_num": doc.boe_num, "boe_date": doc.boe_date, "boe_value": doc.boe_value, "port_code": doc.port_code,
            "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
            "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
@@ -157,6 +158,10 @@ class DocumentIn(BaseModel):
     confirm_credit: bool = False
     expenses: list[dict] | None = None  # [{expns_code, amount, vat_group}]
     down_payments: list[dict] | None = None  # invoices: [{dp_entry, amount}] paid down payments to draw
+    boe_num: str | None = Field(None, max_length=20)  # import of goods: bill of entry
+    boe_date: date | None = None
+    boe_value: Decimal | None = Field(None, gt=0)
+    port_code: str | None = Field(None, max_length=6)
     lines: list[DocLineIn]
 
 

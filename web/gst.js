@@ -62,6 +62,9 @@ views["gst-returns"] = async (c) => {
         ${[...r.inter_state_unregistered.map((x) => ({ ...x, to: "Unregistered persons" })), ...r.inter_state_composition.map((x) => ({ ...x, to: "Composition dealers" }))]
           .map((x) => `<tr><td>${esc(`${x.pos || ""} ${x.pos_name || ""}`)}</td><td>${x.to}</td><td class="num">${n(x.taxable)}</td><td class="num">${n(x.igst)}</td></tr>`).join("") || empty(4)}</tbody></table>`)}
       ${section("4 Eligible ITC", "from A/P invoices less A/P credit memos", `<table><thead><tr><th>Details</th>${heads(["IGST", "CGST", "SGST", "Cess"])}</tr></thead><tbody>
+        <tr><td>(A)(1) Import of goods</td>${cells(r.itc.import_goods, ["igst", "cgst", "sgst", "cess"])}</tr>
+        <tr><td>(A)(2) Import of services</td>${cells(r.itc.import_services, ["igst", "cgst", "sgst", "cess"])}</tr>
+        <tr><td>(A)(3) Inward supplies liable to reverse charge (other than 1 and 2)</td>${cells(r.itc.reverse_charge, ["igst", "cgst", "sgst", "cess"])}</tr>
         <tr><td>(A)(5) All other ITC</td>${cells(r.itc.available_other, ["igst", "cgst", "sgst", "cess"])}</tr>
         <tr><td>(B) ITC reversed</td>${cells(r.itc.reversed, ["igst", "cgst", "sgst", "cess"])}</tr>
         <tr class="total"><td>(C) Net ITC available</td>${cells(r.itc.net, ["igst", "cgst", "sgst", "cess"])}</tr>
@@ -69,7 +72,7 @@ views["gst-returns"] = async (c) => {
       ${section("5 Exempt, nil-rated and non-GST inward supplies", "", `<table><thead><tr><th>Nature of supplies</th><th class="num">Inter-state</th><th class="num">Intra-state</th></tr></thead><tbody>
         <tr><td>Composition, exempt and nil-rated supplies</td><td class="num">${n(r.exempt_inward.inter)}</td><td class="num">${n(r.exempt_inward.intra)}</td></tr>
         <tr><td>Non-GST supplies</td><td class="num">${n(0)}</td><td class="num">${n(0)}</td></tr></tbody></table>`)}
-      ${section("6.1 Payment of tax", "ITC set-off: IGST credit first against IGST, then CGST / SGST; CGST and SGST credit against themselves, then IGST", `<table><thead><tr><th>Tax</th><th class="num">Tax payable</th><th class="num">Paid by IGST credit</th>
+      ${section("6.1 Payment of tax", "ITC set-off: IGST credit first against IGST, then CGST / SGST; CGST and SGST credit against themselves, then IGST; reverse charge tax is paid in cash", `<table><thead><tr><th>Tax</th><th class="num">Tax payable</th><th class="num">Paid by IGST credit</th>
         <th class="num">Paid by CGST credit</th><th class="num">Paid by SGST credit</th><th class="num">Paid by cess credit</th><th class="num">Paid in cash</th></tr></thead><tbody>
         ${["igst", "cgst", "sgst", "cess"].map((h) => `<tr><td>${h.toUpperCase()}</td><td class="num">${n(r.liability[h])}</td>
           ${["igst", "cgst", "sgst", "cess"].map((cr) => `<td class="num">${n(usedBy(cr, h))}</td>`).join("")}<td class="num"><b>${n(p.cash[h])}</b></td></tr>`).join("")}

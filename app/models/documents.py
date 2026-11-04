@@ -78,6 +78,11 @@ class DocumentHeader:
     dpm_appl: Mapped[Decimal] = mapped_column("DpmAppl", AMOUNT, default=Decimal("0"), server_default="0")  # down payments: drawn on invoices
     paid_fc: Mapped[Decimal] = mapped_column("PaidFC", AMOUNT, default=Decimal("0"), server_default="0")  # Paid to date (FC)
     filler: Mapped[str | None] = mapped_column("Filler", String(8))  # From warehouse (transfer)
+    # India, import of goods (A/P invoice / credit memo): bill of entry; BoEValue = IGST base in LC (assessable value + duty)
+    boe_num: Mapped[str | None] = mapped_column("BoENum", String(20))
+    boe_date: Mapped[date | None] = mapped_column("BoEDate", Date)
+    boe_value: Mapped[Decimal | None] = mapped_column("BoEValue", AMOUNT)
+    port_code: Mapped[str | None] = mapped_column("PortCode", String(6))
     to_whs_code: Mapped[str | None] = mapped_column("ToWhsCode", String(8))  # To warehouse (transfer)
     comments: Mapped[str | None] = mapped_column("Comments", String(254))
     jrnl_memo: Mapped[str | None] = mapped_column("JrnlMemo", String(50))

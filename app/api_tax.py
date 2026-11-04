@@ -22,10 +22,11 @@ router = APIRouter()
 def tax_setup(s: Session = Depends(get_session)) -> dict:
     return {
         "types": [{"code": t.code, "name": t.name} for t in s.scalars(select(TaxType).order_by(TaxType.code))],
-        "authorities": [{"code": a.code, "name": a.name, "type": a.type, "sales_tax": a.sales_tax, "purch_tax": a.purch_tax}
+        "authorities": [{"code": a.code, "name": a.name, "type": a.type, "sales_tax": a.sales_tax, "purch_tax": a.purch_tax,
+                         "rvs_chrg_act": a.rvs_chrg_act}
                         for a in s.scalars(select(TaxAuthority).order_by(TaxAuthority.code))],
         "codes": [{"code": t.code, "name": t.name, "category": t.category, "rate": t.rate, "account": t.account,
-                   "inactive": t.inactive, "gst": tax.gst_kind(s, t), "used": tax.tax_code_used(s, t.code),
+                   "inactive": t.inactive, "rev_charge": t.rev_charge, "gst": tax.gst_kind(s, t), "used": tax.tax_code_used(s, t.code),
                    "components": [{"sta_code": a.code, "rate": r} for a, r in tax.components(s, t)]}
                   for t in s.scalars(select(TaxGroup).order_by(TaxGroup.category.desc(), TaxGroup.rate, TaxGroup.code))],
         "hsn": [{"abs_entry": h.abs_entry, "chapter_id": h.chapter_id, "dscription": h.dscription, "item_type": h.item_type}
@@ -54,11 +55,12 @@ class TaxAuthorityIn(BaseModel):
     type: str | None = Field(None, max_length=8)
     sales_tax: str
     purch_tax: str
+    rvs_chrg_act: str | None = None  # reverse charge liability
 
 
 @router.post("/tax/authorities", tags=["Tax setup"], summary="Add / change a tax authority (OSTA) with its accounts")
 def save_authority(body: TaxAuthorityIn, s: Session = Depends(get_session)) -> dict:
-    run(lambda: tax.save_tax_authority(s, body.code, body.name, body.type, body.sales_tax, body.purch_tax))
+    run(lambda: tax.save_tax_authority(s, body.code, body.name, body.type, body.sales_tax, body.purch_tax, body.rvs_chrg_act))
     return body.model_dump()
 
 
@@ -75,13 +77,14 @@ class TaxCodeIn(BaseModel):
     rate: Decimal | None = Field(None, ge=0, lt=100)  # without components
     account: str | None = None  # without components
     inactive: bool = False
+    rev_charge: str = Field("N", pattern="^[NYI]$")  # N normal, Y reverse charge, I import of goods
 
 
 @router.post("/tax/codes", tags=["Tax setup"], summary="Add / change a tax code (OVTG) and its components (STC1)")
 def save_code(body: TaxCodeIn, s: Session = Depends(get_session)) -> dict:
     tg = run(lambda: tax.save_tax_code(s, body.code, body.name, body.category,
                                        [(c.sta_code, c.rate) for c in body.components], body.rate, body.account,
-                                       body.inactive))
+                                       body.inactive, body.rev_charge))
     return {"code": tg.code, "rate": tg.rate}
 
 

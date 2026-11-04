@@ -95,16 +95,18 @@ STC1 lines (one tax authority each). Every part is maintained on the Tax Setup s
 | Tax type code / name | OSTT Code / Name | text | ✅ |
 | Tax authority code / name / tax type | OSTA Code / Name / Type | text / dropdown | ✅ |
 | Output / input tax account | OSTA SalesTax / PurchTax | choose | ✅ validated: active, not a control account |
+| Reverse charge liability account | OSTA RvsChrgAct | choose | ✅ seeded 216400 / 216500 / 216600 ⚠ not B1-verified |
 | Tax code / name / category (output / input) / inactive | OVTG Code / Name / Category / Inactive | text / dropdown / checkbox | ✅ |
 | Components: tax authority / rate | STC1 STACode / EfctivRate | dropdown / number | ✅ rate of the code = sum of the components; each component rounded on its own |
 | Rate / tax account of a code without components | OVTG Rate / Account | number / choose | ✅ |
+| Reverse charge: no / reverse charge (company pays: input tax against the RCM liability) / import of goods (IGST paid at customs, OACP ImpTaxAcct 218000) | OVTG RevCharge | dropdown | ✅ input codes with components only; seeded RCS / RIG / IMP 5-28 % ⚠ not B1-verified |
 | Used code locked (category, rate, components) | — | — | ✅ as in B1: create a new code and set the old one inactive |
 | Effective from | EffecDate | date | ✅ column; ⏸ rate history (VTG1) |
 | HSN / SAC code / description / goods or services | OCHP ChapterID / Dscription / ItemType | text / text / dropdown | ✅ items choose from it |
 | Tax code determination: priority, sales / purchasing, BP, BP group, item, item group, HSN / SAC, place-of-supply state, intra / inter-state, tax code, description, active | OTCD | number / dropdown / choose / checkbox | ✅ first matching active rule (lowest priority); an entered code wins. ⚠ OTCD column names are descriptive (B1 uses generic key fields) |
 | GST place of supply | OADM State vs CRD1 State | — | ✅ intra-state code (CGST + SGST) and inter-state code (IGST) of the same rate are switched automatically |
 | Tax report (GST summary): output, input, net payable by component and tax code | — | report | ✅ |
-| GSTR-1 / GSTR-3B filing formats, e-invoicing (IRN), e-way bill, TDS / TCS (withholding tax), reverse charge | — | — | ⏸ not built |
+| Outward supplies under reverse charge (sales invoices where the customer pays), TCS | — | — | ⏸ not built |
 
 ### Payment terms (OCTG)
 | Field | Column | Type | Status |
@@ -414,6 +416,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Ship to (address ID) / ship-to address | ShipToCode / Address2 | dropdown / textarea | ✅ |
 | Payment terms | GroupNum | dropdown | 🔒 from the BP (⏸ changing terms per document) |
 | Federal tax ID | LicTradNum | text | 🔒 from the BP |
+| A/P invoice / credit memo, import of goods: bill of entry no., date, value (IGST base in LC, apportioned over the import lines), port code | BoENum / BoEDate / BoEValue / PortCode | text / date / number / text | ✅ a credit memo keeps its invoice's no. / date / port ⚠ not B1-verified; customs duty itself is posted separately (landed costs ⏸) |
 | Journal remark | JrnlMemo | text | ✅ |
 | Remarks | Comments | textarea | ✅ |
 | Total before discount / discount % / discount / tax / total | — / DiscPrcnt / DiscSum / VatSum / DocTotal | number | ✅ discount % default from the BP |
@@ -645,9 +648,10 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | GSTR-1 6A exports (WPAY / WOPAY, POS 96), 9B CDNR / CDNUR (credit notes from A/R credit memos) | ORIN / RIN1 | ✅ shipping bill no. / port not kept |
 | GSTR-1 8 nil-rated / exempt / non-GST, 12 HSN summary (B2B and B2C, UQC, qty), 13 documents issued (from-to, canceled) | OITM ChapterID, NNM1 | ✅ exempt and non-GST tax codes are reported as nil-rated |
 | GSTR-3B 3.1 (a)-(e), 3.2 inter-state to unregistered / composition, 4 ITC (A/P invoices less A/P credit memos), 5 exempt inward, 6.1 payment with ITC set-off (IGST first, rule 88A) | OPCH / ORPC | ✅ |
+| GSTR-3B 3.1(d) inward supplies under reverse charge; 4A(1) import of goods, 4A(2) import of services (reverse charge from a foreign vendor), 4A(3) other reverse charge; reverse charge tax paid in cash | OVTG RevCharge, OPCH BoEValue | ✅ |
 | JSON for the GST portal offline tool (GSTR-1, GSTR-3B) | | download | ✅ layout of the offline tool, not validated against the portal |
 | Checks before filing: GSTIN format, missing HSN / SAC, unknown place of supply, mixed intra / inter codes | | ✅ |
-| Reverse charge, imports (IMPG / IMPS), ITC reversals / ineligible ITC, amendments (B2BA ...), GSTR-2B matching, e-invoice IRN / e-way bill, filing on the portal | | ⏸ |
+| ITC reversals / ineligible ITC, amendments (B2BA ...), GSTR-2B matching, filing on the portal | | ⏸ |
 
 ### Printed documents (Print / PDF)
 | Element | Source | Status |

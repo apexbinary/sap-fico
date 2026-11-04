@@ -46,6 +46,33 @@ def split(session: Session, tg: TaxGroup | None, net: Decimal) -> list[tuple[str
     return out
 
 
+def reverse_charge(session: Session, tg: TaxGroup | None, net: Decimal, imp_acct: str | None = None) -> list[tuple[str, str, Decimal, str]]:
+    """Tax the recipient pays itself (reverse charge / import of goods): [(input account, liability account,
+    amount, component)], each component rounded on its own. The vendor is not charged this tax."""
+    from app.services.admin import B1Error
+
+    if tg is None or tg.rev_charge not in {"Y", "I"}:
+        return []
+    out = []
+    for authority, rate in components(session, tg):
+        offset = imp_acct if tg.rev_charge == "I" else authority.rvs_chrg_act
+        if not offset:
+            raise B1Error(f"Tax authority {authority.code} has no reverse charge liability account")
+        out.append((authority.purch_tax, offset, _money(net * rate / 100), authority.code))
+    return out
+
+
+def apportion(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
+    """Split an amount in proportion to the weights (bill of entry value over the import lines); the last takes the rest."""
+    base = sum(weights, ZERO)
+    if not weights:
+        return []
+    if not base:
+        return [ZERO] * (len(weights) - 1) + [_money(total)]
+    out = [_money(total * w / base) for w in weights[:-1]]
+    return out + [_money(total) - sum(out, ZERO)]
+
+
 def gst_kind(session: Session, tg: TaxGroup | None) -> str | None:
     """'intra' (CGST + SGST), 'inter' (IGST) or None for a tax group without GST components."""
     if tg is None:
@@ -61,7 +88,7 @@ def gst_kind(session: Session, tg: TaxGroup | None) -> str | None:
 def matching_gst_group(session: Session, tg: TaxGroup, kind: str) -> TaxGroup | None:
     """The GST code of the same category and rate for intra- or inter-state supply."""
     for other in session.scalars(select(TaxGroup).where(TaxGroup.category == tg.category, TaxGroup.rate == tg.rate,
-                                                        TaxGroup.inactive.is_(False))):
+                                                        TaxGroup.rev_charge == tg.rev_charge, TaxGroup.inactive.is_(False))):
         if gst_kind(session, other) == kind:
             return other
     return None
@@ -125,7 +152,7 @@ def save_tax_type(session: Session, code: str, name: str) -> None:
 
 
 def save_tax_authority(session: Session, code: str, name: str, type_code: str | None, sales_tax: str,
-                       purch_tax: str) -> None:
+                       purch_tax: str, rvs_chrg_act: str | None = None) -> None:
     from app.models.admin import TaxType
     from app.services.admin import B1Error
 
@@ -135,13 +162,16 @@ def save_tax_authority(session: Session, code: str, name: str, type_code: str | 
         raise B1Error(f"Tax type {type_code} does not exist")
     _check_account(session, sales_tax, "output tax")
     _check_account(session, purch_tax, "input tax")
+    if rvs_chrg_act:
+        _check_account(session, rvs_chrg_act, "reverse charge liability")
     session.merge(TaxAuthority(code=code.strip().upper(), name=name, type=type_code, sales_tax=sales_tax,
-                               purch_tax=purch_tax))
+                               purch_tax=purch_tax, rvs_chrg_act=rvs_chrg_act or None))
     session.commit()
 
 
 def save_tax_code(session: Session, code: str, name: str, category: str, components_in: list[tuple[str, Decimal]],
-                  rate: Decimal | None = None, account: str | None = None, inactive: bool = False) -> TaxGroup:
+                  rate: Decimal | None = None, account: str | None = None, inactive: bool = False,
+                  rev_charge: str = "N") -> TaxGroup:
     """Add or change a tax code: either components (rate = their sum) or one rate with its own account."""
     from app.services.admin import B1Error
 
@@ -158,6 +188,16 @@ def save_tax_code(session: Session, code: str, name: str, category: str, compone
             raise B1Error("A component rate cannot be negative")
     if len({sta for sta, _ in components_in}) != len(components_in):
         raise B1Error("A tax authority can appear only once in a tax code")
+    rev_charge = rev_charge or "N"
+    if rev_charge not in {"N", "Y", "I"}:
+        raise B1Error("Reverse charge: N no, Y reverse charge, I import of goods")
+    if rev_charge != "N":
+        if category != "I":
+            raise B1Error("Reverse charge and import codes are input (purchasing) tax codes")
+        if not components_in:
+            raise B1Error("A reverse charge / import code needs tax components")
+        if rev_charge == "Y" and any(not session.get(TaxAuthority, sta).rvs_chrg_act for sta, _ in components_in):
+            raise B1Error("Every component of a reverse charge code needs a tax authority with a reverse charge liability account")
     new_rate = sum((r for _, r in components_in), ZERO) if components_in else Decimal(rate or 0)
     if new_rate < 0 or new_rate >= 100:
         raise B1Error("The rate must be between 0 and 100 %")
@@ -167,14 +207,14 @@ def save_tax_code(session: Session, code: str, name: str, category: str, compone
     tg = session.get(TaxGroup, code)
     if tg is not None:
         old = [(a.code, r) for a, r in components(session, tg)]
-        changed = tg.category != category or tg.rate != new_rate or old != components_in
+        changed = tg.category != category or tg.rate != new_rate or old != components_in or tg.rev_charge != rev_charge
         if changed and tax_code_used(session, code):
             raise B1Error(f"Tax code {code} is used in postings; its category, rate and components cannot change "
                           f"(create a new code and set this one inactive)")
     else:
         tg = TaxGroup(code=code)
         session.add(tg)
-    tg.name, tg.category, tg.rate, tg.account, tg.inactive = name, category, new_rate, acct, inactive
+    tg.name, tg.category, tg.rate, tg.account, tg.inactive, tg.rev_charge = name, category, new_rate, acct, inactive, rev_charge
     session.flush()
     for row in session.scalars(select(TaxComponent).where(TaxComponent.stc_code == code)):
         session.delete(row)

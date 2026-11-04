@@ -18,6 +18,7 @@ trademarks of SAP SE.
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
 | Printed documents — GST layout (tax invoice, credit note, delivery challan, orders ...) with HSN summary and amount in words, print / PDF | ✅ |
 | CRM — sales opportunities with stages, activities, calendar, pipeline | ✅ |
+| TCS, TDS on advances, TDS / TCS challans, Form 26Q / 27EQ, Form 16A / 27D | ✅ |
 | Down payment invoices with GST on advances (GSTR-1 11A / 11B) | ✅ |
 | GST filing status, lock of filed months, GSTR-1 amendments (B2BA, CDNRA, B2CSA ...) | ✅ |
 | GST blocked ITC, ITC reversals / reclaims, GSTR-2B reconciliation | ✅ |

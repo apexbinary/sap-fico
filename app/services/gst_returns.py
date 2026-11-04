@@ -148,7 +148,7 @@ def _doc(session: Session, comp, obj: str, d) -> Doc:
               card_name=d.card_name, gstin=gstin, gst_type=(addr.gst_type if addr else None) or ("R" if gstin else "U"),
               export=bool(country) and country != (comp.country or "IN"), pos_state=st,
               pos=state.gst_code if state else None, pos_name=state.name if state else None,
-              inter=kind == "inter", value=_m(d.doc_total), amnd_entry=getattr(d, "amnd_entry", None), dp_adjust=adjust)
+              inter=kind == "inter", value=_m(d.doc_total - (d.wt_sum if obj in {"13", "14"} else 0)), amnd_entry=getattr(d, "amnd_entry", None), dp_adjust=adjust)
     if doc.export:
         doc.inter, doc.pos, doc.pos_name = True, "96", "Other countries"
     if gstin and not GSTIN.match(gstin):

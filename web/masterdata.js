@@ -84,9 +84,9 @@ const PARTNER_PAYMENT = (vendor) => [
 ];
 const PARTNER_ACCOUNTING = (vendor) => [
   { k: "vat_group", label: "Tax group", type: "select", options: O.taxes(vendor ? "I" : "O") },
-  ...(vendor ? [{ k: "wt_liable", label: "Subject to withholding tax (TDS)", type: "check" },
-    { k: "pan_no", label: "PAN (empty: from the GSTIN)", max: 10 },
-    { k: "wt_codes", label: "Withholding tax codes", type: "multi", options: () => O.wtCodes(), span: 2 }] : []),
+  { k: "wt_liable", label: vendor ? "Subject to withholding tax (TDS)" : "Subject to tax collected at source (TCS)", type: "check" },
+  { k: "pan_no", label: "PAN (empty: from the GSTIN)", max: 10 },
+  { k: "wt_codes", label: vendor ? "TDS codes" : "TCS codes", type: "multi", options: () => O.wtCodes(vendor ? "D" : "C"), span: 2 },
 ];
 const ADDRESS_FIELDS = [
   { k: "adres_type", label: "Type", type: "select", blank: false, options: [["B", "Bill to"], ["S", "Ship to"]] },
@@ -373,6 +373,7 @@ const COMPANY_FIELDS = [
   { k: "country", label: "Country", type: "select", options: () => O.countries() },
   { k: "state", label: "State", type: "select", options: [] },
   { k: "tax_id", label: "Federal tax ID / GSTIN", max: 32 },
+  { k: "tan_no", label: "TAN (TDS / TCS returns)", max: 10 },
   { k: "phone", label: "Telephone 1", max: 20 }, { k: "phone2", label: "Telephone 2", max: 20 },
   { k: "fax", label: "Fax", max: 20 }, { k: "e_mail", label: "E-mail", max: 100 },
   { k: "manager", label: "Manager", max: 100 },

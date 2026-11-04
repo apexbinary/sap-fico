@@ -40,6 +40,7 @@ class Company(Base):
     country: Mapped[str | None] = mapped_column("Country", String(3))  # Country
     state: Mapped[str | None] = mapped_column("State", String(3))  # State (GST: place of business)
     tax_id: Mapped[str | None] = mapped_column("TaxIdNum", String(32))  # Federal tax ID
+    tan_no: Mapped[str | None] = mapped_column("TANNo", String(10))  # India: tax deduction account number (TDS / TCS returns; not B1-verified)
     address: Mapped[str | None] = mapped_column("CompnyAddr", String(254))  # Address
     phone: Mapped[str | None] = mapped_column("Phone1", String(20))  # Telephone
     phone2: Mapped[str | None] = mapped_column("Phone2", String(20))  # Telephone 2
@@ -396,8 +397,9 @@ class WithholdingTax(Base):
     wt_code: Mapped[str] = mapped_column("WTCode", String(4), primary_key=True)
     wt_name: Mapped[str] = mapped_column("WTName", String(50))
     rate: Mapped[Decimal] = mapped_column("Rate", Numeric(19, 6))
-    category: Mapped[str] = mapped_column("Category", String(1), default="I")  # I invoice (P payment not built)
-    base_type: Mapped[str] = mapped_column("BaseType", String(1), default="N")  # N net (excl. GST)
+    category: Mapped[str] = mapped_column("Category", String(1), default="I")  # I invoice (advances: deducted on payments on account)
+    base_type: Mapped[str] = mapped_column("BaseType", String(1), default="N")  # N net (excl. GST), G gross (incl. GST: TCS)
+    wt_kind: Mapped[str] = mapped_column("WTKind", String(1), default="D", server_default="D")  # D TDS (deducted, A/P), C TCS (collected, A/R)
     account: Mapped[str] = mapped_column("Account", String(15), ForeignKey("oact.AcctCode"))
     section: Mapped[str] = mapped_column("Section", String(10))
     thr_single: Mapped[Decimal] = mapped_column("ThrSingle", Numeric(19, 6), default=Decimal("0"))

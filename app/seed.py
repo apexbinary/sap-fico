@@ -60,6 +60,7 @@ CHART = [
     ("216500", "SGST Payable (Reverse Charge)", 2, "21", "Y", "N", "N", "N"),
     ("216600", "IGST Payable (Reverse Charge)", 2, "21", "Y", "N", "N", "N"),
     ("217000", "TDS Payable", 2, "21", "Y", "N", "N", "N"),
+    ("217100", "TCS Payable", 2, "21", "Y", "N", "N", "N"),
     ("218000", "IGST Payable on Imports (Customs)", 2, "21", "Y", "N", "N", "N"),
     ("219000", "Advances from Customers (Down Payments)", 2, "21", "Y", "N", "N", "N"),
     ("3", "Capital and Reserves", 3, None, "N", "N", "N", "N"),
@@ -87,6 +88,7 @@ CHART = [
     ("616000", "Freight and Charges Paid", 6, "61", "Y", "E", "N", "N"),
     ("617000", "Depreciation", 6, "61", "Y", "E", "N", "N"),
     ("618000", "GST Input Tax Not Claimable", 6, "61", "Y", "E", "N", "N"),
+    ("619000", "Interest and Fees on TDS / TCS", 6, "61", "Y", "E", "N", "N"),
     ("7", "Other Income and Expenses", 7, None, "N", "N", "N", "N"),
     ("71", "Foreign Exchange", 7, "7", "N", "N", "N", "N"),
     ("711000", "Foreign Exchange Gain", 7, "71", "Y", "I", "N", "N"),
@@ -446,6 +448,14 @@ def _seed_withholding(s) -> None:
             s.add(WithholdingTax(wt_code=code, wt_name=name, section=section, rate=Decimal(rate), thr_single=Decimal(single),
                                  thr_annual=Decimal(annual), thr_type=typ, rate_no_pan=Decimal("20"), account="217000",
                                  category="I", base_type="N", inactive="N"))
+            s.flush()
+    # TCS (section 206C): collected on sales, base incl. GST
+    for code, name, section, rate, single, no_pan in [("TSCR", "TCS - sale of scrap", "206C(1)", "1", "0", "5"),
+                                                       ("TMV", "TCS - motor vehicle above 10 lakh", "206C(1F)", "1", "1000000", "5")]:
+        if s.get(WithholdingTax, code) is None:
+            s.add(WithholdingTax(wt_code=code, wt_name=name, section=section, rate=Decimal(rate), thr_single=Decimal(single),
+                                 thr_annual=Decimal("0"), thr_type="A", rate_no_pan=Decimal(no_pan), account="217100",
+                                 category="I", base_type="G", wt_kind="C", inactive="N"))
             s.flush()
 
 

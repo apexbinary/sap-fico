@@ -40,6 +40,7 @@ function paymentHeaderDefs(kind, ro = false) {
     { k: "jrnl_memo", label: "Journal remarks", max: 50, ro, span: 2 },
     { k: "comments", label: "Remarks", type: "textarea", max: 254, ro, span: 2 },
     { k: "pay_no_doc", label: "Payment on account", type: "check", ro },
+    ...(kind === "outgoing" ? [{ k: "wt_on_account", label: "Deduct TDS on the amount on account (advance)", type: "check", ro }] : []),
   ];
 }
 const MEANS_TRANSFER = [

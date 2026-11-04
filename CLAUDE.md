@@ -93,6 +93,8 @@ app/
   services/withholding.py TDS on A/P invoices / credit memos: OWHT codes, CRD4 per vendor, PCH5 / RPC5
                       rows, thresholds per financial year, report; api_withholding.py /api/withholding-tax,
                       /api/reports/tds; web/tds.js (#/withholding-tax, #/tds-report)
+                      TCS on A/R (INV5 / RIN5), TDS on advances (VPM5), challans OTCH, 26Q / 27EQ, 16A / 27D;
+                      web/tds.js #/tds-challans, #/tds-returns, #/tds-certificate
   services/credit.py  credit / commitment limit check of customers (OADM CrdLmtChk / CmtLmtChk /
                       CrdLmtDocs); documents.create_document compares the exposure before / after
   api_freight.py      freight / additional expenses OEXD (web/freight.js); document freight QUT3 ... RPC3
@@ -353,6 +355,11 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   of such a vendor writes PCH5 rows (also with 0 TDS) so the year's base counts for thresholds.
 - Threshold type A: once the year's base crosses ThrAnnual, TDS = rate x year's base - TDS so far.
 - A credit memo copied from an A/P invoice reverses that invoice's TDS in proportion (RPC5).
+- TCS (OWHT WTKind C, customers): A/R DocTotal = gross + TCS (INV5 / RIN5), base gross incl. GST (BaseType G);
+  GSTR-1 invoice value excludes it. TDS on advances (VPM5): cash on account grossed up, vendor debited before
+  TDS; A/P invoices deduct their TDS less withholding.advance_open (AdvAdj); year-to-date TDS = WTAmnt + AdvAdj.
+- Challans (OTCH): Dr payable (+ 619000 interest / fee) / Cr bank, rows get ChallanAbs; deposited rows block
+  canceling their document / payment. 26Q / 27EQ list rows with tax only.
 
 ### E-documents (keep invariant)
 - A document with an active IRN or e-way bill cannot be canceled (documents._cancel asks
@@ -401,4 +408,5 @@ names). RDOC keeps template options in descriptive columns (Style, Color, Show*,
 Default) instead of B1's Print Layout Designer template; OADM LogoImage / EInvoice /
 EWayBill / EDocMode, EDOC, OCPT, OUSS, OCRD PANNo and the OWHT India columns (Section, Thr*,
 RateNoPAN), OEXD SACCode, the OADM credit check columns, OVTG RevCharge / NonDedAcc usage, OSTA RvsChrgAct and the bill of entry
-columns (BoENum / BoEDate / BoEValue / PortCode), OGSR and AmndEntry are not B1-verified either. Everything else uses B1's documented table and field names.
+columns (BoENum / BoEDate / BoEValue / PortCode), OGSR, AmndEntry, DpmType, OWHT WTKind, VPM5, AdvAdj, OTCH and
+OADM TANNo are not B1-verified either. Everything else uses B1's documented table and field names.

@@ -98,7 +98,7 @@ const readDims = (tr) => { const v = [null, null, null, null, null]; $$(".l-dim"
 const dimText = (codes) => (codes || []).filter(Boolean).join(" / ");
 // dropdown sources (B1 dropdowns and choose-from lists)
 const O = {
-  wtCodes: () => (state.wtCodes || []).filter((w) => !w.inactive).map((w) => [w.wt_code, `${w.wt_code} — ${w.section} ${w.wt_name} (${Number(w.rate)} %)`]),
+  wtCodes: (kind) => (state.wtCodes || []).filter((w) => !w.inactive && (!kind || w.wt_kind === kind)).map((w) => [w.wt_code, `${w.wt_code} — ${w.section} ${w.wt_name} (${Number(w.rate)} %)`]),
   currencies: () => state.lookups.currencies.map((c) => [c.code, `${c.code} — ${c.name}`]),
   countries: () => state.master.countries.map((c) => [c.code, c.name]),
   states: (country) => state.master.states.filter((x) => x.country === country).map((x) => [x.code, x.name]),
@@ -471,7 +471,7 @@ async function docDetail(el, t, entry) {
       <div><span>Discount ${Number(d.disc_prcnt) ? `${Number(d.disc_prcnt)} %` : ""}</span><b>${fmt(d.disc_sum)}</b></div>
       ${(d.expenses || []).map((e) => `<div><span>${esc(e.expns_name || `Freight ${e.expns_code}`)} (${esc(e.vat_group || "no tax")})</span><b>${fmt(e.line_total)}</b></div>`).join("")}
       <div><span>Tax</span><b>${fmt(d.vat_sum)}</b></div>
-      ${Number(d.wt_sum) ? `<div><span>Withholding tax (TDS) ${d.withholding.map((w) => `${esc(w.wt_code)} ${esc(w.section)} ${Number(w.rate)} %${w.no_pan ? " (no PAN)" : ""}`).join(", ")}</span><b>-${fmt(d.wt_sum)}</b></div>` : ""}
+      ${Number(d.wt_sum) ? `<div><span>${["13", "14"].includes(t.obj) ? "Tax collected at source (TCS)" : "Withholding tax (TDS)"} ${d.withholding.map((w) => `${esc(w.wt_code)} ${esc(w.section)} ${Number(w.rate)} %${w.no_pan ? " (no PAN)" : ""}${Number(w.adv_adj) ? `, ${fmt(w.adv_adj)} deducted on advances` : ""}`).join(", ")}</span><b>${["13", "14"].includes(t.obj) ? "+" : "-"}${fmt(d.wt_sum)}</b></div>` : ""}
       <div class="grand"><span>${Number(d.wt_sum) ? "Total payment due (LC)" : "Total (LC)"}</span><b>${fmt(d.doc_total)} ${esc(state.company.main_curncy)}</b></div>
       ${(d.down_payments || []).map((x) => `<div><span>Down payment ${docLink(t.side === "S" ? "203" : "204", x.dp_entry, x.dp_num)} drawn</span><b>-${fmt(x.drawn_sum)}</b></div>`).join("")}
       ${t.kind === "downpayment" ? `<div><span>Paid</span><b>${fmt(d.paid_to_date)}</b></div><div><span>Drawn on invoices</span><b>${fmt(d.dpm_appl)}</b></div>` : ""}

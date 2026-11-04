@@ -99,6 +99,7 @@ class PaymentRequest:
     accounts: list[AccountLine] = field(default_factory=list)
     pay_no_doc: bool = False  # payment on account
     down_payments: list[DownPaymentPay] = field(default_factory=list)  # down payment requests (ODPI / ODPO) paid
+    wt_on_account: bool = False  # outgoing payment: deduct TDS on the amount on account (advance; the vendor's TDS codes)
     cntct_code: int | None = None
     counter_ref: str | None = None
     ref2: str | None = None
@@ -389,6 +390,19 @@ def _create(session: Session, req: PaymentRequest):
             raise B1Error("Enter payment means or select items to reconcile")
     if req.doc_type == "A" and abs(exch) > target * FX_TOLERANCE:
         raise B1Error(f"The payment means ({means_lc}) differ from the account lines ({target})")
+    wt_rows, wt_total = [], ZERO
+    if req.wt_on_account:  # TDS on an advance: the cash on account is grossed up, the vendor is debited before TDS
+        from app.services import withholding
+
+        if req.obj != "46" or req.doc_type != "S" or bp is None:
+            raise B1Error("TDS on an advance is deducted on outgoing payments to vendors")
+        if curr != main:
+            raise B1Error("TDS on an advance is deducted on payments in the local currency")
+        if on_account <= 0:
+            raise B1Error("TDS is deducted on the amount on account (advance); the payment has none")
+        wt_rows, gross = withholding.advance_rows(session, bp, on_account)
+        wt_total = gross - on_account
+        on_account, target = gross, target + wt_total
 
     entry = (session.scalar(select(func.max(header_cls.doc_entry))) or 0) + 1
     name = NAMES[req.obj]
@@ -403,7 +417,7 @@ def _create(session: Session, req: PaymentRequest):
         trsfr_date=(req.trsfr_date or req.doc_date) if trsfr_fc else None, trsfr_ref=req.trsfr_ref, bank_chrg=chrg,
         check_acct=check_acct if req.checks else None, check_sum=checks_lc, check_sum_fc=checks_fc if curr != main else ZERO,
         doc_total=means_lc, doc_total_fc=(cash_fc + trsfr_fc + checks_fc) if curr != main else ZERO,
-        pay_no_doc="Y" if on_account else "N", no_doc_sum=on_account, open_bal=on_account,
+        pay_no_doc="Y" if on_account else "N", no_doc_sum=on_account, open_bal=on_account, wt_sum=wt_total,
         counter_ref=req.counter_ref, ref2=req.ref2, prj_code=req.prj_code, comments=req.comments,
         jrnl_memo=(req.jrnl_memo or (f"{name} - {bp.card_code}" if bp else name))[:50],
     )
@@ -429,6 +443,12 @@ def _create(session: Session, req: PaymentRequest):
                                      applied_fc=fc if curr != main else ZERO, descrip=a.descrip, prj_code=a.prj_code))
     session.add(pay)
     session.flush()
+    if wt_rows:
+        from app.models.banking import PaymentWithholding
+
+        for n, r in enumerate(wt_rows):
+            session.add(PaymentWithholding(doc_entry=pay.doc_entry, line_num=n, wt_code=r["wt_code"], rate=r["rate"], taxble_amnt=r["taxble_amnt"],
+                                           wt_amnt=r["wt_amnt"], account=r["account"], section=r["section"], no_pan=r["no_pan"]))
 
     # journal entry
     sign = 1 if incoming else -1  # incoming: means debit, partner credit
@@ -457,6 +477,8 @@ def _create(session: Session, req: PaymentRequest):
         add(card=bp.card_code, amount=-(target + discounts), amount_fc=-bp_fc, due=pay.doc_due_date)
     for a, a_fc, amount_lc in accounts:
         add(a.acct_code, amount=-amount_lc, amount_fc=a_fc, memo=a.descrip, project=a.prj_code)
+    for r in wt_rows:  # TDS on the advance: credited like the payment means
+        add(r["account"], amount=r["wt_amnt"], memo=f"TDS {r['section']} on advance")
     if exch:
         gain = exch > 0 if incoming else exch < 0
         add(det.exch_gain if gain else det.exch_loss, amount=-exch, memo="Exchange rate difference")
@@ -508,6 +530,16 @@ def cancel_payment(session: Session, obj: str, doc_entry: int, cancel_date: date
         if pay.open_bal != pay.no_doc_sum:
             raise B1Error(f"The amount on account of {NAMES[obj]} {pay.doc_num} was used by another payment; "
                           f"cancel that payment first")
+        if pay.wt_sum:
+            from app.models.banking import PaymentWithholding
+            from app.services import withholding
+
+            deposited = withholding.blocks_cancel(session, obj, doc_entry)
+            if deposited:
+                raise B1Error(f"{NAMES[obj]} {pay.doc_num} cannot be canceled: {deposited}")
+            for w in session.scalars(select(PaymentWithholding).where(PaymentWithholding.doc_entry == doc_entry)):
+                if withholding.advance_open(session, pay.card_code, w.wt_code) < w.wt_amnt:
+                    raise B1Error(f"The TDS on {NAMES[obj]} {pay.doc_num} is adjusted by an A/P invoice; cancel that invoice first")
         if obj == "24":
             checks = session.scalars(select(CheckForReceipt).where(CheckForReceipt.rcpt_num == pay.doc_entry)).all()
             if any(c.deposited != "N" for c in checks):

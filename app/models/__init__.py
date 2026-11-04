@@ -30,7 +30,7 @@ from app.models.finance import (Account, AccountDetermination, ExchangeRateRun, 
 from app.models.banking import (PAYMENT_CLASSES, Bank, BankStatement, BankStatementRow, CheckForReceipt, Deposit,
                                  ExternalReconciliation, ExternalReconciliationLine, HouseBankAccount, IncomingPayment,
                                  OutgoingPayment, DunningRun, DunningLetter, DunningLetterItem, PaymentRun,
-                                 PaymentRunItem)
+                                 PaymentRunItem, PaymentWithholding, TaxChallan)
 from app.models.documents import DOCUMENT_CLASSES, DOCUMENT_INSTALLMENTS, DOCUMENT_TABLES, WarehouseJournal
 from app.models.inventory import Item, ItemGroup, ItemPrice, ItemWarehouse, Manufacturer, PriceList, Warehouse
 from app.models.users import User, UserPermission, UserSession

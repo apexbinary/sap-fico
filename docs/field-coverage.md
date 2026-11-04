@@ -624,12 +624,17 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 |---|---|---|---|
 | Code, name, section, rate, rate without PAN (206AA), TDS account | OWHT WTCode / WTName / Section / Rate / RateNoPAN / Account | text / number / dropdown | ✅ seeded: 194C, 194H, 194I(a)/(b), 194J(a)/(b), 194Q (FY 2025-26 rates and thresholds) |
 | Thresholds per invoice / per financial year, whole amount once crossed or only the excess | OWHT ThrSingle / ThrAnnual / ThrType | number / dropdown | ✅ |
-| Category (invoice), base type (net excl. GST), inactive | OWHT Category / BaseType / Inactive | — / checkbox | ✅ payment category ⏸ |
+| Kind TDS / TCS, base type (net excl. GST / gross incl. GST), category, inactive | OWHT WTKind / BaseType / Category / Inactive | dropdown / checkbox | ✅ seeded TCS codes TSCR 206C(1), TMV 206C(1F) ⚠ WTKind not B1-verified |
 | BP: subject to withholding tax, PAN, withholding tax codes | OCRD WTLiable / PANNo, CRD4 | checkbox / text / multi-select | ✅ PAN from the GSTIN when empty |
 | Document: TDS lines (code, section, rate, base, amount, account, no PAN), total TDS, total payment due | PCH5 / RPC5, OPCH / ORPC WTSum / WTSumFC | — | 🔒 computed on posting; codes can be overridden through the API (wt_codes) — ⏸ in the form |
 | Credit memo copied from an A/P invoice reverses its TDS in proportion | RPC5 | — | ✅ |
 | TDS report: register, summary per section and month, deposit due date | | — | ✅ |
-| TDS on payments, TCS (206C) on sales, lower deduction certificates (197), Form 26Q / 16A, challan entry | | — | ⏸ |
+| TCS on A/R invoices / credit memos of customers with WTLiable and TCS codes: collected on top of the total, 217100 credited; credit memo copied from an invoice reverses it | INV5 / RIN5, OINV / ORIN WTSum | — | ✅ GSTR-1 invoice value without TCS |
+| TDS on advances: outgoing payment on account with "Deduct TDS": cash grossed up (vendor debited before TDS); later A/P invoices deduct the rest only (AdvAdj) | OVPM WTSum, VPM5, PCH5 AdvAdj | checkbox | ✅ ⚠ VPM5 / AdvAdj not B1-verified |
+| Challans (TDS / TCS Challans): kind, section, deductions up to, deposit date, BSR code, challan no., bank account, interest (1.5 % / 1 % per month, calculated), fee 234E; JE Dr payable / interest / Cr bank; rows linked; cancel | OTCH, xxx5 ChallanAbs | dropdown / date / text / number | ✅ deposited documents / advances cannot be canceled ⚠ OTCH not B1-verified |
+| Quarterly returns Form 26Q (TDS) / 27EQ (TCS): deductor (TAN), challans, deductee records (PAN or PANNOTAVBL, section, amount, tax, challan); checks; CSV of the deductee records | OADM TANNo | — | ✅ not the NSDL FVU file ⚠ TANNo not B1-verified |
+| Certificates Form 16A (TDS) / 27D (TCS) per deductee and quarter, printable | | — | ✅ for information; the legal certificate comes from TRACES |
+| Lower / nil deduction certificates (197), salary TDS (24Q), non-resident TDS (27Q), FVU file, e-filing | | — | ⏸ |
 
 ### E-documents: e-invoice (IRN) and e-way bill (Administration -> E-Documents, document panel)
 | Field / function | Column | Type | Status |

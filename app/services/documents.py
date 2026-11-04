@@ -584,20 +584,23 @@ def _create(session: Session, req: DocumentRequest):
     ctx.dims = None
     _copy_effects(ctx, lines)
     _commitments(session, d, doc, +1)
-    if d.obj in {"18", "19"} and bp is not None:
-        # withholding tax (TDS): the vendor line carries the total less TDS, the code's account the TDS
+    if d.obj in {"18", "19", "13", "14"} and bp is not None:
+        # withholding tax: TDS (A/P) - the vendor line carries the total less TDS; TCS (A/R) - the customer line
+        # carries the total plus TCS; the code's account the TDS / TCS
         from app.services import withholding
 
-        base_invoice = next((x["base"] for x in lines if x["base"] is not None and x["lr"].base_type == "18"), None)
-        rows = withholding.compute(session, d.obj, doc, bp, net_total, rate, req.wt_codes, base_invoice)
+        base_obj = "18" if d.obj in {"18", "19"} else "13"
+        base_invoice = next((x["base"] for x in lines if x["base"] is not None and x["lr"].base_type == base_obj), None)
+        rows = withholding.compute(session, d.obj, doc, bp, net_total, rate, req.wt_codes, base_invoice, gross_lc=doc.doc_total)
         wt = withholding.store(session, d.obj, doc, rows, rate, fc)
         if wt:
+            collect = d.obj in {"13", "14"}  # TCS is added to the customer's total
             doc.wt_sum = wt
             doc.wt_sum_fc = money(wt / rate) if fc else ZERO
-            doc.doc_total -= wt
-            doc.doc_total_fc -= doc.wt_sum_fc
-            for r in rows:
-                ctx.je[r["account"]] += -r["wt_amnt"] if d.obj == "18" else r["wt_amnt"]
+            doc.doc_total += wt if collect else -wt
+            doc.doc_total_fc += doc.wt_sum_fc if collect else -doc.wt_sum_fc
+            for r in rows:  # invoices credit the TDS / TCS account, credit memos debit it
+                ctx.je[r["account"]] += -r["wt_amnt"] if d.obj in {"18", "13"} else r["wt_amnt"]
     if d.side != "I" and (d.kind in {"invoice", "credit"} or (d.kind == "downpayment" and doc.dpm_type == "I")):
         sign = 1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit"), ("S", "downpayment")} else -1
         ctx.je[("BP", doc.card_code)] += sign * doc.doc_total
@@ -1296,6 +1299,11 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
     from app.services import gst_filing
 
     gst_filing.check_cancel(session, obj, doc, cancel_date, amendment)
+    from app.services import withholding
+
+    deposited = withholding.blocks_cancel(session, obj, doc_entry)
+    if deposited:
+        raise B1Error(f"{d.name} {doc.doc_num} cannot be canceled: {deposited}")
     if d.kind == "downpayment" and doc.dpm_appl:
         raise B1Error(f"{d.name} {doc.doc_num} is drawn on an invoice; cancel the invoice first")
     if cancel_date is not None and cancel_date < doc.doc_date:

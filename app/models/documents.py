@@ -272,11 +272,13 @@ class DocumentWithholding:
     category: Mapped[str] = mapped_column("Category", String(1), default="I")  # I invoice
     section: Mapped[str | None] = mapped_column("Section", String(10))  # India: TDS section (194C ...)
     no_pan: Mapped[str] = mapped_column("NoPAN", String(1), default="N")  # higher rate, section 206AA
+    adv_adj: Mapped[Decimal] = mapped_column("AdvAdj", AMOUNT, default=Decimal("0"), server_default="0")  # A/P invoice: TDS already deducted on advances
+    challan_abs: Mapped[int | None] = mapped_column("ChallanAbs", Integer)  # deposited with challan (OTCH; not B1-verified)
 
 
-# object type -> withholding tax class (A/P invoice PCH5, A/P credit memo RPC5)
+# object type -> withholding tax class (A/P invoice PCH5, A/P credit memo RPC5: TDS; A/R invoice INV5, A/R credit memo RIN5: TCS)
 DOCUMENT_WITHHOLDING: dict[str, type] = {}
-for _obj, _table, _header in (("18", "pch5", "opch"), ("19", "rpc5", "orpc")):
+for _obj, _table, _header in (("18", "pch5", "opch"), ("19", "rpc5", "orpc"), ("13", "inv5", "oinv"), ("14", "rin5", "orin")):
     DOCUMENT_WITHHOLDING[_obj] = type(f"{_table.upper()}Withholding", (DocumentWithholding, Base), {
         "__tablename__": _table,
         "__doc__": f"{_table.upper()} - withholding tax of {_header.upper()}.",

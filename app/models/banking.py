@@ -64,6 +64,7 @@ class PaymentHeader:
     pay_no_doc: Mapped[str] = mapped_column("PayNoDoc", String(1), default="N")  # Payment on account
     no_doc_sum: Mapped[Decimal] = mapped_column("NoDocSum", AMOUNT, default=Decimal("0"))  # Amount on account (LC)
     open_bal: Mapped[Decimal] = mapped_column("OpenBal", AMOUNT, default=Decimal("0"))  # Still open on account
+    wt_sum: Mapped[Decimal] = mapped_column("WTSum", AMOUNT, default=Decimal("0"), server_default="0")  # TDS deducted on the advance (LC)
     counter_ref: Mapped[str | None] = mapped_column("CounterRef", String(8))  # Reference
     ref2: Mapped[str | None] = mapped_column("Ref2", String(11))
     prj_code: Mapped[str | None] = mapped_column("PrjCode", String(20))  # Project
@@ -383,3 +384,41 @@ class PaymentRunItem(Base):
     discount: Mapped[Decimal] = mapped_column("Discount", AMOUNT, default=Decimal("0"))
     selected: Mapped[str] = mapped_column("Selected", String(1), default="Y")
     pay_entry: Mapped[int | None] = mapped_column("PayEntry")  # payment (ORCT / OVPM DocEntry) created
+
+
+class PaymentWithholding(Base):
+    """VPM5 — TDS deducted on the amount on account of an outgoing payment (advance to a vendor; not B1-verified)."""
+
+    __tablename__ = "vpm5"
+
+    doc_entry: Mapped[int] = mapped_column("DocEntry", Integer, ForeignKey("ovpm.DocEntry"), primary_key=True)
+    line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
+    wt_code: Mapped[str] = mapped_column("WTCode", String(4))
+    rate: Mapped[Decimal] = mapped_column("Rate", AMOUNT)
+    taxble_amnt: Mapped[Decimal] = mapped_column("TaxbleAmnt", AMOUNT)  # the advance before TDS (LC)
+    wt_amnt: Mapped[Decimal] = mapped_column("WTAmnt", AMOUNT)  # whole rupees
+    account: Mapped[str] = mapped_column("Account", String(15))
+    section: Mapped[str | None] = mapped_column("Section", String(10))
+    no_pan: Mapped[str] = mapped_column("NoPAN", String(1), default="N")
+    challan_abs: Mapped[int | None] = mapped_column("ChallanAbs", Integer)
+
+
+class TaxChallan(Base):
+    """OTCH — TDS / TCS deposited with the government (challan ITNS 281; not B1-verified): bank journal entry,
+    BSR code, challan serial number, the deductions it covers (their ChallanAbs)."""
+
+    __tablename__ = "otch"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    wt_kind: Mapped[str] = mapped_column("WTKind", String(1))  # D TDS, C TCS
+    section: Mapped[str] = mapped_column("Section", String(10))
+    period_to: Mapped[date] = mapped_column("PeriodTo", Date)  # deductions up to this date
+    dep_date: Mapped[date] = mapped_column("DepDate", Date)
+    bsr_code: Mapped[str] = mapped_column("BSRCode", String(7))
+    challan_no: Mapped[str] = mapped_column("ChallanNo", String(5))
+    tax_amnt: Mapped[Decimal] = mapped_column("TaxAmnt", AMOUNT)
+    interest: Mapped[Decimal] = mapped_column("Interest", AMOUNT, default=Decimal("0"))  # section 201(1A) / 206C(7)
+    fee: Mapped[Decimal] = mapped_column("Fee", AMOUNT, default=Decimal("0"))  # late filing fee 234E
+    bank_acct: Mapped[str] = mapped_column("BankAcct", String(15))
+    trans_id: Mapped[int | None] = mapped_column("TransId", Integer)
+    canceled: Mapped[str] = mapped_column("Canceled", String(1), default="N")

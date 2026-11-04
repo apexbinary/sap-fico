@@ -40,7 +40,7 @@ def run(fn):
 # ------------------------------------------------------------- administration
 def _company_out(c) -> dict:
     return {"has_logo": bool(c.logo_image), "company_name": c.company_name, "main_curncy": c.main_curncy, "sys_curncy": c.sys_curncy,
-            "country": c.country, "state": c.state, "tax_id": c.tax_id, "address": c.address, "phone": c.phone, "phone2": c.phone2,
+            "country": c.country, "state": c.state, "tax_id": c.tax_id, "tan_no": c.tan_no, "address": c.address, "phone": c.phone, "phone2": c.phone2,
             "fax": c.fax, "e_mail": c.e_mail, "manager": c.manager}
 
 
@@ -54,6 +54,7 @@ class CompanyIn(BaseModel):
     country: str | None = Field(None, max_length=3)
     state: str | None = Field(None, max_length=3)
     tax_id: str | None = Field(None, max_length=32)
+    tan_no: str | None = Field(None, max_length=10, pattern="^([A-Z]{4}[0-9]{5}[A-Z])?$")  # India TAN, e.g. BLRD12345E
     address: str | None = Field(None, max_length=254)
     phone: str | None = Field(None, max_length=20)
     phone2: str | None = Field(None, max_length=20)

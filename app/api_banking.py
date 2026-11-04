@@ -31,7 +31,7 @@ def _pay_out(p, detail: bool = False) -> dict:
            "canceled": p.canceled == "Y", "series": p.series, "doc_date": p.doc_date, "doc_due_date": p.doc_due_date,
            "tax_date": p.tax_date, "card_code": p.card_code, "card_name": p.card_name, "doc_curr": p.doc_curr,
            "doc_rate": p.doc_rate, "doc_total": p.doc_total, "doc_total_fc": p.doc_total_fc,
-           "pay_no_doc": p.pay_no_doc == "Y", "no_doc_sum": p.no_doc_sum, "open_bal": p.open_bal,
+           "pay_no_doc": p.pay_no_doc == "Y", "no_doc_sum": p.no_doc_sum, "open_bal": p.open_bal, "wt_sum": p.wt_sum,
            "trans_id": p.trans_id, "counter_ref": p.counter_ref, "jrnl_memo": p.jrnl_memo}
     if detail:
         out.update(
@@ -114,6 +114,7 @@ class PaymentIn(BaseModel):
     accounts: list[AccountLineIn] = []
     pay_no_doc: bool = False
     down_payments: list[DownPaymentIn] = []
+    wt_on_account: bool = False  # outgoing: deduct TDS on the amount on account (advance)
     cntct_code: int | None = None
     counter_ref: str | None = Field(None, max_length=8)
     ref2: str | None = Field(None, max_length=11)

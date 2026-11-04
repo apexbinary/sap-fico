@@ -41,6 +41,8 @@ class DocumentHeader:
     doc_num: Mapped[int] = mapped_column("DocNum")  # Document number (NNM1)
     doc_type: Mapped[str] = mapped_column("DocType", String(1), default="I")  # I items, S service
     canceled: Mapped[str] = mapped_column("CANCELED", String(1), default="N")  # Y canceled
+    cancel_date: Mapped[date | None] = mapped_column("CancelDate", Date)  # posting date of the cancellation
+    amnd_entry: Mapped[int | None] = mapped_column("AmndEntry", Integer)  # India: DocEntry of the filed invoice this one amends (not B1-verified)
     doc_status: Mapped[str] = mapped_column("DocStatus", String(1), default="O")  # O open, C closed
     obj_type: Mapped[str] = mapped_column("ObjType", String(20))
     doc_date: Mapped[date] = mapped_column("DocDate", Date)  # Posting date

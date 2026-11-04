@@ -83,6 +83,8 @@ app/
                       api_gst.py /api/gst-returns/gstr1|gstr3b[/json] (area FINRPT); web/gst.js
   services/gst_itc.py ITC reversals / reclaims (journal entries), GSTR-2B JSON reconciliation with A/P documents;
                       /api/gst-itc/reversals (area JE), POST /api/gst-returns/gstr2b/reconcile; web/gst.js (#/itc-reversals)
+  services/gst_filing.py filing status OGSR (snapshot of the filed return), lock checks, amend(); GSTR-1 tables
+                      9A / 9C / 10 in gst_returns._amendments; /api/gst-returns/{ret}/file|unfile, /api/documents/{obj}/{entry}/amend
   services/edocs.py   e-invoice (INV-01 JSON, IRN = SHA-256 of GSTIN+FY+type+no., QR via segno) and
                       e-way bill (validity, Part B); test mode makes IRN / EWB here, live mode imports
                       the portal response; models/edocs.py EDOC register, ADM1 company address;
@@ -261,6 +263,11 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
 - ITC reversals are journal entries with Ref3 ITC:B1 / ITC:B2 / ITC:D1 on the input tax accounts
   (services/gst_itc.py); reports.tax_report counts their input tax lines, so 4(C) net ITC = journal
   input tax. A reclaim (D1) cannot exceed the temporary reversals (B2) still open.
+- Filed GST months (OGSR, services/gst_filing.py) are locked: no A/R document in a month with GSTR-1 or
+  GSTR-3B filed, no A/P document / ITC entry in a GSTR-3B month. A/R documents of a GSTR-1 month are amended
+  (replacement in an open month with AmndEntry, original canceled on that date); A/P documents are canceled
+  with a CancelDate in an open month. A document belongs to its month unless canceled in that month; earlier
+  documents canceled in a month are negative in its GSTR-3B (journal invariant holds).
 - Tax setup data is maintained by users: the seed creates it once.
 
 ### Banking (keep invariant)
@@ -388,4 +395,4 @@ names). RDOC keeps template options in descriptive columns (Style, Color, Show*,
 Default) instead of B1's Print Layout Designer template; OADM LogoImage / EInvoice /
 EWayBill / EDocMode, EDOC, OCPT, OUSS, OCRD PANNo and the OWHT India columns (Section, Thr*,
 RateNoPAN), OEXD SACCode, the OADM credit check columns, OVTG RevCharge / NonDedAcc usage, OSTA RvsChrgAct and the bill of entry
-columns (BoENum / BoEDate / BoEValue / PortCode) are not B1-verified either. Everything else uses B1's documented table and field names.
+columns (BoENum / BoEDate / BoEValue / PortCode), OGSR and AmndEntry are not B1-verified either. Everything else uses B1's documented table and field names.

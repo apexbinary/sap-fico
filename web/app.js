@@ -452,7 +452,11 @@ async function docDetail(el, t, entry) {
   el.innerHTML = `<div class="card"><div class="card-head"><span>${esc(t.name)} ${d.doc_num} ${STATUS(d)}</span><span style="display:flex;gap:6px;flex-wrap:wrap">
       ${targets.map((x) => `<a class="btn small" href="#/doc?obj=${x}&from=${t.obj}:${d.doc_entry}">Copy to ${esc(types[x].name)}</a>`).join("")}
       ${open && ["quotation", "order"].includes(t.kind) ? '<button class="btn small secondary" id="doc-close">Close</button>' : ""}
-      ${!d.canceled ? '<button class="btn small secondary" id="doc-cancel">Cancel</button>' : ""}
+      ${!d.canceled && d.gst_amend ? `<a class="btn small" href="#/doc?obj=${t.obj}&amend=${d.doc_entry}">Amend (GSTR-1 filed)</a>` : ""}
+      ${!d.canceled && d.gst_filed && !d.gst_amend ? `<input type="date" id="doc-cancel-date" title="Cancellation date (open month)" value="${today()}">` : ""}
+      ${!d.canceled && !d.gst_amend ? '<button class="btn small secondary" id="doc-cancel">Cancel</button>' : ""}
+      ${d.canceled && d.cancel_date ? `<span class="help">canceled on ${d.cancel_date}</span>` : ""}
+      ${d.amnd_entry ? `<a class="btn small ghost" href="#/docs?obj=${t.obj}&entry=${d.amnd_entry}">Amends document &#8599;</a>` : ""}
       ${d.trans_id ? `<a class="btn small ghost" href="#/journal?id=${d.trans_id}">Journal entry ${d.trans_id} &#8599;</a>` : ""}
       ${t.side !== "I" ? `<a class="btn small secondary" href="#/print?obj=${t.obj}&entry=${d.doc_entry}">Print / PDF</a>` : ""}</span></div>
     <div class="card-body"><div class="form-grid">${fieldsHtml(defs, values, "dv")}</div></div>
@@ -484,12 +488,13 @@ async function docDetail(el, t, entry) {
   const cn = $("#doc-cancel");
   if (cn) cn.onclick = async () => {
     if (!confirm(`Cancel ${t.name} ${d.doc_num}? Stock and journal entry are reversed.`)) return;
-    if (await act(() => post(`/documents/${t.obj}/${d.doc_entry}/cancel`, {}), "Document canceled")) { state.partners = await api("/partners"); reload(); }
+    const cd = $("#doc-cancel-date");  // GST return of the month filed: the cancellation posts in an open month
+    if (await act(() => post(`/documents/${t.obj}/${d.doc_entry}/cancel`, cd ? { cancel_date: cd.value } : {}), "Document canceled")) { state.partners = await api("/partners"); reload(); }
   };
 }
 
 views.doc = async (c) => {
-  const obj = query().get("obj") || "13", from = query().get("from");
+  const obj = query().get("obj") || "13", from = query().get("from"), amend = query().get("amend");
   const t = (await docTypes())[obj];
   const items = await api("/items");
   const L = state.lookups, side = t.side;
@@ -500,7 +505,7 @@ views.doc = async (c) => {
     && (["delivery", "return"].includes(t.kind) ? i.invnt_item : true));
   const whsOpts = (sel) => state.warehouses.map((w) => opt(w.whs_code, w.whs_code, sel)).join("");
   const prjOpts = (sel) => opt("", "") + O.projects().map(([v, l]) => opt(v, v, sel)).join("");
-  const defs = docHeaderDefs(t, from ? "copy" : "new");
+  const defs = docHeaderDefs(t, from || amend ? "copy" : "new");
   c.innerHTML = `<div class="page-head"><div><h1>${esc(t.name)}</h1><div class="sub">New document${t.bases.length ? ` · copy from ${t.bases.map((b) => esc(DOC_NAMES[b])).join(", ")}` : ""}</div></div>
       <a class="btn secondary" href="#/docs?obj=${obj}">Back to list</a></div>
     <div class="card"><div class="card-body"><div class="form-grid">${fieldsHtml(defs, {}, "d")}</div></div></div>
@@ -750,7 +755,20 @@ views.doc = async (c) => {
     };
   };
 
-  if (from) {  // "Copy to" from a base document
+  if (amend) {  // GSTR-1 amendment: the lines of the filed document, entered again (no base references)
+    const orig = await api(`/documents/${obj}/${amend}`);
+    $("#d-card_code").value = orig.card_code;
+    await applyPartner(orig);
+    $("#d-disc").value = Number(orig.disc_prcnt || 0);
+    if ($("#d-doc_type") && $("#d-doc_type").value !== orig.doc_type) { $("#d-doc_type").value = orig.doc_type; head(); $("#d-lines").innerHTML = ""; }
+    orig.lines.forEach((l) => addLine({ ...l, price: Number(l.price_bef_di).toFixed(2), base_type: null, base_entry: null, base_line: null }));
+    const note = document.createElement("div");
+    note.className = "credit-warn";
+    note.innerHTML = `<b>Amendment of ${esc(t.name)} ${orig.doc_num} (${orig.doc_date})</b> — correct the document and add it: it is posted in this (open) month,
+      the original is canceled on the same date, and GSTR-1 reports it as an amendment.`;
+    $("#d-post").insertAdjacentElement("beforebegin", note);
+    recalc();
+  } else if (from) {  // "Copy to" from a base document
     const [bobj, bentry] = from.split(":");
     const base = await api(`/documents/${bobj}/${bentry}`);
     $("#d-card_code").value = base.card_code;
@@ -788,6 +806,11 @@ views.doc = async (c) => {
       }
       if (line.item_code || line.acct_code) body.lines.push(line);
     });
+    if (amend) {
+      const ra = await act(() => post(`/documents/${obj}/${amend}/amend`, body), (x) => `${t.name} ${x.doc_num} added; the original is canceled`);
+      if (ra) { state.partners = await api("/partners"); location.hash = `#/docs?obj=${obj}&entry=${ra.doc_entry}`; }
+      return;
+    }
     let r;
     try {
       r = await post(`/documents/${obj}`, body);

@@ -5,28 +5,66 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api_finance import run
 from app.database import get_session
-from app.services import gst_itc, gst_returns
+from app.services import gst_filing, gst_itc, gst_returns
 
 router = APIRouter()
 YEAR = Query(..., ge=2000, le=2100)
 MONTH = Query(..., ge=1, le=12)
 
 
-@router.get("/gst-returns/gstr1", tags=["GST returns"], summary="GSTR-1: outward supplies of a month")
-def gstr1(year: int = YEAR, month: int = MONTH, s: Session = Depends(get_session)) -> dict:
-    return run(lambda: gst_returns.gstr1(s, year, month))
+def _with_filing(s: Session, ret: str, year: int, month: int, filed: bool, build) -> dict:
+    """The return computed now, or (filed=true) as it was filed; with the filing status."""
+    snap = gst_filing.snapshot(s, ret, year, month) if filed else None
+    if filed and snap is None:
+        raise HTTPException(status_code=404, detail=f"{gst_filing.RETURNS[ret]} for {month:02d}/{year} is not filed")
+    data = snap or run(build)
+    return {**data, "filing": gst_filing.status(s, ret, year, month), "as_filed": bool(snap)}
 
 
-@router.get("/gst-returns/gstr3b", tags=["GST returns"], summary="GSTR-3B: summary return with ITC set-off")
-def gstr3b(year: int = YEAR, month: int = MONTH, s: Session = Depends(get_session)) -> dict:
-    return run(lambda: gst_returns.gstr3b(s, year, month))
+@router.get("/gst-returns/gstr1", tags=["GST returns"], summary="GSTR-1: outward supplies of a month (filed=true: as filed)")
+def gstr1(year: int = YEAR, month: int = MONTH, filed: bool = False, s: Session = Depends(get_session)) -> dict:
+    return _with_filing(s, "GSTR1", year, month, filed, lambda: gst_returns.gstr1(s, year, month))
+
+
+@router.get("/gst-returns/gstr3b", tags=["GST returns"], summary="GSTR-3B: summary return with ITC set-off (filed=true: as filed)")
+def gstr3b(year: int = YEAR, month: int = MONTH, filed: bool = False, s: Session = Depends(get_session)) -> dict:
+    return _with_filing(s, "GSTR3B", year, month, filed, lambda: gst_returns.gstr3b(s, year, month))
+
+
+class FilingIn(BaseModel):
+    year: int = Field(..., ge=2000, le=2100)
+    month: int = Field(..., ge=1, le=12)
+    filed_date: date | None = None
+    arn: str | None = Field(None, max_length=20)
+
+
+@router.get("/gst-returns/filings", tags=["GST returns"], summary="Filing status of the GST returns")
+def filings(s: Session = Depends(get_session)) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.models.edocs import GstReturnFiling
+
+    return [{"ret_type": f.ret_type, "period": f.period, "filed_date": f.filed_date, "arn": f.arn, "user_sign": f.user_sign}
+            for f in s.scalars(select(GstReturnFiling).order_by(GstReturnFiling.period.desc(), GstReturnFiling.ret_type))]
+
+
+@router.post("/gst-returns/{ret}/file", tags=["GST returns"], summary="Mark GSTR-1 / GSTR-3B of a month as filed (locks the month)")
+def file_return(ret: str, body: FilingIn, s: Session = Depends(get_session)) -> dict:
+    f = run(lambda: gst_filing.file_return(s, ret.upper(), body.year, body.month, body.filed_date, body.arn))
+    return gst_filing.status(s, f.ret_type, body.year, body.month)
+
+
+@router.post("/gst-returns/{ret}/unfile", tags=["GST returns"], summary="Undo the filing status (unlocks the month)")
+def unfile_return(ret: str, body: FilingIn, s: Session = Depends(get_session)) -> dict:
+    run(lambda: gst_filing.unfile(s, ret.upper(), body.year, body.month))
+    return {"ok": True}
 
 
 def _download(data: dict, name: str) -> JSONResponse:

@@ -417,6 +417,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Ship to (address ID) / ship-to address | ShipToCode / Address2 | dropdown / textarea | ✅ |
 | Payment terms | GroupNum | dropdown | 🔒 from the BP (⏸ changing terms per document) |
 | Federal tax ID | LicTradNum | text | 🔒 from the BP |
+| Cancellation date (posting date of the cancellation), amended document (GSTR-1 amendment) | CancelDate / AmndEntry | date / link | ✅ shown on canceled / amending documents |
 | A/P invoice / credit memo, import of goods: bill of entry no., date, value (IGST base in LC, apportioned over the import lines), port code | BoENum / BoEDate / BoEValue / PortCode | text / date / number / text | ✅ a credit memo keeps its invoice's no. / date / port ⚠ not B1-verified; customs duty itself is posted separately (landed costs ⏸) |
 | Journal remark | JrnlMemo | text | ✅ |
 | Remarks | Comments | textarea | ✅ |
@@ -655,7 +656,10 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | GSTR-3B 4(B)(1) blocked credit + permanent reversals, 4(B)(2) temporary reversals, 4(C) net, 4(D)(1) reclaimed (also in 4(A)(5)) | OVTG NonDedct, ITC journal entries | ✅ |
 | ITC reversals (Financial Reports -> ITC Reversals): kind B1 permanent / B2 temporary / D1 reclaim, posting date, IGST / CGST / SGST / cess, reason; cancel | OJDT Ref3 ITC:kind, OACP ItcRevAcct 618000 / ItcRclAcct 116900 | dropdown / date / number / text | ✅ a reclaim is capped at what is still reversed ⚠ not a B1 object (B1 India uses journal entries) |
 | GSTR-2B reconciliation: upload the portal JSON; B2B, CDNR and IMPG against A/P invoices / credit memos by GSTIN + vendor ref. no. (NumAtCard) / bill of entry no.; matched, amounts differ, only in GSTR-2B, only in books, ITC not available | | file / table | ✅ tolerance 1 rupee; not stored |
-| Amendments (B2BA ...), filing status per return, filing on the portal | | ⏸ |
+| Filing status per return and month: filed on, ARN, by; mark as filed / undo; view as filed (snapshot) or as of today | OGSR RetType / Period / FiledDate / ARN / Snapshot | date / text | ✅ ⚠ OGSR not B1-verified |
+| Lock of filed months: A/R postings (GSTR-1 or 3B filed), A/P postings and ITC reversals (GSTR-3B filed) refused; A/P documents canceled with a cancellation date in an open month | CancelDate | date | ✅ |
+| GSTR-1 amendments 9A B2BA / B2CLA / EXPA, 9C CDNRA / CDNURA, 10 B2CSA (original month, revised = filed + change); JSON b2ba / cdnra / b2cla / expa / cdnura / b2csa | AmndEntry (replacement -> original) | — | ✅ amend = replacement in an open month + cancellation of the original ⚠ AmndEntry not B1-verified |
+| Amendments of B2C small invoices that become B2B (section change), amendments of GSTR-3B, filing on the portal | | ⏸ |
 
 ### Printed documents (Print / PDF)
 | Element | Source | Status |

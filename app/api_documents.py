@@ -31,6 +31,7 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "wt_sum": doc.wt_sum, "wt_sum_fc": doc.wt_sum_fc, "total_expns": doc.total_expns, "total_exp_fc": doc.total_exp_fc,
            "dpm_amnt": doc.dpm_amnt, "dpm_appl": doc.dpm_appl,
            "boe_num": doc.boe_num, "boe_date": doc.boe_date, "boe_value": doc.boe_value, "port_code": doc.port_code,
+           "cancel_date": doc.cancel_date, "amnd_entry": doc.amnd_entry,
            "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
            "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
@@ -47,6 +48,11 @@ def _doc_out(doc, detail: bool = False) -> dict:
         from app.services import withholding
 
         out["withholding"] = withholding.rows_of(object_session(doc), doc.obj_type, doc.doc_entry)
+        from app.services import gst_filing
+
+        ret = gst_filing.filed_for(object_session(doc), doc.obj_type, doc.doc_date)  # filed GST month: amend / cancel later
+        out["gst_filed"] = gst_filing.RETURNS[ret] if ret else None
+        out["gst_amend"] = bool(ret) and doc.obj_type in gst_filing.SALES and             gst_filing.get(object_session(doc), "GSTR1", doc.doc_date.year, doc.doc_date.month) is not None
         from app.models.batches import Batch, InventoryLog, SerialNumber
 
         alloc: dict[int, list] = {}
@@ -230,6 +236,16 @@ def print_document(obj: str, doc_entry: int, layout: str | None = None, s: Sessi
 
     _check(obj)
     return run(lambda: printing.print_data(s, obj, doc_entry, layout))
+
+
+@router.post("/documents/{obj}/{doc_entry}/amend", tags=["Documents"],
+             summary="Amend an A/R invoice / credit memo of a GSTR-1-filed month: replacement + cancellation of the original")
+def amend_document(obj: str, doc_entry: int, body: DocumentIn, s: Session = Depends(get_session)) -> dict:
+    _check(obj)
+    from app.services import gst_filing
+
+    doc = run(lambda: gst_filing.amend(s, obj, doc_entry, build_request(obj, body.model_dump(mode="json"))))
+    return _doc_out(doc, detail=True)
 
 
 @router.post("/documents/{obj}/{doc_entry}/cancel", tags=["Documents"], summary="Cancel a document")

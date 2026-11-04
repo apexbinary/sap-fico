@@ -2,6 +2,7 @@
    with the JSON for the GST portal's offline tool. */
 "use strict";
 
+const FILING_DEFS = [{ k: "filed_date", label: "Filed on", type: "date" }, { k: "arn", label: "ARN (acknowledgement no.)", max: 20 }];
 const GST_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 views["gst-returns"] = async (c) => {
@@ -14,7 +15,8 @@ views["gst-returns"] = async (c) => {
     { k: "month", label: "Month", type: "select", blank: false, int: true, options: GST_MONTHS.map((m, i) => [i + 1, m]) },
   ];
   const args = `year=${year}&month=${month}`;
-  const r = tab === "gstr2b" ? { gstin: (state.company || {}).tax_id, issues: [] } : await api(`/gst-returns/${tab}?${args}`);
+  const asFiled = q.get("filed") === "1";
+  const r = tab === "gstr2b" ? { gstin: (state.company || {}).tax_id, issues: [] } : await api(`/gst-returns/${tab}?${args}${asFiled ? "&filed=true" : ""}`);
   const n = (x) => fmt(x);
   const cells = (x, keys = ["taxable", "igst", "cgst", "sgst", "cess"]) => keys.map((k) => `<td class="num">${n(x[k])}</td>`).join("");
   const heads = (keys = ["Taxable value", "IGST", "CGST", "SGST", "Cess"]) => keys.map((k) => `<th class="num">${k}</th>`).join("");
@@ -48,6 +50,20 @@ views["gst-returns"] = async (c) => {
       ${section("6A Exports", "", docTable(r.exp, "13", "<th>Type</th>", (x) => `<td>${esc(x.type)}</td>`))}
       ${section("9B Credit / debit notes, registered (CDNR)", "", docTable(r.cdnr, "14"))}
       ${section("9B Credit / debit notes, unregistered (CDNUR)", "", docTable(r.cdnur, "14", "<th>Type</th>", (x) => `<td>${esc(x.type)}</td>`))}
+      ${(() => {  // 9A / 9C / 10: replacements of documents of a filed month
+        const a = r.amendments || {};
+        const amTable = (rows, obj) => `<table><thead><tr><th>Original no.</th><th>Original date</th><th>Revised no.</th><th>Date</th><th>Customer</th><th>GSTIN</th><th>POS</th><th class="num">Value</th>${heads()}</tr></thead><tbody>
+          ${rows.map((x) => `<tr><td>${docLink(obj, { doc_entry: x.original_entry, doc_num: x.original_num })}</td><td>${x.original_date}</td><td>${docLink(obj, x)}</td><td>${x.doc_date}</td>
+            <td>${esc(x.card_name || x.card_code || "")}</td><td class="mono">${esc(x.gstin || "")}</td><td>${esc(x.pos || "")}</td><td class="num">${n(x.value)}</td>${cells(itemsSum(x))}</tr>`).join("") || empty(13)}</tbody></table>`;
+        const any = ["b2ba", "cdnra", "b2cla", "cdnura", "expa", "b2csa"].some((k) => (a[k] || []).length);
+        return any ? `${section("9A Amended B2B invoices (B2BA)", "replacements of invoices of a filed month", amTable(a.b2ba || [], "13"))}
+          ${(a.b2cla || []).length ? section("9A Amended B2C large invoices (B2CLA)", "", amTable(a.b2cla, "13")) : ""}
+          ${(a.expa || []).length ? section("9A Amended exports (EXPA)", "", amTable(a.expa, "13")) : ""}
+          ${section("9C Amended credit / debit notes, registered (CDNRA)", "", amTable(a.cdnra || [], "14"))}
+          ${(a.cdnura || []).length ? section("9C Amended credit / debit notes, unregistered (CDNURA)", "", amTable(a.cdnura, "14")) : ""}
+          ${section("10 Amended B2C others (B2CSA)", "revised totals of the original month: filed + change", `<table><thead><tr><th>Original month</th><th>Place of supply</th><th>Supply</th><th class="num">Rate %</th>${heads()}<th class="num">Change (taxable)</th></tr></thead><tbody>
+            ${(a.b2csa || []).map((x) => `<tr><td>${x.omon.slice(0, 2)}/${x.omon.slice(2)}</td><td>${esc(`${x.pos || ""} ${x.pos_name || ""}`)}</td><td>${x.supply}</td><td class="num">${Number(x.rate)}</td>${cells(x)}<td class="num">${n(x.change.taxable)}</td></tr>`).join("") || empty(10)}</tbody></table>`)}` : "";
+      })()}
       ${section("8 Nil-rated, exempt and non-GST supplies", "", `<table><thead><tr><th>Supply</th><th class="num">Nil rated</th><th class="num">Exempt</th><th class="num">Non-GST</th></tr></thead><tbody>
         ${r.nil.map((x) => `<tr><td>${x.supply}</td><td class="num">${n(x.nil)}</td><td class="num">${n(x.exempt)}</td><td class="num">${n(x.non_gst)}</td></tr>`).join("")}</tbody></table>`)}
       ${["b2b", "b2c"].map((k) => section(`12 HSN-wise summary — ${k.toUpperCase()}`, "", `<table><thead><tr><th>HSN / SAC</th><th>Description</th><th>UQC</th><th class="num">Qty</th><th class="num">Rate %</th><th class="num">Total value</th>${heads()}</tr></thead><tbody>
@@ -92,10 +108,25 @@ views["gst-returns"] = async (c) => {
       <div class="field"><label>&nbsp;</label><button class="btn" id="gr-go">Show</button></div></div>
       <div class="tabs" style="margin-top:8px">${[["gstr1", "GSTR-1 outward supplies"], ["gstr3b", "GSTR-3B summary"], ["gstr2b", "GSTR-2B reconciliation"]].map(([k, l]) =>
         `<a class="tab${k === tab ? " active" : ""}" href="#/gst-returns?${args}&tab=${k}">${l}</a>`).join("")}</div></div></div>
+    ${tab === "gstr2b" ? "" : `<div class="card"><div class="card-body">${r.filing
+      ? `<b>${tab === "gstr1" ? "GSTR-1" : "GSTR-3B"} filed</b> on ${r.filing.filed_date}${r.filing.arn ? ` · ARN ${esc(r.filing.arn)}` : ""}${r.filing.user_sign ? ` · by ${esc(r.filing.user_sign)}` : ""}
+         — the month is locked for postings that change this return. ${asFiled ? "Showing the return <b>as filed</b>." : "Showing the figures <b>as of today</b>."}
+         <div style="display:flex;gap:8px;margin-top:8px"><a class="btn small secondary" href="#/gst-returns?${args}&tab=${tab}${asFiled ? "" : "&filed=1"}">${asFiled ? "Show current figures" : "Show as filed"}</a>
+         <button class="btn small ghost" id="gf-undo">Undo filing</button></div>`
+      : `<div class="form-grid">${fieldsHtml(FILING_DEFS, { filed_date: today() }, "gf")}<div class="field"><label>&nbsp;</label><button class="btn secondary" id="gf-file">Mark as filed</button></div></div>
+         <p class="help">After filing, postings in this month are refused; A/R documents are corrected with an amendment (replacement in an open month), A/P documents are canceled with a date in an open month.</p>`}</div></div>`}
     ${r.issues.length ? `<div class="card"><div class="card-head">Check before filing (${r.issues.length})</div><div class="card-body"><ul class="gr-issues">${r.issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div></div>` : ""}
     ${body}
     <div class="help" style="margin:8px 0 24px">The JSON follows the layout of the GST portal's offline tool; check it in the offline tool before uploading.
-      Amendments of earlier periods (B2BA ...) are not prepared.</div>`;
+      Amendments of filed invoices appear in the month of the replacement (tables 9A, 9C, 10).</div>`;
+  const filingBody = () => ({ year, month, ...readFields(FILING_DEFS, "gf") });
+  if ($("#gf-file")) $("#gf-file").onclick = async () => {
+    if (await act(() => post(`/gst-returns/${tab}/file`, filingBody()), "Marked as filed; the month is locked")) location.hash = `#/gst-returns?${args}&tab=${tab}&r=${Date.now()}`;
+  };
+  if ($("#gf-undo")) $("#gf-undo").onclick = async () => {
+    if (!confirm("Undo the filing status? The month is unlocked again.")) return;
+    if (await act(() => post(`/gst-returns/${tab}/unfile`, { year, month }), "Filing status removed")) location.hash = `#/gst-returns?${args}&tab=${tab}&r=${Date.now()}`;
+  };
   if (tab === "gstr2b") {
     const ST = { matched: ["C", "matched"], mismatch: ["X", "amounts differ"], portal_only: ["P", "only in GSTR-2B"], books_only: ["X", "only in books"] };
     $("#g2b-go").onclick = async () => {

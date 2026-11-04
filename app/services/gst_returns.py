@@ -88,6 +88,8 @@ class Doc:
     value: Decimal  # invoice value (LC, gross)
     lines: list[Line] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
+    amnd_entry: int | None = None  # A/R document that amends a filed one (GSTR-1 amendment tables)
+    reversal: bool = False  # earlier document canceled in this month (negative in GSTR-3B)
 
     @property
     def registered(self) -> bool:
@@ -100,91 +102,108 @@ def _uqc(unit: str | None, hsn: str | None) -> tuple[str, bool]:
     return UQC.get((unit or "").strip().lower(), "OTH"), True
 
 
-def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: date, canceled: bool = False) -> list[Doc]:
+def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: date, canceled: bool = False,
+          cancellations: bool = False) -> list[Doc]:
+    """Documents of a month as reported: dated in the month and not canceled in it (a document canceled in a
+    later month still belongs here); canceled=True: canceled within the month (documents issued);
+    cancellations=True: earlier documents canceled in this month (reported negative in GSTR-3B)."""
+    from sqlalchemy import or_
+
     comp = company(session)
     out = []
     for obj in objs:
         hcls = DOCUMENT_CLASSES[obj][0]
-        q = select(hcls).where(hcls.doc_date >= date_from, hcls.doc_date <= date_to).order_by(hcls.doc_num)
-        for d in session.scalars(q.where(hcls.canceled == ("Y" if canceled else "N"))):
-            bp = session.get(BusinessPartner, d.card_code) if d.card_code else None
-            addr = session.get(PartnerAddress, (bp.card_code, "B", d.pay_to_code)) if bp and d.pay_to_code else None
-            gstin = ((addr.gst_regn_no if addr else None) or (bp.lic_trad_num if bp else None) or d.lic_trad_num or "").strip().upper() or None
-            country = (addr.country if addr and addr.country else None) or (bp.country if bp else None) or comp.country
-            side = "S" if obj in {"13", "14"} else "P"
-            kind, st = tax.supply(session, side, bp, {"ship_to_code": d.ship_to_code, "pay_to_code": d.pay_to_code}) if bp else (None, None)
-            state = session.get(State, ((comp.country or "IN"), st)) if st else None
-            doc = Doc(obj=obj, doc_entry=d.doc_entry, doc_num=d.doc_num, doc_date=d.doc_date, card_code=d.card_code,
-                      card_name=d.card_name, gstin=gstin, gst_type=(addr.gst_type if addr else None) or ("R" if gstin else "U"),
-                      export=bool(country) and country != (comp.country or "IN"), pos_state=st,
-                      pos=state.gst_code if state else None, pos_name=state.name if state else None,
-                      inter=kind == "inter", value=_m(d.doc_total))
-            if doc.export:
-                doc.inter, doc.pos, doc.pos_name = True, "96", "Other countries"
-            if gstin and not GSTIN.match(gstin):
-                doc.issues.append(f"GSTIN {gstin} has not the GSTIN format")
-            rate = d.doc_rate or Decimal(1)
-            fc = d.doc_cur != comp.main_curncy
-            kinds = set()
-            boe_bases = {}  # import of goods with a bill of entry value: IGST base per line (LC), as posted
-            if getattr(d, "boe_value", None):
-                imp = [l for l in d.lines if l.vat_group and (session.get(TaxGroup, l.vat_group).rev_charge == "I")]
-                nets = [_m(_m((l.total_frgn if fc else l.line_total) * (1 - d.disc_prcnt / 100)) * rate) for l in imp]
-                boe_bases = {l.line_num: b for l, b in zip(imp, tax.apportion(d.boe_value, nets))}
-            for l in d.lines:
-                tg = session.get(TaxGroup, l.vat_group) if l.vat_group else None
-                net_fc = _m((l.total_frgn if fc else l.line_total) * (1 - d.disc_prcnt / 100))
-                comps = tax.split(session, tg, net_fc)
-                if l.line_num in boe_bases:
-                    comps = [(a, amount / rate, name) for a, amount, name in tax.split(session, tg, boe_bases[l.line_num])]
-                item = session.get(Item, l.item_code) if l.item_code else None
-                hsn = item.chapter_id if item else None
-                unit = l.unit_msr or (item.sal_unit_msr if side == "S" else item.buy_unit_msr) if item else l.unit_msr
-                uqc, has_qty = _uqc(unit, hsn)
-                line = Line(rate=tg.rate if tg else ZERO, taxable=_m(net_fc * rate), hsn=hsn,
-                            description=(item.item_name if item else None) or l.dscription, uqc=uqc,
-                            qty=l.quantity if has_qty else ZERO, nil=tg is None or tg.rate == 0, kind=tax.gst_kind(session, tg),
-                            rc=tg.rev_charge if tg else "N")
-                if l.line_num in boe_bases:
-                    line.taxable = boe_bases[l.line_num]
-                for _, amount, name in comps:
-                    lc = _m(amount * rate)
-                    attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
-                    setattr(line, attr, getattr(line, attr) + lc)
-                    if side == "P" and tg is not None and tg.non_dedct:
-                        line.nd[attr] = line.nd.get(attr, ZERO) + tax.non_deductible(tg, lc)
-                if line.kind:
-                    kinds.add(line.kind)
-                if not hsn:
-                    doc.issues.append(f"line {l.line_num + 1}: item {l.item_code or '-'} has no HSN / SAC code")
-                doc.lines.append(line)
-            from app.models.admin import AdditionalExpense
-
-            for e in getattr(d, "expenses", []):  # freight / additional expenses: taxable services with their SAC
-                tg = session.get(TaxGroup, e.vat_group) if e.vat_group else None
-                ex = session.get(AdditionalExpense, e.expns_code)
-                net_fc = e.total_frgn if fc else e.line_total
-                line = Line(rate=tg.rate if tg else ZERO, taxable=_m(net_fc * rate), hsn=ex.sac_code if ex else None,
-                            description=ex.expns_name if ex else "Freight", uqc="NA", qty=ZERO, nil=tg is None or tg.rate == 0,
-                            kind=tax.gst_kind(session, tg), rc=tg.rev_charge if tg else "N")
-                for _, amount, name in tax.split(session, tg, net_fc):
-                    attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
-                    setattr(line, attr, getattr(line, attr) + _m(amount * rate))
-                    if side == "P" and tg is not None and tg.non_dedct:
-                        line.nd[attr] = line.nd.get(attr, ZERO) + tax.non_deductible(tg, _m(amount * rate))
-                if line.kind:
-                    kinds.add(line.kind)
-                doc.lines.append(line)
-            if kinds == {"inter"}:
-                doc.inter = True
-            elif kinds == {"intra"}:
-                doc.inter = False
-            elif len(kinds) > 1:
-                doc.issues.append("intra-state and inter-state tax codes on the same document")
-            if doc.pos is None and not doc.export:
-                doc.issues.append("place of supply unknown (no state on the partner address)")
+        if cancellations:
+            q = select(hcls).where(hcls.canceled == "Y", hcls.cancel_date >= date_from, hcls.cancel_date <= date_to, hcls.doc_date < date_from)
+        else:
+            q = select(hcls).where(hcls.doc_date >= date_from, hcls.doc_date <= date_to)
+            q = q.where(hcls.canceled == "Y", or_(hcls.cancel_date.is_(None), hcls.cancel_date <= date_to)) if canceled                 else q.where(or_(hcls.canceled == "N", hcls.cancel_date > date_to))
+        for d in session.scalars(q.order_by(hcls.doc_num)):
+            doc = _doc(session, comp, obj, d)
+            doc.reversal = cancellations
             out.append(doc)
     return out
+
+
+def _doc(session: Session, comp, obj: str, d) -> Doc:
+    """GST view of one A/R or A/P document header (lines as posted)."""
+    bp = session.get(BusinessPartner, d.card_code) if d.card_code else None
+    addr = session.get(PartnerAddress, (bp.card_code, "B", d.pay_to_code)) if bp and d.pay_to_code else None
+    gstin = ((addr.gst_regn_no if addr else None) or (bp.lic_trad_num if bp else None) or d.lic_trad_num or "").strip().upper() or None
+    country = (addr.country if addr and addr.country else None) or (bp.country if bp else None) or comp.country
+    side = "S" if obj in {"13", "14"} else "P"
+    kind, st = tax.supply(session, side, bp, {"ship_to_code": d.ship_to_code, "pay_to_code": d.pay_to_code}) if bp else (None, None)
+    state = session.get(State, ((comp.country or "IN"), st)) if st else None
+    doc = Doc(obj=obj, doc_entry=d.doc_entry, doc_num=d.doc_num, doc_date=d.doc_date, card_code=d.card_code,
+              card_name=d.card_name, gstin=gstin, gst_type=(addr.gst_type if addr else None) or ("R" if gstin else "U"),
+              export=bool(country) and country != (comp.country or "IN"), pos_state=st,
+              pos=state.gst_code if state else None, pos_name=state.name if state else None,
+              inter=kind == "inter", value=_m(d.doc_total), amnd_entry=getattr(d, "amnd_entry", None))
+    if doc.export:
+        doc.inter, doc.pos, doc.pos_name = True, "96", "Other countries"
+    if gstin and not GSTIN.match(gstin):
+        doc.issues.append(f"GSTIN {gstin} has not the GSTIN format")
+    rate = d.doc_rate or Decimal(1)
+    fc = d.doc_cur != comp.main_curncy
+    kinds = set()
+    boe_bases = {}  # import of goods with a bill of entry value: IGST base per line (LC), as posted
+    if getattr(d, "boe_value", None):
+        imp = [l for l in d.lines if l.vat_group and (session.get(TaxGroup, l.vat_group).rev_charge == "I")]
+        nets = [_m(_m((l.total_frgn if fc else l.line_total) * (1 - d.disc_prcnt / 100)) * rate) for l in imp]
+        boe_bases = {l.line_num: b for l, b in zip(imp, tax.apportion(d.boe_value, nets))}
+    for l in d.lines:
+        tg = session.get(TaxGroup, l.vat_group) if l.vat_group else None
+        net_fc = _m((l.total_frgn if fc else l.line_total) * (1 - d.disc_prcnt / 100))
+        comps = tax.split(session, tg, net_fc)
+        if l.line_num in boe_bases:
+            comps = [(a, amount / rate, name) for a, amount, name in tax.split(session, tg, boe_bases[l.line_num])]
+        item = session.get(Item, l.item_code) if l.item_code else None
+        hsn = item.chapter_id if item else None
+        unit = l.unit_msr or (item.sal_unit_msr if side == "S" else item.buy_unit_msr) if item else l.unit_msr
+        uqc, has_qty = _uqc(unit, hsn)
+        line = Line(rate=tg.rate if tg else ZERO, taxable=_m(net_fc * rate), hsn=hsn,
+                    description=(item.item_name if item else None) or l.dscription, uqc=uqc,
+                    qty=l.quantity if has_qty else ZERO, nil=tg is None or tg.rate == 0, kind=tax.gst_kind(session, tg),
+                    rc=tg.rev_charge if tg else "N")
+        if l.line_num in boe_bases:
+            line.taxable = boe_bases[l.line_num]
+        for _, amount, name in comps:
+            lc = _m(amount * rate)
+            attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
+            setattr(line, attr, getattr(line, attr) + lc)
+            if side == "P" and tg is not None and tg.non_dedct:
+                line.nd[attr] = line.nd.get(attr, ZERO) + tax.non_deductible(tg, lc)
+        if line.kind:
+            kinds.add(line.kind)
+        if not hsn:
+            doc.issues.append(f"line {l.line_num + 1}: item {l.item_code or '-'} has no HSN / SAC code")
+        doc.lines.append(line)
+    from app.models.admin import AdditionalExpense
+
+    for e in getattr(d, "expenses", []):  # freight / additional expenses: taxable services with their SAC
+        tg = session.get(TaxGroup, e.vat_group) if e.vat_group else None
+        ex = session.get(AdditionalExpense, e.expns_code)
+        net_fc = e.total_frgn if fc else e.line_total
+        line = Line(rate=tg.rate if tg else ZERO, taxable=_m(net_fc * rate), hsn=ex.sac_code if ex else None,
+                    description=ex.expns_name if ex else "Freight", uqc="NA", qty=ZERO, nil=tg is None or tg.rate == 0,
+                    kind=tax.gst_kind(session, tg), rc=tg.rev_charge if tg else "N")
+        for _, amount, name in tax.split(session, tg, net_fc):
+            attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
+            setattr(line, attr, getattr(line, attr) + _m(amount * rate))
+            if side == "P" and tg is not None and tg.non_dedct:
+                line.nd[attr] = line.nd.get(attr, ZERO) + tax.non_deductible(tg, _m(amount * rate))
+        if line.kind:
+            kinds.add(line.kind)
+        doc.lines.append(line)
+    if kinds == {"inter"}:
+        doc.inter = True
+    elif kinds == {"intra"}:
+        doc.inter = False
+    elif len(kinds) > 1:
+        doc.issues.append("intra-state and inter-state tax codes on the same document")
+    if doc.pos is None and not doc.export:
+        doc.issues.append("place of supply unknown (no state on the partner address)")
+    return doc
 
 
 def _by_rate(lines: list[Line], sign: int = 1) -> list[dict]:
@@ -209,6 +228,50 @@ def _doc_row(d: Doc, sign: int = 1) -> dict:
             "items": _by_rate([l for l in d.lines if d.export or not l.nil], sign)}
 
 
+def _amendments(session: Session, amended: list[Doc], issues: list[str]) -> dict:
+    """GSTR-1 tables 9A / 9C / 10: each replacement with the details of the filed document it amends
+    (B2BA, CDNRA, B2CLA, CDNURA, EXPA) and B2CSA rows (original month, POS, rate: revised = filed + change)."""
+    from app.services import gst_filing
+
+    comp = company(session)
+    out = {"b2ba": [], "cdnra": [], "b2cla": [], "cdnura": [], "expa": [], "b2csa": []}
+    b2csa: dict[tuple, dict] = {}
+    for d in amended:
+        hdr = session.get(DOCUMENT_CLASSES[d.obj][0], d.amnd_entry)
+        if hdr is None:
+            issues.append(f"Document {d.doc_num}: the amended document {d.amnd_entry} does not exist")
+            continue
+        o = _doc(session, comp, d.obj, hdr)
+        orig = {"original_entry": o.doc_entry, "original_num": o.doc_num, "original_date": o.doc_date, "original_gstin": o.gstin,
+                "original_pos": o.pos, "original_value": o.value}
+        sign = 1 if d.obj == "13" else -1
+        if d.export:
+            out["expa" if d.obj == "13" else "cdnura"].append({**_doc_row(d), **orig, "type": "WPAY" if any(l.igst for l in d.lines) else "WOPAY"})
+        elif d.registered:
+            row = {**_doc_row(d), **orig, "invoice_type": ("SEZWP" if any(l.igst for l in d.lines) else "SEZWOP") if d.gst_type == "E" else "R",
+                   "reverse_charge": "N"}
+            out["b2ba" if d.obj == "13" else "cdnra"].append({**row, **({} if d.obj == "13" else {"note_type": "C"})})
+        elif d.inter and d.value > B2CL_LIMIT:
+            out["b2cla" if d.obj == "13" else "cdnura"].append({**_doc_row(d), **orig, **({} if d.obj == "13" else {"type": "B2CL", "note_type": "C"})})
+        else:  # B2C small: the change of the original month's POS / rate total
+            omon = f"{o.doc_date.month:02d}{o.doc_date.year}"
+            for doc_, s in ((d, sign), (o, -sign)):
+                for l in doc_.lines:
+                    if l.nil:
+                        continue
+                    key = (omon, doc_.pos, "INTER" if doc_.inter else "INTRA", l.rate)
+                    r = b2csa.setdefault(key, {"omon": omon, "pos": doc_.pos, "pos_name": doc_.pos_name, "supply": key[2], "rate": l.rate,
+                                               "type": "OE", **{k: ZERO for k in ("taxable", "igst", "cgst", "sgst", "cess")}})
+                    for k in ("taxable", "igst", "cgst", "sgst", "cess"):
+                        r[k] += s * getattr(l, k)
+    for (omon, pos, supply, rate), r in sorted(b2csa.items(), key=lambda kv: (kv[0][0], kv[0][1] or "", kv[0][2], kv[0][3])):
+        snap = gst_filing.snapshot(session, "GSTR1", int(omon[2:]), int(omon[:2])) or {}
+        filed = next((x for x in snap.get("b2cs", []) if x["pos"] == pos and x["supply"] == supply and Decimal(str(x["rate"])) == rate), None)
+        out["b2csa"].append({**r, "change": {k: r[k] for k in ("taxable", "igst", "cgst", "sgst", "cess")},
+                             **{k: (Decimal(str(filed[k])) if filed else ZERO) + r[k] for k in ("taxable", "igst", "cgst", "sgst", "cess")}})
+    return out
+
+
 # ------------------------------------------------------------- GSTR-1
 def gstr1(session: Session, year: int, month: int) -> dict:
     date_from, date_to = period(year, month)
@@ -231,6 +294,8 @@ def gstr1(session: Session, year: int, month: int) -> dict:
             for k in ("taxable", "igst", "cgst", "sgst", "cess"):
                 r[k] += sign * getattr(l, k)
 
+    amended = [d for d in docs if d.amnd_entry]  # replacements of documents of a filed month: amendment tables only
+    docs = [d for d in docs if not d.amnd_entry]
     for d in docs:
         sign = 1 if d.obj == "13" else -1
         for msg in d.issues:
@@ -282,6 +347,22 @@ def gstr1(session: Session, year: int, month: int) -> dict:
                               "total": len(nums), "canceled": sum(1 for d in canceled if d.obj == obj),
                               "net_issued": len(nums) - sum(1 for d in canceled if d.obj == obj)})
 
+    amendments = _amendments(session, amended, issues)
+    nums_amended = [d for d in amended]
+    for x in doc_issue:  # replacements are issued documents too
+        obj = "13" if x["nature"].startswith("Invoices") else "14"
+        n = sum(1 for d in nums_amended if d.obj == obj)
+        x["total"] += n
+        x["net_issued"] += n
+        if n:
+            x["to"] = max(x["to"], max(d.doc_num for d in nums_amended if d.obj == obj))
+            x["from"] = min(x["from"], min(d.doc_num for d in nums_amended if d.obj == obj))
+    for obj, nature in (("13", "Invoices for outward supply"), ("14", "Credit note")):
+        if not any(x["nature"] == nature for x in doc_issue) and any(d.obj == obj for d in amended):
+            nums = sorted(d.doc_num for d in amended if d.obj == obj)
+            ser = session.scalar(select(NumberingSeries).where(NumberingSeries.object_code == obj, NumberingSeries.is_default.is_(True)))
+            doc_issue.append({"nature": nature, "series": ser.series_name if ser else "", "from": nums[0], "to": nums[-1],
+                              "total": len(nums), "canceled": 0, "net_issued": len(nums)})
     hsn_out = {k: sorted(v.values(), key=lambda h: (h["hsn"] or "", h["rate"])) for k, v in hsn.items()}
     b2cs_rows = sorted(b2cs.values(), key=lambda r: (r["pos"] or "", r["supply"], r["rate"]))
     sections = {"b2b": b2b, "b2cl": b2cl, "b2cs": b2cs_rows, "exp": exp, "cdnr": cdnr, "cdnur": cdnur}
@@ -296,7 +377,7 @@ def gstr1(session: Session, year: int, month: int) -> dict:
         issues.append("HSN summary tax differs from the document tax")
     comp = company(session)
     return {"gstin": comp.tax_id, "period": f"{month:02d}{year}", "date_from": date_from, "date_to": date_to,
-            **sections, "nil": list(nil.values()), "hsn": hsn_out, "doc_issue": doc_issue, "totals": totals,
+            **sections, "nil": list(nil.values()), "hsn": hsn_out, "doc_issue": doc_issue, "totals": totals, "amendments": amendments,
             "total": doc_total, "documents": len(docs), "issues": issues}
 
 
@@ -335,14 +416,15 @@ def set_off(liability: dict, credit: dict) -> dict:
 
 def gstr3b(session: Session, year: int, month: int) -> dict:
     date_from, date_to = period(year, month)
-    out_docs = _docs(session, ("13", "14"), date_from, date_to)
-    in_docs = _docs(session, ("18", "19"), date_from, date_to)
+    # documents of the month, plus earlier documents canceled in this month (negative: amendments, late cancellations)
+    out_docs = _docs(session, ("13", "14"), date_from, date_to) + _docs(session, ("13", "14"), date_from, date_to, cancellations=True)
+    in_docs = _docs(session, ("18", "19"), date_from, date_to) + _docs(session, ("18", "19"), date_from, date_to, cancellations=True)
     zero = lambda: {"taxable": ZERO, "igst": ZERO, "cgst": ZERO, "sgst": ZERO, "cess": ZERO}  # noqa: E731
     t31 = {"a": zero(), "b": zero(), "c": zero(), "d": zero(), "e": zero()}
     unreg: dict[str, dict] = {}
     comp_sup: dict[str, dict] = {}
     for d in out_docs:
-        sign = 1 if d.obj == "13" else -1
+        sign = (1 if d.obj == "13" else -1) * (-1 if d.reversal else 1)
         for l in d.lines:
             box = "b" if d.export or d.gst_type == "E" else "c" if l.nil else "a"
             for k in ("taxable", "igst", "cgst", "sgst", "cess"):
@@ -359,7 +441,7 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
     exempt_in = {"inter": ZERO, "intra": ZERO}
     issues = []
     for d in in_docs:
-        sign = 1 if d.obj == "18" else -1
+        sign = (1 if d.obj == "18" else -1) * (-1 if d.reversal else 1)
         for msg in d.issues:
             issues.append(f"{'A/P invoice' if d.obj == '18' else 'A/P credit memo'} {d.doc_num} ({d.card_code}): {msg}")
         for l in d.lines:
@@ -450,7 +532,37 @@ def gstr1_json(session: Session, year: int, month: int) -> dict:
                  "rt": float(h["rate"]), "txval": _f(h["taxable"]), "iamt": _f(h["igst"]), "camt": _f(h["cgst"]),
                  "samt": _f(h["sgst"]), "csamt": _f(h["cess"])} for n, h in enumerate(rows, 1)]
 
+    a = r["amendments"]
+    o = lambda x: {"oinum": str(x["original_num"]), "oidt": _dt(x["original_date"]), "inum": str(x["doc_num"]), "idt": _dt(x["doc_date"]),  # noqa: E731
+                   "val": _f(x["value"])}
+    b2ba: dict[str, list] = defaultdict(list)
+    for x in a["b2ba"]:
+        b2ba[x["gstin"]].append({**o(x), "pos": x["pos"], "rchrg": "N", "inv_typ": x["invoice_type"], "itms": _itms(x["items"])})
+    cdnra: dict[str, list] = defaultdict(list)
+    for x in a["cdnra"]:
+        cdnra[x["gstin"]].append({"ont_num": str(x["original_num"]), "ont_dt": _dt(x["original_date"]), "ntty": "C", "nt_num": str(x["doc_num"]),
+                                  "nt_dt": _dt(x["doc_date"]), "val": _f(x["value"]), "pos": x["pos"], "rchrg": "N", "inv_typ": x["invoice_type"],
+                                  "itms": _itms(x["items"])})
+    b2cla: dict[str, list] = defaultdict(list)
+    for x in a["b2cla"]:
+        b2cla[x["original_pos"] or x["pos"]].append({**o(x), "pos": x["pos"], "itms": _itms(x["items"], True)})
+    expa: dict[str, list] = defaultdict(list)
+    for x in a["expa"]:
+        expa[x["type"]].append({**o(x), "itms": [{"rt": float(i["rate"]), "txval": _f(i["taxable"]), "iamt": _f(i["igst"]), "csamt": _f(i["cess"])}
+                                                 for i in x["items"]]})
+    amend = {
+        "b2ba": [{"ctin": k, "inv": v} for k, v in b2ba.items()],
+        "cdnra": [{"ctin": k, "nt": v} for k, v in cdnra.items()],
+        "b2cla": [{"pos": k, "inv": v} for k, v in b2cla.items()],
+        "expa": [{"exp_typ": k, "inv": v} for k, v in expa.items()],
+        "cdnura": [{"ont_num": str(x["original_num"]), "ont_dt": _dt(x["original_date"]), "typ": x.get("type", "B2CL"), "ntty": "C",
+                    "nt_num": str(x["doc_num"]), "nt_dt": _dt(x["doc_date"]), "val": _f(x["value"]), "itms": _itms(x["items"], True)} for x in a["cdnura"]],
+        "b2csa": [{"omon": x["omon"], "sply_ty": x["supply"], "typ": "OE", "pos": x["pos"],
+                   "itms": [{"rt": float(x["rate"]), "txval": _f(x["taxable"]), "iamt": _f(x["igst"]), "camt": _f(x["cgst"]),
+                             "samt": _f(x["sgst"]), "csamt": _f(x["cess"])}]} for x in a["b2csa"]],
+    }
     return {
+        **{k: v for k, v in amend.items() if v},
         "gstin": r["gstin"], "fp": r["period"], "version": "GST3.2", "hash": "hash",
         "b2b": [{"ctin": k, "inv": v} for k, v in by_ctin.items()],
         "b2cl": [{"pos": k, "inv": v} for k, v in b2cl.items()],

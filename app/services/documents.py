@@ -347,6 +347,9 @@ def _create(session: Session, req: DocumentRequest):
     d = doc_def(req.obj)
     header_cls, line_cls = DOCUMENT_CLASSES[d.obj]
     posting_period(session, req.doc_date, req.doc_due_date, req.tax_date)
+    from app.services import gst_filing
+
+    gst_filing.check_posting(session, d.obj, req.doc_date)  # month of a filed GST return
     if req.doc_type not in {"I", "S"}:
         raise B1Error("Document type must be I (items) or S (service)")
     if req.doc_type == "S" and (d.side == "I" or d.kind in {"delivery", "return"}):
@@ -1200,11 +1203,16 @@ def cancel_document(session: Session, obj: str, doc_entry: int, cancel_date: dat
         raise
 
 
-def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None):
+def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None, amendment: bool = False):
     d = doc_def(obj)
     doc = get_document(session, obj, doc_entry)
     if doc.canceled == "Y":
         raise B1Error(f"{d.name} {doc.doc_num} is already canceled")
+    from app.services import gst_filing
+
+    gst_filing.check_cancel(session, obj, doc, cancel_date, amendment)
+    if cancel_date is not None and cancel_date < doc.doc_date:
+        raise B1Error("The cancellation date lies before the posting date")
     from app.services.edocs import blocks_cancel
 
     blocked = blocks_cancel(session, obj, doc_entry)
@@ -1265,7 +1273,7 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
                 base.doc_status = "C" if paid else "O"
             _commit_line(session, base.obj_type, bl, line.quantity * (bl.num_per_msr or 1))
         line.line_status = "C"
-    doc.canceled, doc.doc_status = "Y", "C"
+    doc.canceled, doc.doc_status, doc.cancel_date = "Y", "C", cancel_date or doc.doc_date
     if doc.card_code:
         refresh_partner(session, session.get(BusinessPartner, doc.card_code))
     session.flush()

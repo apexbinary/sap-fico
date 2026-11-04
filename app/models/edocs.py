@@ -46,3 +46,21 @@ class EDocument(Base):
     payload: Mapped[str | None] = mapped_column("Payload", Text)  # JSON sent / to be sent to the portal
     user_sign: Mapped[str | None] = mapped_column("UserSign", String(25))
     created: Mapped[datetime] = mapped_column("CreateDate", DateTime)
+
+
+class GstReturnFiling(Base):
+    """OGSR — Filing status of a GST return (GSTR-1 / GSTR-3B) for a month, with the filed figures.
+
+    Not B1-verified (B1 India files through partner add-ons). A filed month is locked for postings that
+    change the return; Snapshot keeps the return as filed (JSON), so later views show what was filed.
+    """
+
+    __tablename__ = "ogsr"
+
+    abs_entry: Mapped[int] = mapped_column("AbsEntry", primary_key=True)
+    ret_type: Mapped[str] = mapped_column("RetType", String(10), index=True)  # GSTR1, GSTR3B
+    period: Mapped[str] = mapped_column("Period", String(6), index=True)  # MMYYYY
+    filed_date: Mapped[date] = mapped_column("FiledDate", Date)
+    arn: Mapped[str | None] = mapped_column("ARN", String(20))  # acknowledgement reference number of the portal
+    snapshot: Mapped[str] = mapped_column("Snapshot", Text)
+    user_sign: Mapped[str | None] = mapped_column("UserSign", String(25))

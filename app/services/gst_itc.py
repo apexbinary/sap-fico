@@ -92,6 +92,9 @@ def still_reversed(session: Session) -> dict:
 def post(session: Session, kind: str, on: date, amounts: dict, memo: str | None = None) -> JournalEntry:
     if kind not in KINDS:
         raise B1Error("Kind: B1 permanent reversal, B2 temporary reversal, D1 reclaim")
+    from app.services import gst_filing
+
+    gst_filing.check_journal(session, on)
     amounts = {h: _m(amounts.get(h) or 0) for h in HEADS}
     if any(v < 0 for v in amounts.values()) or not any(amounts.values()):
         raise B1Error("Enter the IGST / CGST / SGST / cess amounts (positive)")
@@ -120,6 +123,9 @@ def cancel(session: Session, trans_id: int) -> JournalEntry:
         raise B1Error(f"Journal entry {trans_id} is no ITC reversal")
     if not _active(je):
         raise B1Error(f"ITC entry {trans_id} is already canceled")
+    from app.services import gst_filing
+
+    gst_filing.check_journal(session, je.ref_date)
     if je.ref3 == "ITC:B2":
         left, amt = still_reversed(session), _amounts(session, je)
         if any(amt[h] > left[h] for h in HEADS):

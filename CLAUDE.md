@@ -341,6 +341,12 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   every BP balance still equals its open items. Canceling the invoice releases the draws; a payment
   whose amount on account was drawn cannot be canceled.
 
+- A down payment invoice (DpmType I) posts: partner (gross) / OACP DpmClrSal 219000 or DpmClrPur 119000 (net) /
+  tax; it is paid as an open item (banking.INVOICE_TYPES has 203 / 204; it stays open until drawn). Drawing it
+  (in full, when paid) on an invoice reverses its non-partner JE lines in the invoice's JE, lowers the
+  invoice's partner line by the gross and adds it to PaidToDate / DpmAmnt (INV9 row without PayTrans).
+  GSTR-1 11A / 11B and GSTR-3B take the advance and, negative, its adjustment.
+
 ### Withholding tax / TDS (keep invariant)
 - A/P invoice of a vendor with WTLiable Y: base = net LC excl. GST, TDS in whole rupees; vendor
   line = DocTotal = gross - WTSum; the code's account (217000 TDS payable) credited. Every invoice

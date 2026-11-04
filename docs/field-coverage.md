@@ -597,7 +597,11 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Down payment request: header, lines and tax like an invoice; not posted | ODPI / DPI1, ODPO / DPO1 | as invoices | ✅ |
 | Paid by incoming / outgoing payment: amount on account, request PaidToDate | RCT2 / VPM2 InvType 203 / 204 | checkbox / number | ✅ local currency |
 | Drawn on the final invoice: partner lines reconciled with the payment's amount on account, invoice PaidToDate, total drawn; request DpmAppl, closed when drawn | INV9 / PCH9 BaseAbs / DrawnSum (+ PayType / PayEntry / PayTrans / PayLine / DocLine), OINV / OPCH DpmAmnt, ODPI / ODPO DpmAppl | checkbox / number | ✅ partial draws; cancel of the invoice releases the down payment |
-| Down payment invoice (posted, GST on advances), down payment percentage, clearing account (DpmClear), FC down payments, copy from orders | DpmPrcnt, DpmClear | — | ⏸ |
+| Down payment type: request (not posted) / invoice (posted: partner / clearing account / tax on the advance) | DpmType | dropdown | ✅ ⚠ not B1-verified (B1 has separate request and invoice documents) |
+| Clearing account of down payment invoices: customers 219000, vendors 119000 | OACP DpmClrSal / DpmClrPur | — | ✅ ⚠ descriptive OACP columns; per-BP DpmClear ⏸ |
+| Paying a down payment invoice: as an open item (like an invoice); drawing it on an invoice: in full, once paid; reverses the clearing account and the advance's tax in the invoice's journal entry, partner line reduced, PaidToDate / DpmAmnt | INV9 / PCH9 (PayType ... empty) | — | ✅ not on invoices with installments |
+| GSTR-1 11A tax on advances, 11B advances adjusted, 13 receipt vouchers; GSTR-3B 3.1(a) / ITC include them; JSON at / txpd; printed as "Receipt Voucher (Advance)" | | — | ✅ |
+| Down payment percentage, per-BP clearing account (OCRD DpmClear), FC down payments, partial draws of down payment invoices, copy from orders | DpmPrcnt, DpmClear | — | ⏸ |
 
 ### Freight / additional expenses (Administration -> Freight, document form)
 | Field / function | Column | Type | Status |

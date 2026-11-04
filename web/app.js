@@ -386,6 +386,8 @@ function docHeaderDefs(t, mode) {
     { k: "address2", label: "Ship-to address", type: "textarea", ro: true },
     { k: "group_num", label: "Payment terms", type: "select", int: true, options: () => O.terms(), ro: true },
     { k: "lic_trad_num", label: "Federal tax ID", ro: true },
+    ...(t.kind === "downpayment" ? [{ k: "dpm_type", label: "Down payment type", type: "select", blank: false, ro,
+      options: [["R", "Request (not posted, paid on account)"], ["I", "Invoice (posted with GST on the advance)"]] }] : []),
     ...(["18", "19"].includes(t.obj) ? [  // import of goods (India): bill of entry; the value is the IGST base in local currency
       { k: "boe_num", label: "Bill of entry no.", max: 20, ro }, { k: "boe_date", label: "Bill of entry date", type: "date", ro },
       { k: "boe_value", label: "Bill of entry value (IGST base, LC)", type: "number", step: "0.01", min: 0, ro },
@@ -567,8 +569,8 @@ views.doc = async (c) => {
       const dps = b ? (await api(`/documents/${side === "S" ? "203" : "204"}/open-down-payments?card_code=${encodeURIComponent(b.card_code)}`).catch(() => []))
         .filter((x) => Number(x.to_draw) > 0) : [];
       $("#d-dps").innerHTML = dps.length ? `<div class="help" style="text-align:right">Paid down payments to draw</div><table><tbody>${dps.map((x) =>
-        `<tr data-dp="${x.doc_entry}"><td><label><input type="checkbox" class="dp-pick"> Down payment ${x.doc_num} (${x.doc_date})</label></td>
-          <td class="num"><input class="dp-sum" type="number" step="0.01" min="0" max="${Number(x.to_draw)}" value="${Number(x.to_draw)}" disabled style="width:120px"></td></tr>`).join("")}</tbody></table>` : "";
+        `<tr data-dp="${x.doc_entry}"><td><label><input type="checkbox" class="dp-pick"> Down payment ${x.dpm_type === "I" ? "invoice " : ""}${x.doc_num} (${x.doc_date})</label></td>
+          <td class="num"><input class="dp-sum" type="number" step="0.01" min="0" max="${Number(x.to_draw)}" value="${Number(x.to_draw)}" disabled style="width:120px"${x.dpm_type === "I" ? " readonly title=\"drawn in full\"" : ""}></td></tr>`).join("")}</tbody></table>` : "";
       $$("#d-dps tr[data-dp]").forEach((tr) => {
         $(".dp-pick", tr).onchange = () => { $(".dp-sum", tr).disabled = !$(".dp-pick", tr).checked; recalc(); };
         $(".dp-sum", tr).oninput = recalc;

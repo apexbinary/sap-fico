@@ -186,7 +186,7 @@ views.payment = async (c) => {
     });
     itemCurrencies();
     const dpObj = incoming ? "203" : "204";
-    const dps = (await api(`/documents/${dpObj}/open-down-payments?card_code=${encodeURIComponent(code)}`).catch(() => [])).filter((x) => Number(x.to_pay) > 0);
+    const dps = (await api(`/documents/${dpObj}/open-down-payments?card_code=${encodeURIComponent(code)}`).catch(() => [])).filter((x) => Number(x.to_pay) > 0 && x.dpm_type !== "I");  // invoices are paid as open items
     if (dps.length) {
       $("#p-items").insertAdjacentHTML("beforeend", `<h3 class="section" style="margin:12px 12px 4px">Down payment requests</h3>
         <table class="lines"><thead><tr><th></th><th>No.</th><th>Date</th><th>Remarks</th><th class="num">Total</th><th class="num">Paid</th><th class="num w-amt">Amount to pay (LC)</th></tr></thead><tbody>

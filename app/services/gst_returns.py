@@ -90,6 +90,7 @@ class Doc:
     issues: list[str] = field(default_factory=list)
     amnd_entry: int | None = None  # A/R document that amends a filed one (GSTR-1 amendment tables)
     reversal: bool = False  # earlier document canceled in this month (negative in GSTR-3B)
+    dp_adjust: list = field(default_factory=list)  # down payment invoices drawn on this invoice (GSTR-1 11B)
 
     @property
     def registered(self) -> bool:
@@ -118,6 +119,8 @@ def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: dat
         else:
             q = select(hcls).where(hcls.doc_date >= date_from, hcls.doc_date <= date_to)
             q = q.where(hcls.canceled == "Y", or_(hcls.cancel_date.is_(None), hcls.cancel_date <= date_to)) if canceled                 else q.where(or_(hcls.canceled == "N", hcls.cancel_date > date_to))
+        if obj in {"203", "204"}:
+            q = q.where(hcls.dpm_type == "I")  # down payment invoices (tax on advances); requests are not posted
         for d in session.scalars(q.order_by(hcls.doc_num)):
             doc = _doc(session, comp, obj, d)
             doc.reversal = cancellations
@@ -127,6 +130,13 @@ def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: dat
 
 def _doc(session: Session, comp, obj: str, d) -> Doc:
     """GST view of one A/R or A/P document header (lines as posted)."""
+    from app.models.documents import DOCUMENT_DOWN_PAYMENTS
+
+    adjust = []
+    if obj in {"13", "18"}:  # down payment invoices drawn: their tax on the advance is reversed by this invoice
+        dcls, dp_obj = DOCUMENT_DOWN_PAYMENTS[obj], "203" if obj == "13" else "204"
+        for row in session.scalars(select(dcls).where(dcls.doc_entry == d.doc_entry, dcls.pay_trans.is_(None))):
+            adjust.append(_doc(session, comp, dp_obj, session.get(DOCUMENT_CLASSES[dp_obj][0], row.base_abs)))
     bp = session.get(BusinessPartner, d.card_code) if d.card_code else None
     addr = session.get(PartnerAddress, (bp.card_code, "B", d.pay_to_code)) if bp and d.pay_to_code else None
     gstin = ((addr.gst_regn_no if addr else None) or (bp.lic_trad_num if bp else None) or d.lic_trad_num or "").strip().upper() or None
@@ -138,7 +148,7 @@ def _doc(session: Session, comp, obj: str, d) -> Doc:
               card_name=d.card_name, gstin=gstin, gst_type=(addr.gst_type if addr else None) or ("R" if gstin else "U"),
               export=bool(country) and country != (comp.country or "IN"), pos_state=st,
               pos=state.gst_code if state else None, pos_name=state.name if state else None,
-              inter=kind == "inter", value=_m(d.doc_total), amnd_entry=getattr(d, "amnd_entry", None))
+              inter=kind == "inter", value=_m(d.doc_total), amnd_entry=getattr(d, "amnd_entry", None), dp_adjust=adjust)
     if doc.export:
         doc.inter, doc.pos, doc.pos_name = True, "96", "Other countries"
     if gstin and not GSTIN.match(gstin):
@@ -348,8 +358,19 @@ def gstr1(session: Session, year: int, month: int) -> dict:
                               "net_issued": len(nums) - sum(1 for d in canceled if d.obj == obj)})
 
     amendments = _amendments(session, amended, issues)
+    # table 11: tax on advances received (down payment invoices) and advances adjusted by the invoices of the month
+    adv = _docs(session, ("203",), date_from, date_to)
+    advances = {"received": _by_pos_rate([(a, 1) for a in adv]),
+                "adjusted": _by_pos_rate([(x, 1) for d in docs + amended for x in d.dp_adjust])}
+    adv_canceled = _docs(session, ("203",), date_from, date_to, canceled=True)
+    if adv or adv_canceled:
+        nums = sorted([a.doc_num for a in adv] + [a.doc_num for a in adv_canceled])
+        doc_issue.append({"nature": "Receipt voucher", "series": "", "from": nums[0], "to": nums[-1], "total": len(nums),
+                          "canceled": len(adv_canceled), "net_issued": len(nums) - len(adv_canceled)})
     nums_amended = [d for d in amended]
     for x in doc_issue:  # replacements are issued documents too
+        if x["nature"] not in ("Invoices for outward supply", "Credit note"):
+            continue
         obj = "13" if x["nature"].startswith("Invoices") else "14"
         n = sum(1 for d in nums_amended if d.obj == obj)
         x["total"] += n
@@ -377,7 +398,7 @@ def gstr1(session: Session, year: int, month: int) -> dict:
         issues.append("HSN summary tax differs from the document tax")
     comp = company(session)
     return {"gstin": comp.tax_id, "period": f"{month:02d}{year}", "date_from": date_from, "date_to": date_to,
-            **sections, "nil": list(nil.values()), "hsn": hsn_out, "doc_issue": doc_issue, "totals": totals, "amendments": amendments,
+            **sections, "nil": list(nil.values()), "hsn": hsn_out, "doc_issue": doc_issue, "totals": totals, "amendments": amendments, "advances": advances,
             "total": doc_total, "documents": len(docs), "issues": issues}
 
 
@@ -414,17 +435,43 @@ def set_off(liability: dict, credit: dict) -> dict:
             "cash": due, "credit_left": left}
 
 
+def _signed(docs: list[Doc]) -> list[tuple[Doc, int]]:
+    """(document, sign) for GSTR-3B: invoices / down payment invoices +, credit memos -, cancellations of
+    earlier documents the other way; drawn down payment invoices with the opposite sign of their invoice."""
+    out = []
+    for d in docs:
+        sign = (-1 if d.obj in {"14", "19"} else 1) * (-1 if d.reversal else 1)
+        out.append((d, sign))
+        out.extend((a, -sign) for a in d.dp_adjust)
+    return out
+
+
+def _by_pos_rate(pairs) -> list[dict]:
+    """GSTR-1 table 11: taxable / tax by place of supply, supply type and rate."""
+    rows: dict[tuple, dict] = {}
+    for d, sign in pairs:
+        for l in d.lines:
+            if l.nil:
+                continue
+            key = (d.pos, "INTER" if d.inter else "INTRA", l.rate)
+            r = rows.setdefault(key, {"pos": d.pos, "pos_name": d.pos_name, "supply": key[1], "rate": l.rate,
+                                      **{k: ZERO for k in ("taxable", "igst", "cgst", "sgst", "cess")}})
+            for k in ("taxable", "igst", "cgst", "sgst", "cess"):
+                r[k] += sign * getattr(l, k)
+    return sorted(rows.values(), key=lambda r: (r["pos"] or "", r["supply"], r["rate"]))
+
+
 def gstr3b(session: Session, year: int, month: int) -> dict:
     date_from, date_to = period(year, month)
     # documents of the month, plus earlier documents canceled in this month (negative: amendments, late cancellations)
-    out_docs = _docs(session, ("13", "14"), date_from, date_to) + _docs(session, ("13", "14"), date_from, date_to, cancellations=True)
-    in_docs = _docs(session, ("18", "19"), date_from, date_to) + _docs(session, ("18", "19"), date_from, date_to, cancellations=True)
+    # and down payment invoices (tax on advances; reversed by the invoices that draw them)
+    out_docs = _signed(_docs(session, ("13", "14", "203"), date_from, date_to) + _docs(session, ("13", "14", "203"), date_from, date_to, cancellations=True))
+    in_docs = _signed(_docs(session, ("18", "19", "204"), date_from, date_to) + _docs(session, ("18", "19", "204"), date_from, date_to, cancellations=True))
     zero = lambda: {"taxable": ZERO, "igst": ZERO, "cgst": ZERO, "sgst": ZERO, "cess": ZERO}  # noqa: E731
     t31 = {"a": zero(), "b": zero(), "c": zero(), "d": zero(), "e": zero()}
     unreg: dict[str, dict] = {}
     comp_sup: dict[str, dict] = {}
-    for d in out_docs:
-        sign = (1 if d.obj == "13" else -1) * (-1 if d.reversal else 1)
+    for d, sign in out_docs:
         for l in d.lines:
             box = "b" if d.export or d.gst_type == "E" else "c" if l.nil else "a"
             for k in ("taxable", "igst", "cgst", "sgst", "cess"):
@@ -440,10 +487,9 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
     blocked = {h: ZERO for h in HEADS}
     exempt_in = {"inter": ZERO, "intra": ZERO}
     issues = []
-    for d in in_docs:
-        sign = (1 if d.obj == "18" else -1) * (-1 if d.reversal else 1)
+    for d, sign in in_docs:
         for msg in d.issues:
-            issues.append(f"{'A/P invoice' if d.obj == '18' else 'A/P credit memo'} {d.doc_num} ({d.card_code}): {msg}")
+            issues.append(f"{ {'18': 'A/P invoice', '19': 'A/P credit memo', '204': 'A/P down payment'}[d.obj]} {d.doc_num} ({d.card_code}): {msg}")
         for l in d.lines:
             if l.nil:
                 exempt_in["inter" if d.inter else "intra"] += sign * l.taxable
@@ -561,8 +607,12 @@ def gstr1_json(session: Session, year: int, month: int) -> dict:
                    "itms": [{"rt": float(x["rate"]), "txval": _f(x["taxable"]), "iamt": _f(x["igst"]), "camt": _f(x["cgst"]),
                              "samt": _f(x["sgst"]), "csamt": _f(x["cess"])}]} for x in a["b2csa"]],
     }
+    adv = lambda rows: [{"pos": x["pos"], "sply_ty": x["supply"], "itms": [{"rt": float(x["rate"]), "ad_amt": _f(x["taxable"]),  # noqa: E731
+                         "iamt": _f(x["igst"]), "camt": _f(x["cgst"]), "samt": _f(x["sgst"]), "csamt": _f(x["cess"])}]} for x in rows]
     return {
         **{k: v for k, v in amend.items() if v},
+        **({"at": adv(r["advances"]["received"])} if r["advances"]["received"] else {}),
+        **({"txpd": adv(r["advances"]["adjusted"])} if r["advances"]["adjusted"] else {}),
         "gstin": r["gstin"], "fp": r["period"], "version": "GST3.2", "hash": "hash",
         "b2b": [{"ctin": k, "inv": v} for k, v in by_ctin.items()],
         "b2cl": [{"pos": k, "inv": v} for k, v in b2cl.items()],
@@ -575,7 +625,7 @@ def gstr1_json(session: Session, year: int, month: int) -> dict:
         "nil": {"inv": [{"sply_ty": nil_map[x["supply"]], "nil_amt": _f(x["nil"]), "expt_amt": _f(x["exempt"]),
                          "ngsup_amt": _f(x["non_gst"])} for x in r["nil"] if x["nil"] or x["exempt"] or x["non_gst"]]},
         "hsn": {"hsn_b2b": hsn_rows(r["hsn"]["b2b"]), "hsn_b2c": hsn_rows(r["hsn"]["b2c"])},
-        "doc_issue": {"doc_det": [{"doc_num": 1 if x["nature"].startswith("Invoices") else 5, "doc_typ": x["nature"],
+        "doc_issue": {"doc_det": [{"doc_num": 1 if x["nature"].startswith("Invoices") else 6 if x["nature"] == "Receipt voucher" else 5, "doc_typ": x["nature"],
                                    "docs": [{"num": 1, "from": str(x["from"]), "to": str(x["to"]), "totnum": x["total"],
                                              "cancel": x["canceled"], "net_issue": x["net_issued"]}]} for x in r["doc_issue"]]},
     }

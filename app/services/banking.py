@@ -36,7 +36,7 @@ from app.services.journal import JournalLineRequest, JournalRequest, money
 
 ZERO = Decimal("0")
 NAMES = {"24": "Incoming Payment", "46": "Outgoing Payment"}
-INVOICE_TYPES = {"13", "14", "18", "19"}  # documents with PaidToDate
+INVOICE_TYPES = {"13", "14", "18", "19", "203", "204"}  # documents with PaidToDate (203 / 204: down payment invoices)
 FX_TOLERANCE = Decimal("0.005")  # foreign-currency means may differ from the items by 0.5 % (exchange difference)
 
 
@@ -199,7 +199,7 @@ def _apply_to_item(session: Session, line: JournalLine, amount: Decimal, amount_
             inst.paid_to_date += amount
             inst.paid_fc += amount_fc
             inst.status = "C" if inst.paid_to_date >= inst.ins_total else "O"
-        if doc.canceled == "N":
+        if doc.canceled == "N" and line.trans_type not in {"203", "204"}:  # a down payment closes when it is drawn
             doc.doc_status = "C" if doc.paid_to_date >= doc.doc_total else "O"
     elif line.trans_type in PAYMENT_CLASSES and line.created_by:
         pay = session.get(PAYMENT_CLASSES[line.trans_type][0], line.created_by)
@@ -340,6 +340,8 @@ def _create(session: Session, req: PaymentRequest):
             dp = session.get(dp_cls, int(dpr.dp_entry))
             if dp is None or dp.canceled == "Y" or dp.card_code != bp.card_code:
                 raise B1Error(f"Down payment {dpr.dp_entry} is not a down payment request of {bp.card_code}")
+            if dp.dpm_type == "I":
+                raise B1Error(f"Down payment {dp.doc_num} is a down payment invoice: pay its open item like an invoice")
             amount = money(dpr.amount)
             if amount <= 0 or amount > dp.doc_total - dp.paid_to_date:
                 raise B1Error(f"Down payment {dp.doc_num}: the amount must be between 0 and the unpaid {(dp.doc_total - dp.paid_to_date).normalize()}")

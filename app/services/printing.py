@@ -235,7 +235,7 @@ def print_data(session: Session, obj: str, doc_entry: int, layout_code: str | No
                 "vehicle_no": ewb.vehicle_no, "ewb_test": ewb.mode == "T"}
     return {
         "edoc": edoc,
-        "obj": obj, "title": TITLES[obj], "layout": lay,
+        "obj": obj, "title": ("Receipt Voucher (Advance)" if obj == "203" else "Advance Payment Voucher") if obj in {"203", "204"} and doc.dpm_type == "I" else TITLES[obj], "layout": lay,
         "layouts": [{"doc_code": l.doc_code, "doc_name": l.doc_name, "default": l.default == "Y"} for l in layouts(session, obj)], "doc_name": DEFS[obj].name, "no_prices": obj in NO_PRICES,
         "doc_num": doc.doc_num, "doc_date": doc.doc_date, "doc_due_date": doc.doc_due_date, "tax_date": doc.tax_date,
         "num_at_card": doc.num_at_card, "canceled": doc.canceled == "Y", "currency": doc.doc_cur, "rate": doc.doc_rate,

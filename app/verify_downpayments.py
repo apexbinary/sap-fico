@@ -99,7 +99,7 @@ def main() -> None:
         _refused(lambda: docs.create_document(s, DR(obj="13", doc_date=DAY, card_code="C10000", doc_cur="USD",
                                                     lines=[DL(item_code="S00001", quantity=D(1), price=D(100))], down_payments=[DPD(dp.doc_entry)])),
                  "local currency")
-        _refused(lambda: docs.cancel_document(s, "203", dp.doc_entry, DAY), "is paid")
+        _refused(lambda: docs.cancel_document(s, "203", dp.doc_entry, DAY), "drawn on an invoice")  # partly drawn (5,900 by the invoice above)
         _balanced(s, "C10000")
         print(f"3 Canceling the invoice releases the down payment; invoice {again.doc_num} draws 5,900 of it (closed, fully paid); "
               "drawing more than is left, another customer, an FC invoice and canceling a paid request are refused")

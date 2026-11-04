@@ -48,6 +48,13 @@ views["gst-returns"] = async (c) => {
       ${section("7 B2C others (B2CS)", "by place of supply and rate", `<table><thead><tr><th>Place of supply</th><th>Supply</th><th class="num">Rate %</th>${heads()}</tr></thead><tbody>
         ${r.b2cs.map((x) => `<tr><td>${esc(`${x.pos || ""} ${x.pos_name || ""}`)}</td><td>${x.supply}</td><td class="num">${Number(x.rate)}</td>${cells(x)}</tr>`).join("") || empty(8)}</tbody></table>`)}
       ${section("6A Exports", "", docTable(r.exp, "13", "<th>Type</th>", (x) => `<td>${esc(x.type)}</td>`))}
+      ${(() => {  // 11A tax on advances received (down payment invoices), 11B advances adjusted by invoices of the month
+        const adv = r.advances || { received: [], adjusted: [] };
+        const t11 = (rows) => `<table><thead><tr><th>Place of supply</th><th>Supply</th><th class="num">Rate %</th>${heads(["Advance (taxable)", "IGST", "CGST", "SGST", "Cess"])}</tr></thead><tbody>
+          ${rows.map((x) => `<tr><td>${esc(`${x.pos || ""} ${x.pos_name || ""}`)}</td><td>${x.supply}</td><td class="num">${Number(x.rate)}</td>${cells(x)}</tr>`).join("") || empty(8)}</tbody></table>`;
+        return adv.received.length || adv.adjusted.length ? `${section("11A Tax on advances received", "down payment invoices of the month", t11(adv.received))}
+          ${section("11B Advances adjusted", "down payment invoices drawn on invoices of the month", t11(adv.adjusted))}` : "";
+      })()}
       ${section("9B Credit / debit notes, registered (CDNR)", "", docTable(r.cdnr, "14"))}
       ${section("9B Credit / debit notes, unregistered (CDNUR)", "", docTable(r.cdnur, "14", "<th>Type</th>", (x) => `<td>${esc(x.type)}</td>`))}
       ${(() => {  // 9A / 9C / 10: replacements of documents of a filed month

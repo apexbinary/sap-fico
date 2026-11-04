@@ -31,7 +31,7 @@ def _doc_out(doc, detail: bool = False) -> dict:
            "wt_sum": doc.wt_sum, "wt_sum_fc": doc.wt_sum_fc, "total_expns": doc.total_expns, "total_exp_fc": doc.total_exp_fc,
            "dpm_amnt": doc.dpm_amnt, "dpm_appl": doc.dpm_appl,
            "boe_num": doc.boe_num, "boe_date": doc.boe_date, "boe_value": doc.boe_value, "port_code": doc.port_code,
-           "cancel_date": doc.cancel_date, "amnd_entry": doc.amnd_entry,
+           "cancel_date": doc.cancel_date, "amnd_entry": doc.amnd_entry, "dpm_type": doc.dpm_type,
            "comments": doc.comments, "filler": doc.filler, "to_whs_code": doc.to_whs_code, "series": doc.series,
            "cntct_code": doc.cntct_code, "slp_code": doc.slp_code, "project": doc.project,
            "lic_trad_num": doc.lic_trad_num, "jrnl_memo": doc.jrnl_memo, "ref2": doc.ref2, "group_num": doc.group_num}
@@ -164,6 +164,7 @@ class DocumentIn(BaseModel):
     confirm_credit: bool = False
     expenses: list[dict] | None = None  # [{expns_code, amount, vat_group}]
     down_payments: list[dict] | None = None  # invoices: [{dp_entry, amount}] paid down payments to draw
+    dpm_type: str = Field("R", pattern="^[RI]$")  # down payments: R request / I invoice (posted with tax)
     boe_num: str | None = Field(None, max_length=20)  # import of goods: bill of entry
     boe_date: date | None = None
     boe_value: Decimal | None = Field(None, gt=0)
@@ -208,7 +209,7 @@ def open_down_payments(obj: str, card_code: str, s: Session = Depends(get_sessio
     rows = s.scalars(select(cls).where(cls.card_code == card_code, cls.canceled == "N").order_by(cls.doc_entry))
     return [{"obj": obj, "doc_entry": d.doc_entry, "doc_num": d.doc_num, "doc_date": d.doc_date, "doc_total": d.doc_total,
              "paid": d.paid_to_date, "drawn": d.dpm_appl, "to_pay": d.doc_total - d.paid_to_date, "to_draw": d.paid_to_date - d.dpm_appl,
-             "comments": d.comments} for d in rows if d.doc_total - d.paid_to_date > 0 or d.paid_to_date - d.dpm_appl > 0]
+             "comments": d.comments, "dpm_type": d.dpm_type} for d in rows if d.doc_total - d.paid_to_date > 0 or d.paid_to_date - d.dpm_appl > 0]
 
 
 @router.get("/documents/{obj}/copy-sources", tags=["Documents"], summary="Open base documents to copy from")

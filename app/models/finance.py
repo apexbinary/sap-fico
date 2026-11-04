@@ -165,6 +165,8 @@ class AccountDetermination(Base):
     imp_tax_acct: Mapped[str] = mapped_column("ImpTaxAcct", String(15), server_default="218000")  # IGST on imports payable to customs
     itc_rev_acct: Mapped[str] = mapped_column("ItcRevAcct", String(15), server_default="618000")  # ITC reversed permanently (expense)
     itc_rcl_acct: Mapped[str] = mapped_column("ItcRclAcct", String(15), server_default="116900")  # ITC reversed temporarily (reclaimable)
+    dpm_clr_sal: Mapped[str] = mapped_column("DpmClrSal", String(15), server_default="219000")  # down payment invoices of customers
+    dpm_clr_pur: Mapped[str] = mapped_column("DpmClrPur", String(15), server_default="119000")  # down payment invoices to vendors
 
 
 class ExchangeRateRun(Base):

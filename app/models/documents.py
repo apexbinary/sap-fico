@@ -78,6 +78,8 @@ class DocumentHeader:
     total_exp_fc: Mapped[Decimal] = mapped_column("TotalExpFC", AMOUNT, default=Decimal("0"), server_default="0")
     dpm_amnt: Mapped[Decimal] = mapped_column("DpmAmnt", AMOUNT, default=Decimal("0"), server_default="0")  # invoices: down payments drawn (LC)
     dpm_appl: Mapped[Decimal] = mapped_column("DpmAppl", AMOUNT, default=Decimal("0"), server_default="0")  # down payments: drawn on invoices
+    # down payments: R request (not posted, paid on account) / I invoice (posted with tax on a clearing account; not B1-verified)
+    dpm_type: Mapped[str] = mapped_column("DpmType", String(1), default="R", server_default="R")
     paid_fc: Mapped[Decimal] = mapped_column("PaidFC", AMOUNT, default=Decimal("0"), server_default="0")  # Paid to date (FC)
     filler: Mapped[str | None] = mapped_column("Filler", String(8))  # From warehouse (transfer)
     # India, import of goods (A/P invoice / credit memo): bill of entry; BoEValue = IGST base in LC (assessable value + duty)
@@ -239,11 +241,12 @@ class DocumentDownPayment:
     line_num: Mapped[int] = mapped_column("LineNum", primary_key=True)
     base_abs: Mapped[int] = mapped_column("BaseAbs", Integer)  # down payment document (ODPI / ODPO DocEntry)
     drawn_sum: Mapped[Decimal] = mapped_column("DrawnSum", AMOUNT)  # LC, gross
-    pay_type: Mapped[str] = mapped_column("PayType", String(20))  # 24 incoming / 46 outgoing payment that paid it
-    pay_entry: Mapped[int] = mapped_column("PayEntry", Integer)
-    pay_trans: Mapped[int] = mapped_column("PayTrans", Integer)  # reconciled payment partner line (JDT1)
-    pay_line: Mapped[int] = mapped_column("PayLine", Integer)
-    doc_line: Mapped[int] = mapped_column("DocLine", Integer)  # reconciled invoice partner line (JDT1 Line_ID)
+    # requests: the payment whose amount on account was reconciled; down payment invoices: none (posted in the JE)
+    pay_type: Mapped[str | None] = mapped_column("PayType", String(20))  # 24 incoming / 46 outgoing payment that paid it
+    pay_entry: Mapped[int | None] = mapped_column("PayEntry", Integer)
+    pay_trans: Mapped[int | None] = mapped_column("PayTrans", Integer)  # reconciled payment partner line (JDT1)
+    pay_line: Mapped[int | None] = mapped_column("PayLine", Integer)
+    doc_line: Mapped[int | None] = mapped_column("DocLine", Integer)  # reconciled invoice partner line (JDT1 Line_ID)
 
 
 # object type -> down payments drawn class (A/R invoice INV9, A/P invoice PCH9)

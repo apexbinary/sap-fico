@@ -172,6 +172,7 @@ class DocumentRequest:
     confirm_credit: bool = False  # add although the credit / commitment limit is exceeded (warn mode)
     expenses: list[ExpenseRequest] = field(default_factory=list)  # freight (QUT3 ... RPC3)
     down_payments: list[DownPaymentDraw] = field(default_factory=list)  # invoices: paid down payments to draw (INV9 / PCH9)
+    dpm_type: str = "R"  # down payments: R request (not posted) / I down payment invoice (posted with tax)
     boe_num: str | None = None  # A/P invoice / credit memo, import of goods: bill of entry no., date, value (IGST base, LC), port
     boe_date: date | None = None
     boe_value: Decimal | None = None
@@ -522,6 +523,14 @@ def _create(session: Session, req: DocumentRequest):
         jrnl_memo=(req.jrnl_memo or (f"{d.name} - {bp.card_code}" if bp else d.name))[:50],
         series=default_series(session, d.obj), ref2=req.ref2, user_sign=_current_user_id(), **header,
     )
+    if req.dpm_type not in {"R", "I"}:
+        raise B1Error("Down payment type: R request or I invoice")
+    if d.kind == "downpayment":
+        doc.dpm_type = req.dpm_type
+        if req.dpm_type == "I" and expenses:
+            raise B1Error("A down payment invoice has no freight")
+    elif req.dpm_type != "R":
+        raise B1Error("Only down payments are requests or invoices")
     if d.obj in {"18", "19"}:  # bill of entry (import of goods); a credit memo keeps its base invoice's number / date / port
         doc.boe_num = req.boe_num or (hb.boe_num if hb is not None and hb.obj_type == "18" else None)
         doc.boe_date = req.boe_date or (hb.boe_date if hb is not None and hb.obj_type == "18" else None)
@@ -589,18 +598,21 @@ def _create(session: Session, req: DocumentRequest):
             doc.doc_total_fc -= doc.wt_sum_fc
             for r in rows:
                 ctx.je[r["account"]] += -r["wt_amnt"] if d.obj == "18" else r["wt_amnt"]
-    if d.side != "I" and d.kind in {"invoice", "credit"}:
-        sign = 1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit")} else -1
+    if d.side != "I" and (d.kind in {"invoice", "credit"} or (d.kind == "downpayment" and doc.dpm_type == "I")):
+        sign = 1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit"), ("S", "downpayment")} else -1
         ctx.je[("BP", doc.card_code)] += sign * doc.doc_total
         ctx.bp_fc = sign * doc.doc_total_fc
         if d.kind == "invoice":
             ctx.installments = _installments(session, d, doc, bp)
+    dp_invoices, dp_requests = _split_draws(session, d, req.down_payments)
+    if dp_invoices:
+        _draw_dp_invoices(ctx, dp_invoices)
     from app.services import batches
 
     batches.allocate(ctx, req)  # batch / serial numbers of the stock moves (before the journal takes ctx.oinm)
     _post_journal(ctx)
-    if req.down_payments:
-        _draw_down_payments(ctx, req.down_payments)
+    if dp_requests:
+        _draw_down_payments(ctx, dp_requests)
     if d.kind == "credit":
         _reconcile_with_invoice(ctx, lines)
     if d.side == "I":
@@ -739,6 +751,14 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
     base_kind = DEFS[line.base_type].kind if line.base_type else None
     n, whs = line.line_num, line.whs_code
 
+    if d.kind == "downpayment":
+        if ctx.doc.dpm_type == "I":  # down payment invoice: tax on the advance, the net on the clearing account
+            sign = -1 if d.side == "S" else 1
+            _post_tax(ctx, x["tg"], x["vat_comps"], sign)
+            if d.side == "P":
+                _post_reverse_charge(ctx, x["tg"], x["rc_comps"])
+            ctx.post(ctx.det.dpm_clr_sal if d.side == "S" else ctx.det.dpm_clr_pur, sign * x["net"])
+        return
     if d.side in {"S", "P"} and d.kind in {"invoice", "credit"} and x["vat"]:
         sign = -1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit")} else 1
         _post_tax(ctx, x["tg"], x["vat_comps"], sign)
@@ -938,6 +958,68 @@ def _partner_lines(session: Session, doc) -> list:
         JournalLine.short_name != JournalLine.account).order_by(JournalLine.line_id)))
 
 
+def _split_draws(session: Session, d: DocDef, draws: list) -> tuple[list, list]:
+    """Down payments to draw: (down payment invoices, down payment requests)."""
+    if not draws:
+        return [], []
+    if d.kind != "invoice" or d.side not in DP_OBJ:
+        raise B1Error("Down payments are drawn on A/R and A/P invoices")
+    dp_cls = DOCUMENT_CLASSES[DP_OBJ[d.side][0]][0]
+    inv, reqs = [], []
+    for dr in draws:
+        dp = session.get(dp_cls, int(dr.dp_entry))
+        (inv if dp is not None and dp.dpm_type == "I" else reqs).append(dr)
+    return inv, reqs
+
+
+def _draw_dp_invoices(ctx: _Ctx, draws: list) -> None:
+    """Draw paid down payment invoices on an invoice: the invoice's partner line is reduced by the drawn
+    gross amount and the down payment's postings (clearing account, tax on the advance) are reversed in
+    the invoice's journal entry; the invoice counts the drawn amount as paid (PaidToDate, DpmAmnt)."""
+    from app.models.documents import DOCUMENT_DOWN_PAYMENTS
+
+    session, d, doc = ctx.session, ctx.d, ctx.doc
+    if doc.doc_cur != company(session).main_curncy:
+        raise B1Error("Down payments are drawn on invoices in the local currency")
+    if ctx.installments:
+        raise B1Error("Down payment invoices are drawn on invoices without installments")
+    dp_cls = DOCUMENT_CLASSES[DP_OBJ[d.side][0]][0]
+    drawn_cls = DOCUMENT_DOWN_PAYMENTS[d.obj]
+    sign = 1 if d.side == "S" else -1  # the invoice's partner line: debit (customer) / credit (vendor)
+    total, seen = ZERO, set()
+    for n, dr in enumerate(draws):
+        dp = session.get(dp_cls, int(dr.dp_entry))
+        if dp is None or dp.canceled == "Y" or dp.card_code != doc.card_code:
+            raise B1Error(f"Down payment {dr.dp_entry} is not a down payment of {doc.card_code}")
+        if dp.doc_entry in seen:
+            raise B1Error(f"Down payment {dp.doc_num} is selected twice")
+        seen.add(dp.doc_entry)
+        if dp.dpm_appl:
+            raise B1Error(f"Down payment invoice {dp.doc_num} is already drawn")
+        if dp.paid_to_date < dp.doc_total:
+            raise B1Error(f"Down payment invoice {dp.doc_num} is not paid yet ({dp.paid_to_date.normalize()} of {dp.doc_total.normalize()})")
+        if dr.amount is not None and money(Decimal(dr.amount)) != dp.doc_total:
+            raise B1Error(f"Down payment invoice {dp.doc_num} is drawn in full ({dp.doc_total.normalize()})")
+        for l in session.scalars(select(JournalLine).where(JournalLine.trans_id == dp.trans_id)):
+            if l.short_name != l.account:
+                continue  # the partner line: the invoice's partner line is reduced instead
+            amount = l.credit - l.debit  # reverse the down payment's line
+            if l.vat_group:
+                ctx.vat[l.account] += amount
+                ctx.vat_groups[l.account] = l.vat_group
+            else:
+                ctx.je[l.account] += amount
+        ctx.je[("BP", doc.card_code)] -= sign * dp.doc_total
+        session.add(drawn_cls(doc_entry=doc.doc_entry, line_num=100 + n, base_abs=dp.doc_entry, drawn_sum=dp.doc_total))
+        dp.dpm_appl, dp.doc_status = dp.doc_total, "C"
+        total += dp.doc_total
+    if total > doc.doc_total:
+        raise B1Error("The down payments drawn exceed the invoice total")
+    doc.dpm_amnt += total
+    doc.paid_to_date += total
+    doc.doc_status = "C" if doc.paid_to_date >= doc.doc_total else "O"
+
+
 def _draw_down_payments(ctx: _Ctx, draws: list) -> None:
     """Draw paid down payments on an invoice: its partner line(s) are reconciled with the open amount
     the down payment's payments left on account (oldest first); INV9 / PCH9 keep the pairs."""
@@ -1007,8 +1089,11 @@ def _undraw_down_payments(session: Session, d: DocDef, doc) -> None:
     cls = DOCUMENT_DOWN_PAYMENTS[d.obj]
     dp_cls = DOCUMENT_CLASSES[DP_OBJ[d.side][0]][0]
     for row in session.scalars(select(cls).where(cls.doc_entry == doc.doc_entry)).all():
-        _apply_to_item(session, session.get(JournalLine, (row.pay_trans, row.pay_line)), -row.drawn_sum)
-        _apply_to_item(session, session.get(JournalLine, (doc.trans_id, row.doc_line)), -row.drawn_sum)
+        if row.pay_trans is None:  # down payment invoice: its postings are reversed with the invoice's journal entry
+            doc.paid_to_date -= row.drawn_sum
+        else:
+            _apply_to_item(session, session.get(JournalLine, (row.pay_trans, row.pay_line)), -row.drawn_sum)
+            _apply_to_item(session, session.get(JournalLine, (doc.trans_id, row.doc_line)), -row.drawn_sum)
         dp = session.get(dp_cls, row.base_abs)
         dp.dpm_appl -= row.drawn_sum
         dp.doc_status = "O"
@@ -1211,6 +1296,8 @@ def _cancel(session: Session, obj: str, doc_entry: int, cancel_date: date | None
     from app.services import gst_filing
 
     gst_filing.check_cancel(session, obj, doc, cancel_date, amendment)
+    if d.kind == "downpayment" and doc.dpm_appl:
+        raise B1Error(f"{d.name} {doc.doc_num} is drawn on an invoice; cancel the invoice first")
     if cancel_date is not None and cancel_date < doc.doc_date:
         raise B1Error("The cancellation date lies before the posting date")
     from app.services.edocs import blocks_cancel

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from datetime import date
+from decimal import Decimal
+
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api_finance import run
 from app.database import get_session
-from app.services import gst_returns
+from app.services import gst_itc, gst_returns
 
 router = APIRouter()
 YEAR = Query(..., ge=2000, le=2100)
@@ -39,3 +43,35 @@ def gstr1_json(year: int = YEAR, month: int = MONTH, s: Session = Depends(get_se
 def gstr3b_json(year: int = YEAR, month: int = MONTH, s: Session = Depends(get_session)) -> JSONResponse:
     data = run(lambda: gst_returns.gstr3b_json(s, year, month))
     return _download(data, f"GSTR3B_{data['gstin']}_{data['ret_period']}.json")
+
+
+@router.post("/gst-returns/gstr2b/reconcile", tags=["GST returns"], summary="Reconcile the GSTR-2B JSON of the portal with the A/P documents")
+def gstr2b_reconcile(year: int = YEAR, month: int = MONTH, body: dict = Body(...), s: Session = Depends(get_session)) -> dict:
+    return run(lambda: gst_itc.reconcile(s, year, month, body))
+
+
+class ItcIn(BaseModel):
+    kind: str = Field(..., pattern="^(B1|B2|D1)$")
+    ref_date: date
+    igst: Decimal = Field(Decimal("0"), ge=0)
+    cgst: Decimal = Field(Decimal("0"), ge=0)
+    sgst: Decimal = Field(Decimal("0"), ge=0)
+    cess: Decimal = Field(Decimal("0"), ge=0)
+    memo: str | None = Field(None, max_length=50)
+
+
+@router.get("/gst-itc/reversals", tags=["GST returns"], summary="ITC reversals and reclaims (journal entries)")
+def itc_list(date_from: date | None = None, date_to: date | None = None, s: Session = Depends(get_session)) -> dict:
+    return gst_itc.listing(s, date_from, date_to)
+
+
+@router.post("/gst-itc/reversals", tags=["GST returns"], summary="Post an ITC reversal (B1 / B2) or reclaim (D1)")
+def itc_post(body: ItcIn, s: Session = Depends(get_session)) -> dict:
+    je = run(lambda: gst_itc.post(s, body.kind, body.ref_date, body.model_dump(), body.memo))
+    return {"trans_id": je.trans_id, "number": je.number}
+
+
+@router.post("/gst-itc/reversals/{trans_id}/cancel", tags=["GST returns"], summary="Cancel an ITC reversal / reclaim")
+def itc_cancel(trans_id: int, s: Session = Depends(get_session)) -> dict:
+    je = run(lambda: gst_itc.cancel(s, trans_id))
+    return {"trans_id": je.trans_id, "number": je.number}

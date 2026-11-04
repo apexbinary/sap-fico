@@ -127,12 +127,19 @@ def tax_report(session: Session, date_from: date, date_to: date) -> dict:
     by_account.update({a.purch_tax: (a.code, "input") for a in authorities})
     by_account.update({a.rvs_chrg_act: (a.code, "output") for a in authorities if a.rvs_chrg_act})  # reverse charge liability
     rows: dict[tuple, dict] = {}
-    for l in session.scalars(select(JournalLine).where(JournalLine.vat_group.is_not(None),
+    from sqlalchemy import or_
+
+    from app.models.finance import JournalEntry
+
+    itc = select(JournalEntry.trans_id).where(JournalEntry.ref3.like("ITC:%"))  # GST ITC reversals / reclaims
+    for l in session.scalars(select(JournalLine).where(or_(JournalLine.vat_group.is_not(None),
+                                                           JournalLine.trans_id.in_(itc) & JournalLine.account.in_(list(by_account))),
                                                        JournalLine.ref_date >= date_from, JournalLine.ref_date <= date_to)):
-        tg = session.get(TaxGroup, l.vat_group)
-        component, kind = by_account.get(l.account, (l.vat_group, "output" if tg and tg.category == "O" else "input"))
-        key = (l.vat_group, component)
-        row = rows.setdefault(key, {"tax_code": l.vat_group, "tax_name": tg.name if tg else "", "component": component,
+        tg = session.get(TaxGroup, l.vat_group) if l.vat_group else None
+        code = l.vat_group or "ITC"  # ITC reversal / reclaim entries have no tax group
+        component, kind = by_account.get(l.account, (code, "output" if tg and tg.category == "O" else "input"))
+        key = (code, component)
+        row = rows.setdefault(key, {"tax_code": code, "tax_name": tg.name if tg else ("ITC reversal / reclaim" if not l.vat_group else ""), "component": component,
                                     "account": l.account, "output": Decimal("0"), "input": Decimal("0")})
         if kind == "output":
             row["output"] += l.credit - l.debit

@@ -564,9 +564,7 @@ def _create(session: Session, req: DocumentRequest):
         for e in expenses:
             out = (d.side, d.kind) in {("S", "invoice"), ("P", "credit")}
             ctx.post(e["ex"].rev_acct if d.side == "S" else e["ex"].expns_acct, -e["net"] if out else e["net"])
-            for account, amount in e["vat_comps"]:
-                ctx.vat[account] += -amount if out else amount
-                ctx.vat_groups[account] = e["tg"].code
+            _post_tax(ctx, e["tg"], e["vat_comps"], -1 if out else 1)
             _post_reverse_charge(ctx, e["tg"], e["rc_comps"])
     for line, x in zip(doc.lines, lines):
         ctx.dims = tuple(getattr(line, c) for c in ("ocr_code", "ocr_code2", "ocr_code3", "ocr_code4", "ocr_code5"))
@@ -706,12 +704,25 @@ def _reverse_charge(session: Session, d: DocDef, req: DocumentRequest, hb, lines
             x["rc_comps"] = [(i, o, money(a * rate)) for i, o, a, _ in tax.reverse_charge(session, x["tg"], x["net_fc"], imp_acct)]
 
 
+def _post_tax(ctx: _Ctx, tg, comps: list, sign: int) -> None:
+    """Tax components of a line; the non-deductible part of input tax (OVTG NonDedct) goes to NonDedAcc."""
+    for account, amount in comps:
+        nd = tax.non_deductible(tg, amount) if ctx.d.side == "P" else ZERO
+        ctx.vat[account] += sign * (amount - nd)
+        ctx.vat_groups[account] = tg.code
+        if nd:
+            ctx.post(tg.non_ded_acc, sign * nd)
+
+
 def _post_reverse_charge(ctx: _Ctx, tg, rc_comps: list) -> None:
     """Dr input tax / Cr reverse charge liability (import: IGST payable to customs, without tax group)."""
     sign = -1 if ctx.d.kind == "credit" else 1
     for inp, offset, amount in rc_comps:
-        ctx.vat[inp] += sign * amount
+        nd = tax.non_deductible(tg, amount)
+        ctx.vat[inp] += sign * (amount - nd)
         ctx.vat_groups[inp] = tg.code
+        if nd:
+            ctx.post(tg.non_ded_acc, sign * nd)
         ctx.vat[offset] -= sign * amount
         if tg.rev_charge == "Y":
             ctx.vat_groups[offset] = tg.code
@@ -727,9 +738,7 @@ def _post_line(ctx: _Ctx, line, x: dict) -> None:
 
     if d.side in {"S", "P"} and d.kind in {"invoice", "credit"} and x["vat"]:
         sign = -1 if (d.side, d.kind) in {("S", "invoice"), ("P", "credit")} else 1
-        for account, amount in x["vat_comps"]:
-            ctx.vat[account] += sign * amount
-            ctx.vat_groups[account] = x["tg"].code
+        _post_tax(ctx, x["tg"], x["vat_comps"], sign)
     if d.side == "P" and d.kind in {"invoice", "credit"}:
         _post_reverse_charge(ctx, x["tg"], x["rc_comps"])
 

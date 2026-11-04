@@ -62,6 +62,13 @@ def reverse_charge(session: Session, tg: TaxGroup | None, net: Decimal, imp_acct
     return out
 
 
+def non_deductible(tg: TaxGroup | None, amount: Decimal) -> Decimal:
+    """Non-deductible part of an input tax component amount (NonDedct %), rounded on its own."""
+    if tg is None or not tg.non_dedct:
+        return ZERO
+    return _money(amount * tg.non_dedct / 100)
+
+
 def apportion(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
     """Split an amount in proportion to the weights (bill of entry value over the import lines); the last takes the rest."""
     base = sum(weights, ZERO)
@@ -88,7 +95,8 @@ def gst_kind(session: Session, tg: TaxGroup | None) -> str | None:
 def matching_gst_group(session: Session, tg: TaxGroup, kind: str) -> TaxGroup | None:
     """The GST code of the same category and rate for intra- or inter-state supply."""
     for other in session.scalars(select(TaxGroup).where(TaxGroup.category == tg.category, TaxGroup.rate == tg.rate,
-                                                        TaxGroup.rev_charge == tg.rev_charge, TaxGroup.inactive.is_(False))):
+                                                        TaxGroup.rev_charge == tg.rev_charge, TaxGroup.non_dedct == tg.non_dedct,
+                                                        TaxGroup.inactive.is_(False))):
         if gst_kind(session, other) == kind:
             return other
     return None
@@ -171,7 +179,7 @@ def save_tax_authority(session: Session, code: str, name: str, type_code: str | 
 
 def save_tax_code(session: Session, code: str, name: str, category: str, components_in: list[tuple[str, Decimal]],
                   rate: Decimal | None = None, account: str | None = None, inactive: bool = False,
-                  rev_charge: str = "N") -> TaxGroup:
+                  rev_charge: str = "N", non_dedct: Decimal | None = None, non_ded_acc: str | None = None) -> TaxGroup:
     """Add or change a tax code: either components (rate = their sum) or one rate with its own account."""
     from app.services.admin import B1Error
 
@@ -198,6 +206,15 @@ def save_tax_code(session: Session, code: str, name: str, category: str, compone
             raise B1Error("A reverse charge / import code needs tax components")
         if rev_charge == "Y" and any(not session.get(TaxAuthority, sta).rvs_chrg_act for sta, _ in components_in):
             raise B1Error("Every component of a reverse charge code needs a tax authority with a reverse charge liability account")
+    non_dedct = Decimal(non_dedct or 0)
+    if not 0 <= non_dedct <= 100:
+        raise B1Error("The non-deductible part must be between 0 and 100 %")
+    if non_dedct:
+        if category != "I":
+            raise B1Error("Only input tax can be non-deductible")
+        _check_account(session, non_ded_acc, "non-deductible tax")
+    else:
+        non_ded_acc = None
     new_rate = sum((r for _, r in components_in), ZERO) if components_in else Decimal(rate or 0)
     if new_rate < 0 or new_rate >= 100:
         raise B1Error("The rate must be between 0 and 100 %")
@@ -207,7 +224,8 @@ def save_tax_code(session: Session, code: str, name: str, category: str, compone
     tg = session.get(TaxGroup, code)
     if tg is not None:
         old = [(a.code, r) for a, r in components(session, tg)]
-        changed = tg.category != category or tg.rate != new_rate or old != components_in or tg.rev_charge != rev_charge
+        changed = (tg.category != category or tg.rate != new_rate or old != components_in or tg.rev_charge != rev_charge
+                   or (tg.non_dedct or ZERO) != non_dedct)
         if changed and tax_code_used(session, code):
             raise B1Error(f"Tax code {code} is used in postings; its category, rate and components cannot change "
                           f"(create a new code and set this one inactive)")
@@ -215,6 +233,7 @@ def save_tax_code(session: Session, code: str, name: str, category: str, compone
         tg = TaxGroup(code=code)
         session.add(tg)
     tg.name, tg.category, tg.rate, tg.account, tg.inactive, tg.rev_charge = name, category, new_rate, acct, inactive, rev_charge
+    tg.non_dedct, tg.non_ded_acc = non_dedct, non_ded_acc
     session.flush()
     for row in session.scalars(select(TaxComponent).where(TaxComponent.stc_code == code)):
         session.delete(row)

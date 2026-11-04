@@ -14,7 +14,7 @@ views["gst-returns"] = async (c) => {
     { k: "month", label: "Month", type: "select", blank: false, int: true, options: GST_MONTHS.map((m, i) => [i + 1, m]) },
   ];
   const args = `year=${year}&month=${month}`;
-  const r = await api(`/gst-returns/${tab}?${args}`);
+  const r = tab === "gstr2b" ? { gstin: (state.company || {}).tax_id, issues: [] } : await api(`/gst-returns/${tab}?${args}`);
   const n = (x) => fmt(x);
   const cells = (x, keys = ["taxable", "igst", "cgst", "sgst", "cess"]) => keys.map((k) => `<td class="num">${n(x[k])}</td>`).join("");
   const heads = (keys = ["Taxable value", "IGST", "CGST", "SGST", "Cess"]) => keys.map((k) => `<th class="num">${k}</th>`).join("");
@@ -28,7 +28,12 @@ views["gst-returns"] = async (c) => {
       <td>${esc(x.pos ? `${x.pos} ${x.pos_name || ""}` : "")}</td>${extra(x)}<td class="num">${n(x.value)}</td>${cells(itemsSum(x))}</tr>`).join("") || empty(10 + (extraHead ? 1 : 0))}</tbody></table>`;
 
   let body;
-  if (tab === "gstr1") {
+  if (tab === "gstr2b") {
+    body = section("GSTR-2B reconciliation", "upload the GSTR-2B JSON downloaded from the GST portal for this month", `<div class="card-body">
+        <input type="file" id="g2b-file" accept=".json,application/json"> <button class="btn" id="g2b-go">Reconcile</button>
+        <p class="help">Matches B2B invoices, credit / debit notes (CDNR) and bills of entry (IMPG) with the A/P invoices and credit memos of the month
+          by vendor GSTIN and vendor invoice no. (Vendor ref. no.), comparing taxable value and tax per head (tolerance 1 rupee).</p></div><div id="g2b-out"></div>`);
+  } else if (tab === "gstr1") {
     const t = r.totals;
     body = `
       ${section("Summary", `${r.documents} documents`, `<table><thead><tr><th>Table</th>${heads()}</tr></thead><tbody>
@@ -66,9 +71,12 @@ views["gst-returns"] = async (c) => {
         <tr><td>(A)(2) Import of services</td>${cells(r.itc.import_services, ["igst", "cgst", "sgst", "cess"])}</tr>
         <tr><td>(A)(3) Inward supplies liable to reverse charge (other than 1 and 2)</td>${cells(r.itc.reverse_charge, ["igst", "cgst", "sgst", "cess"])}</tr>
         <tr><td>(A)(5) All other ITC</td>${cells(r.itc.available_other, ["igst", "cgst", "sgst", "cess"])}</tr>
-        <tr><td>(B) ITC reversed</td>${cells(r.itc.reversed, ["igst", "cgst", "sgst", "cess"])}</tr>
+        <tr><td>(B)(1) Reversed as per rules 38, 42, 43 and section 17(5) <span class="help">blocked credit and permanent reversals</span></td>${cells(r.itc.reversed_rules, ["igst", "cgst", "sgst", "cess"])}</tr>
+        <tr><td>(B)(2) Reversed — others <span class="help">temporary, reclaimable</span></td>${cells(r.itc.reversed_others, ["igst", "cgst", "sgst", "cess"])}</tr>
         <tr class="total"><td>(C) Net ITC available</td>${cells(r.itc.net, ["igst", "cgst", "sgst", "cess"])}</tr>
-        <tr><td>(D) Ineligible ITC</td>${cells(r.itc.ineligible, ["igst", "cgst", "sgst", "cess"])}</tr></tbody></table>`)}
+        <tr><td>(D)(1) ITC reclaimed which was reversed under (B)(2) earlier</td>${cells(r.itc.reclaimed, ["igst", "cgst", "sgst", "cess"])}</tr>
+        <tr><td>(D)(2) Ineligible ITC under section 16(4) and place of supply rules</td>${cells(r.itc.ineligible, ["igst", "cgst", "sgst", "cess"])}</tr></tbody></table>
+        <div class="card-body"><a class="btn small ghost" href="#/itc-reversals">ITC reversals and reclaims</a></div>`)}
       ${section("5 Exempt, nil-rated and non-GST inward supplies", "", `<table><thead><tr><th>Nature of supplies</th><th class="num">Inter-state</th><th class="num">Intra-state</th></tr></thead><tbody>
         <tr><td>Composition, exempt and nil-rated supplies</td><td class="num">${n(r.exempt_inward.inter)}</td><td class="num">${n(r.exempt_inward.intra)}</td></tr>
         <tr><td>Non-GST supplies</td><td class="num">${n(0)}</td><td class="num">${n(0)}</td></tr></tbody></table>`)}
@@ -79,18 +87,74 @@ views["gst-returns"] = async (c) => {
         <tr class="total"><td>Credit carried forward</td><td></td>${["igst", "cgst", "sgst", "cess"].map((h) => `<td class="num">${n(p.credit_left[h])}</td>`).join("")}<td></td></tr></tbody></table>`)}`;
   }
   c.innerHTML = `<div class="page-head"><div><h1>GST Returns</h1><div class="sub">GSTR-1 and GSTR-3B of ${GST_MONTHS[month - 1]} ${year} — GSTIN ${esc(r.gstin || "")}, from the posted A/R and A/P documents</div></div>
-      <a class="btn" href="/api/gst-returns/${tab}/json?${args}" download>Download ${tab === "gstr1" ? "GSTR-1" : "GSTR-3B"} JSON</a></div>
+      ${tab === "gstr2b" ? "" : `<a class="btn" href="/api/gst-returns/${tab}/json?${args}" download>Download ${tab === "gstr1" ? "GSTR-1" : "GSTR-3B"} JSON</a>`}</div>
     <div class="card"><div class="card-body"><div class="form-grid">${fieldsHtml(defs, { year, month }, "gr")}
       <div class="field"><label>&nbsp;</label><button class="btn" id="gr-go">Show</button></div></div>
-      <div class="tabs" style="margin-top:8px">${[["gstr1", "GSTR-1 outward supplies"], ["gstr3b", "GSTR-3B summary"]].map(([k, l]) =>
+      <div class="tabs" style="margin-top:8px">${[["gstr1", "GSTR-1 outward supplies"], ["gstr3b", "GSTR-3B summary"], ["gstr2b", "GSTR-2B reconciliation"]].map(([k, l]) =>
         `<a class="tab${k === tab ? " active" : ""}" href="#/gst-returns?${args}&tab=${k}">${l}</a>`).join("")}</div></div></div>
     ${r.issues.length ? `<div class="card"><div class="card-head">Check before filing (${r.issues.length})</div><div class="card-body"><ul class="gr-issues">${r.issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div></div>` : ""}
     ${body}
     <div class="help" style="margin:8px 0 24px">The JSON follows the layout of the GST portal's offline tool; check it in the offline tool before uploading.
-      Not covered yet: reverse charge, imports, ITC reversals, amendments, e-invoice (IRN).</div>`;
+      Amendments of earlier periods (B2BA ...) are not prepared.</div>`;
+  if (tab === "gstr2b") {
+    const ST = { matched: ["C", "matched"], mismatch: ["X", "amounts differ"], portal_only: ["P", "only in GSTR-2B"], books_only: ["X", "only in books"] };
+    $("#g2b-go").onclick = async () => {
+      const f = $("#g2b-file").files[0];
+      if (!f) return toast("Choose the GSTR-2B JSON file", "bad");
+      let data;
+      try { data = JSON.parse(await f.text()); } catch (e) { return toast("The file is not valid JSON", "bad"); }
+      const res = await act(() => post(`/gst-returns/gstr2b/reconcile?${args}`, data));
+      if (!res) return;
+      const sumRow = (k) => { const s = res.summary[k] || { count: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
+        return `<tr><td><span class="status ${ST[k][0]}">${ST[k][1]}</span></td><td class="num">${s.count}</td>${cells(s, ["igst", "cgst", "sgst", "cess"])}</tr>`; };
+      const amt = (x) => (x ? cells(x) : '<td colspan="5"></td>');
+      $("#g2b-out").innerHTML = `<table><thead><tr><th>Status</th><th class="num">Documents</th>${heads(["IGST", "CGST", "SGST", "Cess"])}</tr></thead>
+          <tbody>${Object.keys(ST).map(sumRow).join("")}</tbody></table>
+        <table style="margin-top:12px"><thead><tr><th>Status</th><th>Section</th><th>GSTIN / vendor</th><th>Number</th><th>Document</th><th>Source</th>${heads()}<th>Note</th></tr></thead><tbody>
+        ${res.rows.map((x) => `<tr><td><span class="status ${ST[x.status][0]}">${ST[x.status][1]}</span></td><td>${x.section}</td>
+            <td><span class="mono">${esc(x.gstin || "")}</span> ${esc(x.name || "")}</td><td>${esc(x.number || "")}</td>
+            <td>${x.doc_entry ? docLink(x.obj, x) : ""}</td><td>${x.portal ? "GSTR-2B" : "books"}</td>${amt(x.portal || x.book)}
+            <td>${esc(x.note || "")}${x.diff ? ` <span class="help">books ${n(x.book.taxable)}, tax diff IGST ${n(x.diff.igst)} CGST ${n(x.diff.cgst)} SGST ${n(x.diff.sgst)}</span>` : ""}</td></tr>`).join("")
+          || '<tr><td colspan="12" class="empty">Nothing to reconcile.</td></tr>'}</tbody></table>`;
+    };
+  }
   $("#gr-go").onclick = () => {
     const f = readFields(defs, "gr");
     if (!f.year || f.year < 2000 || f.year > 2100) return toast("Enter a year between 2000 and 2100", "bad");
     location.hash = `#/gst-returns?year=${f.year}&month=${f.month}&tab=${tab}`;
   };
+};
+
+views["itc-reversals"] = async (c) => {
+  const data = await api("/gst-itc/reversals");
+  const H = ["igst", "cgst", "sgst", "cess"];
+  const defs = [
+    { k: "kind", label: "Kind", type: "select", blank: false, options: Object.entries(data.kinds) },
+    { k: "ref_date", label: "Posting date", type: "date", req: true, value: today() },
+    { k: "igst", label: "IGST", type: "number", step: "0.01", min: 0 }, { k: "cgst", label: "CGST", type: "number", step: "0.01", min: 0 },
+    { k: "sgst", label: "SGST", type: "number", step: "0.01", min: 0 }, { k: "cess", label: "Cess", type: "number", step: "0.01", min: 0 },
+    { k: "memo", label: "Reason", max: 50, span: 2 },
+  ];
+  const left = data.still_reversed;
+  c.innerHTML = `<div class="page-head"><div><h1>ITC Reversals</h1><div class="sub">Reversals and reclaims of GST input tax credit — journal entries on the input tax accounts, reported in GSTR-3B table 4</div></div></div>
+    <div class="card"><div class="card-head">Post a reversal or reclaim</div><div class="card-body"><div class="form-grid">${fieldsHtml(defs, {}, "ir")}</div>
+      <p class="help">B1 permanent: Cr input tax / Dr GST not claimable (618000). B2 temporary: Cr input tax / Dr ITC reversed (reclaimable, 116900).
+        D1 reclaim: Dr input tax / Cr 116900 — up to the amount still reversed: IGST ${fmt(left.igst)}, CGST ${fmt(left.cgst)}, SGST ${fmt(left.sgst)}, cess ${fmt(left.cess)}.
+        Blocked credit of tax codes with a non-deductible part (section 17(5)) is reversed automatically on the A/P documents.</p>
+      <button class="btn" id="ir-post" style="margin-top:8px">Post</button></div></div>
+    <div class="card"><table><thead><tr><th>JE</th><th>Date</th><th>Kind</th><th>Reason</th>${H.map((h) => `<th class="num">${h.toUpperCase()}</th>`).join("")}<th>Status</th><th></th></tr></thead><tbody>
+      ${data.rows.map((x) => `<tr><td><a href="#/journal?id=${x.trans_id}">${x.number}</a></td><td>${x.ref_date}</td><td>${x.kind} <span class="help">${esc(x.kind_name)}</span></td>
+        <td>${esc(x.memo || "")}</td>${H.map((h) => `<td class="num">${fmt(x[h])}</td>`).join("")}
+        <td>${x.active ? '<span class="status O">posted</span>' : '<span class="status C">canceled</span>'}</td>
+        <td>${x.active ? `<button class="btn small ghost ir-cancel" data-id="${x.trans_id}">Cancel</button>` : ""}</td></tr>`).join("")
+        || '<tr><td colspan="10" class="empty">No ITC reversals.</td></tr>'}</tbody></table></div>`;
+  const reload = () => { location.hash = `#/itc-reversals?r=${Date.now()}`; };
+  $("#ir-post").onclick = async () => {
+    const b = readFields(defs, "ir");
+    H.forEach((h) => (b[h] = b[h] || 0));
+    if (await act(() => post("/gst-itc/reversals", b), (x) => `Journal entry ${x.number} posted`)) reload();
+  };
+  $$(".ir-cancel").forEach((btn) => (btn.onclick = async () => {
+    if (await act(() => post(`/gst-itc/reversals/${btn.dataset.id}/cancel`, {}), (x) => `Canceled by journal entry ${x.number}`)) reload();
+  }));
 };

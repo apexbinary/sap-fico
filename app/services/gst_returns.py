@@ -63,6 +63,7 @@ class Line:
     nil: bool = False  # nil-rated / exempt tax code (rate 0)
     kind: str | None = None  # intra / inter
     rc: str = "N"  # tax code's RevCharge: N normal, Y reverse charge, I import of goods
+    nd: dict = field(default_factory=dict)  # non-deductible (blocked) input tax per head
 
     @property
     def tax(self) -> Decimal:
@@ -150,6 +151,8 @@ def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: dat
                     lc = _m(amount * rate)
                     attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
                     setattr(line, attr, getattr(line, attr) + lc)
+                    if side == "P" and tg is not None and tg.non_dedct:
+                        line.nd[attr] = line.nd.get(attr, ZERO) + tax.non_deductible(tg, lc)
                 if line.kind:
                     kinds.add(line.kind)
                 if not hsn:
@@ -167,6 +170,8 @@ def _docs(session: Session, objs: tuple[str, ...], date_from: date, date_to: dat
                 for _, amount, name in tax.split(session, tg, net_fc):
                     attr = {"IGST": "igst", "CGST": "cgst", "SGST": "sgst", "UTGST": "sgst"}.get(name, "cess")
                     setattr(line, attr, getattr(line, attr) + _m(amount * rate))
+                    if side == "P" and tg is not None and tg.non_dedct:
+                        line.nd[attr] = line.nd.get(attr, ZERO) + tax.non_deductible(tg, _m(amount * rate))
                 if line.kind:
                     kinds.add(line.kind)
                 doc.lines.append(line)
@@ -350,6 +355,7 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
     itc = {h: ZERO for h in HEADS}
     # 4A: (1) import of goods, (2) import of services, (3) inward supplies liable to reverse charge, (5) all other ITC
     itc_by = {k: {h: ZERO for h in HEADS} for k in ("impg", "imps", "isrc", "oth")}
+    blocked = {h: ZERO for h in HEADS}
     exempt_in = {"inter": ZERO, "intra": ZERO}
     issues = []
     for d in in_docs:
@@ -366,8 +372,17 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
             for h in HEADS:
                 itc[h] += sign * getattr(l, h)
                 itc_by[box][h] += sign * getattr(l, h)
+                blocked[h] += sign * l.nd.get(h, ZERO)  # 4(B)(1): section 17(5)
+    from app.services import gst_itc
+
+    rev = gst_itc.month_totals(session, date_from, date_to)  # ITC reversal / reclaim journal entries
+    for h in HEADS:
+        itc_by["oth"][h] += rev["D1"][h]  # reclaimed ITC is reported in 4(A)(5) and shown in 4(D)(1)
+        itc[h] += rev["D1"][h]
+    reversed_ = {"rules_17_5": {h: blocked[h] + rev["B1"][h] for h in HEADS}, "others": dict(rev["B2"])}
+    net = {h: itc[h] - reversed_["rules_17_5"][h] - reversed_["others"][h] for h in HEADS}
     liability = {h: t31["a"][h] + t31["b"][h] + t31["d"][h] for h in HEADS}
-    payment = set_off({h: t31["a"][h] + t31["b"][h] for h in HEADS}, itc)
+    payment = set_off({h: t31["a"][h] + t31["b"][h] for h in HEADS}, net)
     payment["reverse_charge_cash"] = {h: max(t31["d"][h], ZERO) for h in HEADS}  # reverse charge is paid in cash, never from ITC
     for h in HEADS:
         payment["cash"][h] += payment["reverse_charge_cash"][h]
@@ -379,7 +394,10 @@ def gstr3b(session: Session, year: int, month: int) -> dict:
         "inter_state_unregistered": sorted(unreg.values(), key=lambda r: r["pos"] or ""),
         "inter_state_composition": sorted(comp_sup.values(), key=lambda r: r["pos"] or ""),
         "itc": {"available_other": itc_by["oth"], "import_goods": itc_by["impg"], "import_services": itc_by["imps"],
-                "reverse_charge": itc_by["isrc"], "available": itc, "reversed": {h: ZERO for h in HEADS}, "net": dict(itc), "ineligible": {h: ZERO for h in HEADS}},
+                "reverse_charge": itc_by["isrc"], "available": itc,
+                "reversed": {h: reversed_["rules_17_5"][h] + reversed_["others"][h] for h in HEADS},
+                "reversed_rules": reversed_["rules_17_5"], "reversed_others": reversed_["others"], "net": net,
+                "reclaimed": dict(rev["D1"]), "ineligible": {h: ZERO for h in HEADS}},
         "exempt_inward": exempt_in,
         "liability": liability,
         "payment": payment,
@@ -474,9 +492,9 @@ def gstr3b_json(session: Session, year: int, month: int) -> dict:
                                 {"ty": "IMPS", **heads(itc["import_services"]), "camt": 0.0, "samt": 0.0},
                                 {"ty": "ISRC", **heads(itc["reverse_charge"])}, {"ty": "ISD", **zero},
                                 {"ty": "OTH", **heads(itc["available_other"])}],
-                    "itc_rev": [{"ty": "RUL", **zero}, {"ty": "OTH", **zero}],
+                    "itc_rev": [{"ty": "RUL", **heads(itc["reversed_rules"])}, {"ty": "OTH", **heads(itc["reversed_others"])}],
                     "itc_net": heads(itc["net"]),
-                    "itc_inelg": [{"ty": "RUL", **zero}, {"ty": "OTH", **zero}]},
+                    "itc_inelg": [{"ty": "RUL", **heads(itc["reclaimed"])}, {"ty": "OTH", **zero}]},
         "inward_sup": {"isup_details": [{"ty": "GST", "inter": _f(r["exempt_inward"]["inter"]), "intra": _f(r["exempt_inward"]["intra"])},
                                         {"ty": "NONGST", "inter": 0.0, "intra": 0.0}]},
     }

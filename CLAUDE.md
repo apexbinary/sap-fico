@@ -81,6 +81,8 @@ app/
                       again as posted: net after header discount, components rounded in the document
                       currency x rate); set_off (IGST credit first); JSON in the GSTN offline tool layout;
                       api_gst.py /api/gst-returns/gstr1|gstr3b[/json] (area FINRPT); web/gst.js
+  services/gst_itc.py ITC reversals / reclaims (journal entries), GSTR-2B JSON reconciliation with A/P documents;
+                      /api/gst-itc/reversals (area JE), POST /api/gst-returns/gstr2b/reconcile; web/gst.js (#/itc-reversals)
   services/edocs.py   e-invoice (INV-01 JSON, IRN = SHA-256 of GSTIN+FY+type+no., QR via segno) and
                       e-way bill (validity, Part B); test mode makes IRN / EWB here, live mode imports
                       the portal response; models/edocs.py EDOC register, ADM1 company address;
@@ -254,6 +256,11 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   tax (not in VatSum / DocTotal); each component posts Dr input account / Cr OSTA RvsChrgAct (import: Cr OACP
   ImpTaxAcct without tax group). Import IGST is on BoEValue (LC) when given. GSTR-3B: 3.1(d) and liability
   include reverse charge (paid in cash, never from ITC); ITC 4A(1) imports, 4A(2) foreign RCM, 4A(3) RCM.
+- Non-deductible input tax (OVTG NonDedct %): the vendor charges the full tax; per component the
+  non-deductible part posts to NonDedAcc. GSTR-3B 4(A) has the full tax, 4(B)(1) the blocked part.
+- ITC reversals are journal entries with Ref3 ITC:B1 / ITC:B2 / ITC:D1 on the input tax accounts
+  (services/gst_itc.py); reports.tax_report counts their input tax lines, so 4(C) net ITC = journal
+  input tax. A reclaim (D1) cannot exceed the temporary reversals (B2) still open.
 - Tax setup data is maintained by users: the seed creates it once.
 
 ### Banking (keep invariant)
@@ -380,5 +387,5 @@ OACP column names are descriptive (B1's OACP has many more columns with other
 names). RDOC keeps template options in descriptive columns (Style, Color, Show*, Footer,
 Default) instead of B1's Print Layout Designer template; OADM LogoImage / EInvoice /
 EWayBill / EDocMode, EDOC, OCPT, OUSS, OCRD PANNo and the OWHT India columns (Section, Thr*,
-RateNoPAN), OEXD SACCode, the OADM credit check columns, OVTG RevCharge, OSTA RvsChrgAct and the bill of entry
+RateNoPAN), OEXD SACCode, the OADM credit check columns, OVTG RevCharge / NonDedAcc usage, OSTA RvsChrgAct and the bill of entry
 columns (BoENum / BoEDate / BoEValue / PortCode) are not B1-verified either. Everything else uses B1's documented table and field names.

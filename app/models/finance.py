@@ -163,6 +163,8 @@ class AccountDetermination(Base):
     wip_acct: Mapped[str] = mapped_column("WipAcct", String(15), server_default="118000")  # Work in progress (production)
     wip_var_acct: Mapped[str] = mapped_column("WipVarAcct", String(15), server_default="514000")  # Production variance
     imp_tax_acct: Mapped[str] = mapped_column("ImpTaxAcct", String(15), server_default="218000")  # IGST on imports payable to customs
+    itc_rev_acct: Mapped[str] = mapped_column("ItcRevAcct", String(15), server_default="618000")  # ITC reversed permanently (expense)
+    itc_rcl_acct: Mapped[str] = mapped_column("ItcRclAcct", String(15), server_default="116900")  # ITC reversed temporarily (reclaimable)
 
 
 class ExchangeRateRun(Base):

@@ -53,7 +53,7 @@ views["tax-setup"] = async (c) => {
       ${T.codes.map((t) => `<tr style="cursor:pointer" onclick="location.hash='#/tax-setup?code=${encodeURIComponent(t.code)}'"><td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td>
         <td>${t.category === "O" ? "Output" : "Input"}</td><td class="num">${Number(t.rate)}%</td>
         <td>${t.components.length ? t.components.map((x) => `${esc(x.sta_code)} ${Number(x.rate)}% <span class="help">(${esc(t.category === "O" ? auth(x.sta_code).sales_tax : auth(x.sta_code).purch_tax)})</span>`).join(" + ") : `account <span class="mono">${esc(t.account)}</span>`}</td>
-        <td>${t.gst ? (t.gst === "intra" ? "intra-state" : "inter-state") : ""}${t.rev_charge !== "N" ? ` <span class="status P">${RC_NAMES[t.rev_charge]}</span>` : ""}</td><td>${yesNo(t.used)}</td><td>${yesNo(!t.inactive)}</td></tr>`).join("")}</tbody></table></div>
+        <td>${t.gst ? (t.gst === "intra" ? "intra-state" : "inter-state") : ""}${t.rev_charge !== "N" ? ` <span class="status P">${RC_NAMES[t.rev_charge]}</span>` : ""}${Number(t.non_dedct) ? ` <span class="status X">${Number(t.non_dedct)} % blocked</span>` : ""}</td><td>${yesNo(t.used)}</td><td>${yesNo(!t.inactive)}</td></tr>`).join("")}</tbody></table></div>
       <div class="card-body"><h3 class="section">${edit ? `Change tax code ${esc(edit.code)} <a class="btn small ghost" href="#/tax-setup">New</a>${edit.used ? ' <span class="help">used in postings: only name and active can change</span>' : ""}` : "New tax code"}</h3>
         <div class="form-grid">${fieldsHtml([
           { k: "code", label: "Tax code", req: true, max: 8, ro: !!edit }, { k: "name", label: "Name", req: true, max: 30, span: 2 },
@@ -62,6 +62,8 @@ views["tax-setup"] = async (c) => {
           { k: "account", label: "Tax account (without components)", type: "select", options: O.accounts((a) => !a.control), ro: !!(edit && edit.used) },
           { k: "rev_charge", label: "Reverse charge (purchasing)", type: "select", blank: false, ro: !!(edit && edit.used),
             options: [["N", "No — vendor charges the tax"], ["Y", "Reverse charge — company pays (RCM)"], ["I", "Import of goods — IGST paid at customs"]] },
+          { k: "non_dedct", label: "Non-deductible % (blocked credit)", type: "number", step: "0.01", min: 0, maxv: 100, ro: !!(edit && edit.used) },
+          { k: "non_ded_acc", label: "Non-deductible tax account", type: "select", options: O.accounts((a) => !a.control) },
           { k: "inactive", label: "Inactive", type: "check" }], edit ? { ...edit, rate: edit.components.length ? "" : edit.rate, account: edit.components.length ? "" : edit.account } : {}, "tc")}</div>
         <table class="lines" style="margin-top:8px"><thead><tr><th>Component (tax authority)</th><th class="num">Rate %</th><th></th></tr></thead><tbody id="tc-comps"></tbody></table>
         <button class="btn secondary small" id="tc-add" style="margin-top:6px">+ Component</button> <b style="margin-left:12px">Total rate: <span id="tc-total">0</span>%</b>
@@ -106,8 +108,9 @@ views["tax-setup"] = async (c) => {
   $("#hs-save").onclick = async () => done(await act(() => post("/tax/hsn", readFields(HSN_FIELDS, "hs")), "HSN / SAC code added"));
   $("#tc-save").onclick = async () => {
     const h = readFields([{ k: "code" }, { k: "name" }, { k: "category", type: "select" }, { k: "rate", type: "number" },
-      { k: "account", type: "select" }, { k: "rev_charge", type: "select" }, { k: "inactive", type: "check" }], "tc");
-    if (edit && edit.used) h.rev_charge = edit.rev_charge;  // read-only field
+      { k: "account", type: "select" }, { k: "rev_charge", type: "select" }, { k: "non_dedct", type: "number" }, { k: "non_ded_acc", type: "select" },
+      { k: "inactive", type: "check" }], "tc");
+    if (edit && edit.used) Object.assign(h, { rev_charge: edit.rev_charge, non_dedct: edit.non_dedct });  // read-only fields
     if (edit) h.code = edit.code;
     const body = { ...h, components: $$("#tc-comps tr").map((tr) => ({ sta_code: $(".tc-sta", tr).value, rate: Number($(".tc-rate", tr).value || 0) })) };
     done(await act(() => post("/tax/codes", body), (x) => `Tax code ${x.code} saved (${Number(x.rate)} %)`));

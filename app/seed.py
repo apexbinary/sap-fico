@@ -40,6 +40,7 @@ CHART = [
     ("116100", "Input CGST", 1, "11", "Y", "N", "N", "N"),
     ("116200", "Input SGST", 1, "11", "Y", "N", "N", "N"),
     ("116300", "Input IGST", 1, "11", "Y", "N", "N", "N"),
+    ("116900", "ITC Reversed (Reclaimable)", 1, "11", "Y", "N", "N", "N"),
     ("117000", "Cheques Received", 1, "11", "Y", "N", "N", "N"),
     ("118000", "Work in Progress", 1, "11", "Y", "N", "N", "N"),
     ("12", "Fixed Assets", 1, "1", "N", "N", "N", "N"),
@@ -83,6 +84,7 @@ CHART = [
     ("615000", "Cash Discount Allowed", 6, "61", "Y", "E", "N", "N"),
     ("616000", "Freight and Charges Paid", 6, "61", "Y", "E", "N", "N"),
     ("617000", "Depreciation", 6, "61", "Y", "E", "N", "N"),
+    ("618000", "GST Input Tax Not Claimable", 6, "61", "Y", "E", "N", "N"),
     ("7", "Other Income and Expenses", 7, None, "N", "N", "N", "N"),
     ("71", "Foreign Exchange", 7, "7", "N", "N", "N", "N"),
     ("711000", "Foreign Exchange Gain", 7, "71", "Y", "I", "N", "N"),
@@ -155,6 +157,13 @@ def _rcm_tax_groups() -> list[tuple[str, str, str, Decimal, str, list[tuple[str,
         out.append((f"RIG{r}", f"RCM IGST {r}%", "I", rate, "116000", [("IGST", rate)], "Y"))
         out.append((f"IMP{r}", f"Import IGST {r}%", "I", rate, "116000", [("IGST", rate)], "I"))
     return out
+
+
+# blocked input tax (section 17(5): motor vehicles, food, club fees ...): 100 % non-deductible
+BLOCKED_TAX_GROUPS = [("IBC18", "Blocked GST 18% (CGST+SGST)", Decimal("18"), [("CGST", Decimal("9")), ("SGST", Decimal("9"))]),
+                      ("IBI18", "Blocked IGST 18%", Decimal("18"), [("IGST", Decimal("18"))]),
+                      ("IBC28", "Blocked GST 28% (CGST+SGST)", Decimal("28"), [("CGST", Decimal("14")), ("SGST", Decimal("14"))]),
+                      ("IBI28", "Blocked IGST 28%", Decimal("28"), [("IGST", Decimal("28"))])]
 
 
 def seed() -> None:
@@ -230,6 +239,11 @@ def seed() -> None:
         for code, name, category, rate, account, comps in _gst_tax_groups():
             if s.get(TaxGroup, code) is None:
                 put(TaxGroup(code=code, name=name, category=category, rate=rate, account=account))
+                for line, (authority, comp_rate) in enumerate(comps):
+                    put(TaxComponent(stc_code=code, line=line, sta_code=authority, efctiv_rate=comp_rate))
+        for code, name, rate, comps in BLOCKED_TAX_GROUPS:  # blocked credit codes (once)
+            if s.get(TaxGroup, code) is None and all(s.get(TaxAuthority, a) is not None for a, _ in comps):
+                put(TaxGroup(code=code, name=name, category="I", rate=rate, account="116000", non_dedct=Decimal("100"), non_ded_acc="618000"))
                 for line, (authority, comp_rate) in enumerate(comps):
                     put(TaxComponent(stc_code=code, line=line, sta_code=authority, efctiv_rate=comp_rate))
         for code, name, category, rate, account, comps, rc in _rcm_tax_groups():  # reverse charge / import codes (once)

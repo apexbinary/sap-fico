@@ -138,6 +138,10 @@ class TaxGroup(Base):
     # India: N normal, Y reverse charge (recipient pays: input tax against the authorities' RCM liability),
     # I import of goods (IGST paid at customs: input tax against OACP ImpTaxAcct); not B1-verified
     rev_charge: Mapped[str] = mapped_column("RevCharge", String(1), default="N", server_default="N")
+    # non-deductible part of input tax (India: blocked credit, section 17(5)); posted to NonDedAcc instead of
+    # the input tax account; the vendor still charges the full tax
+    non_dedct: Mapped[Decimal] = mapped_column("NonDedct", Numeric(19, 6), default=Decimal("0"), server_default="0")
+    non_ded_acc: Mapped[str | None] = mapped_column("NonDedAcc", String(15))
 
 
 class PaymentTerms(Base):

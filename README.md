@@ -18,6 +18,7 @@ trademarks of SAP SE.
 | India — INR company, GST (CGST / SGST / IGST by place of supply), GSTIN, HSN / SAC, GST tax report | ✅ |
 | Printed documents — GST layout (tax invoice, credit note, delivery challan, orders ...) with HSN summary and amount in words, print / PDF | ✅ |
 | CRM — sales opportunities with stages, activities, calendar, pipeline | ✅ |
+| GST blocked ITC, ITC reversals / reclaims, GSTR-2B reconciliation | ✅ |
 | GST reverse charge (RCM) and imports — bill of entry, GSTR-3B 3.1(d) / 4A(1)-(3) | ✅ |
 | Service — service calls with contract deadlines, service contracts, customer equipment cards | ✅ |
 | Production (bills of materials, production orders with backflush and variance) and MRP | ✅ |

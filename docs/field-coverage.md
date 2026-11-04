@@ -99,6 +99,7 @@ STC1 lines (one tax authority each). Every part is maintained on the Tax Setup s
 | Tax code / name / category (output / input) / inactive | OVTG Code / Name / Category / Inactive | text / dropdown / checkbox | ✅ |
 | Components: tax authority / rate | STC1 STACode / EfctivRate | dropdown / number | ✅ rate of the code = sum of the components; each component rounded on its own |
 | Rate / tax account of a code without components | OVTG Rate / Account | number / choose | ✅ |
+| Non-deductible % and account (blocked credit, section 17(5)): the vendor charges the tax, the non-deductible part is posted to NonDedAcc instead of input tax | OVTG NonDedct / NonDedAcc | number / choose | ✅ seeded IBC18 / IBI18 / IBC28 / IBI28 (100 %, 618000); B1 adds it to the item / expense cost, here one account per code |
 | Reverse charge: no / reverse charge (company pays: input tax against the RCM liability) / import of goods (IGST paid at customs, OACP ImpTaxAcct 218000) | OVTG RevCharge | dropdown | ✅ input codes with components only; seeded RCS / RIG / IMP 5-28 % ⚠ not B1-verified |
 | Used code locked (category, rate, components) | — | — | ✅ as in B1: create a new code and set the old one inactive |
 | Effective from | EffecDate | date | ✅ column; ⏸ rate history (VTG1) |
@@ -651,7 +652,10 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | GSTR-3B 3.1(d) inward supplies under reverse charge; 4A(1) import of goods, 4A(2) import of services (reverse charge from a foreign vendor), 4A(3) other reverse charge; reverse charge tax paid in cash | OVTG RevCharge, OPCH BoEValue | ✅ |
 | JSON for the GST portal offline tool (GSTR-1, GSTR-3B) | | download | ✅ layout of the offline tool, not validated against the portal |
 | Checks before filing: GSTIN format, missing HSN / SAC, unknown place of supply, mixed intra / inter codes | | ✅ |
-| ITC reversals / ineligible ITC, amendments (B2BA ...), GSTR-2B matching, filing on the portal | | ⏸ |
+| GSTR-3B 4(B)(1) blocked credit + permanent reversals, 4(B)(2) temporary reversals, 4(C) net, 4(D)(1) reclaimed (also in 4(A)(5)) | OVTG NonDedct, ITC journal entries | ✅ |
+| ITC reversals (Financial Reports -> ITC Reversals): kind B1 permanent / B2 temporary / D1 reclaim, posting date, IGST / CGST / SGST / cess, reason; cancel | OJDT Ref3 ITC:kind, OACP ItcRevAcct 618000 / ItcRclAcct 116900 | dropdown / date / number / text | ✅ a reclaim is capped at what is still reversed ⚠ not a B1 object (B1 India uses journal entries) |
+| GSTR-2B reconciliation: upload the portal JSON; B2B, CDNR and IMPG against A/P invoices / credit memos by GSTIN + vendor ref. no. (NumAtCard) / bill of entry no.; matched, amounts differ, only in GSTR-2B, only in books, ITC not available | | file / table | ✅ tolerance 1 rupee; not stored |
+| Amendments (B2BA ...), filing status per return, filing on the portal | | ⏸ |
 
 ### Printed documents (Print / PDF)
 | Element | Source | Status |

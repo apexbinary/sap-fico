@@ -24,7 +24,7 @@ from app.services.admin import B1Error
 ZERO = Decimal("0")
 BUCKETS = ["current", "1-30", "31-60", "61-90", "91-120", "120+"]
 ORIGINS = {"24": "Incoming payments", "46": "Outgoing payments", "25": "Deposits", "30": "Journal entries", "13": "A/R invoices",
-           "14": "A/R credit memos", "18": "A/P invoices", "19": "A/P credit memos", "-3": "Period-end closing"}
+           "14": "A/R credit memos", "18": "A/P invoices", "19": "A/P credit memos", "-3": "Period-end closing", "-2": "Opening balances"}
 
 
 def _bucket(days: int) -> str:

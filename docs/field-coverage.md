@@ -591,6 +591,16 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 | Default price = price list price (per inventory unit) x NumPerMsr; last purchase price per inventory unit | | — | ✅ |
 | UoM groups (OUGP / UGP1), several UoMs per item, UoM chosen per line, packaging UoMs | | — | ⏸ |
 
+### Opening balances (Administration -> Opening Balances)
+| Field / function | Column | Type | Status |
+|---|---|---|---|
+| Posting date, remarks | OJDT RefDate / Memo | date / text | ✅ |
+| G/L accounts: account, debit / credit; offset on the opening balance account | JDT1, OJDT TransType -2, OACP OpenBalAcct (313000) | choose / number | ✅ control accounts, title accounts and the offset account itself refused |
+| Business partners: partner, debit / credit, due date, reference; one open item per row on the control account | JDT1 ShortName / DueDate / Ref1, BalDueDeb / BalDueCred | choose / number / date / text | ✅ paid like any open item; locked once paid |
+| Items: item, warehouse, quantity, cost per unit (moving average) | goods receipt OIGN (Ref2 OPENING) offset on 313000 | choose / number | ✅ batch / serial items: enter a goods receipt with their numbers |
+| Posted entries with cancel (reverse / cancel the goods receipt); difference left on the opening balance account | | table | ✅ |
+| Opening balances in foreign currency, B1's separate Inventory Opening Balance document (OIQI), opening balance by project / distribution rule | | — | ⏸ |
+
 ### Down payments (A/R Down Payment ODPI 203, A/P Down Payment ODPO 204)
 | Field / function | Column | Type | Status |
 |---|---|---|---|

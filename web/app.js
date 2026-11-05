@@ -191,7 +191,7 @@ function jeTable(jes) {
       <td>${e.storno_to_tr ? `<span class="status X">${e.is_reversal ? "Reversal" : "Reversed"}</span>` : ""}</td></tr>`).join("")
       || `<tr><td colspan="6" class="empty">No journal entries yet.</td></tr>`}</tbody></table>`;
 }
-const TRANS_TYPES = { "25": "DP", "30": "JE", "13": "IN", "14": "CN", "15": "DN", "16": "RE", "18": "PU", "19": "PC", "20": "PD",
+const TRANS_TYPES = { "-2": "OB", "25": "DP", "30": "JE", "13": "IN", "14": "CN", "15": "DN", "16": "RE", "18": "PU", "19": "PC", "20": "PD",
   "21": "PR", "24": "RC", "46": "PS", "59": "SI", "60": "SO", "67": "IM", "23": "QT", "17": "OR", "22": "PO", "540000006": "PQ" };
 const transTypeName = (t) => TRANS_TYPES[t] || t;
 // origin of a journal entry -> the document that created it

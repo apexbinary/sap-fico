@@ -30,6 +30,7 @@ from app.api_import import router as import_router
 from app.api_production import router as production_router
 from app.api_crm import router as crm_router
 from app.api_service import router as service_router
+from app.api_opening import router as opening_router
 from app.api_documents import router as documents_router
 from app.api_dunning import router as dunning_router
 from app.api_finance import router as finance_router
@@ -74,6 +75,7 @@ app.include_router(import_router, prefix="/api")
 app.include_router(production_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
 app.include_router(service_router, prefix="/api")
+app.include_router(opening_router, prefix="/api")
 app.include_router(tax_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 

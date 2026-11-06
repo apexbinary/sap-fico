@@ -167,6 +167,13 @@ def _monthly(a: FixedAsset, c: AssetClass, month_end: date) -> Decimal:
     return min(((a.cost - a.salvage) / c.useful_life).quantize(CENT), book - a.salvage)
 
 
+def next_due_month(session: Session) -> date | None:
+    """First month whose depreciation is not posted yet for an active asset (the run that is due next)."""
+    due = [_month_end(a.cap_date) if a.dep_until is None else _next_month_end(a.dep_until)
+           for a in session.scalars(select(FixedAsset).where(FixedAsset.status == "A"))]
+    return min(due).replace(day=1) if due else None
+
+
 def depreciation_preview(session: Session, month: date) -> list[dict]:
     """Depreciation of a month (all active assets depreciated up to the month before)."""
     me = _month_end(month)

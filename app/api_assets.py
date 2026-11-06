@@ -22,7 +22,8 @@ router = APIRouter()
 def register(s: Session = Depends(get_session)) -> dict:
     rows = [assets.out(a) for a in s.scalars(select(FixedAsset).order_by(FixedAsset.asset_code))]
     return {"classes": [assets.class_out(c) for c in s.scalars(select(AssetClass).order_by(AssetClass.code))], "assets": rows,
-            "totals": {k: sum((Decimal(r[k]) for r in rows if r["status"] != "R"), Decimal(0)) for k in ("cost", "acc_dep", "book_value")}}
+            "totals": {k: sum((Decimal(r[k]) for r in rows if r["status"] != "R"), Decimal(0)) for k in ("cost", "acc_dep", "book_value")},
+            "next_due": assets.next_due_month(s)}
 
 
 @router.post("/fixed-assets/classes", tags=["Fixed assets"], summary="Add an asset class")

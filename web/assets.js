@@ -3,8 +3,11 @@
 
 views.assets = async (c) => {
   const q = query(), code = q.get("code"), cls = q.get("class");
-  const month = q.get("month") || `${today().slice(0, 7)}-01`;
-  const [data, preview] = await Promise.all([api("/fixed-assets"), api(`/fixed-assets/depreciation?month=${month}`).catch((e) => ({ error: e.message }))]);
+  const data = await api("/fixed-assets");
+  // the run that is due next (months are posted in order), else the current month
+  const due = data.next_due && data.next_due <= `${today().slice(0, 7)}-01` ? data.next_due : `${today().slice(0, 7)}-01`;
+  const month = q.get("month") || due;
+  const preview = await api(`/fixed-assets/depreciation?month=${month}`).catch((e) => ({ error: e.message }));
   const edit = code && data.assets.find((a) => a.asset_code === code);
   const cEdit = cls && data.classes.find((x) => x.code === cls);
   const STAT = { N: "New", A: "Active", R: "Retired" };

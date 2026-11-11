@@ -15,6 +15,7 @@ views["service-calls"] = async (c) => {
   const techOpts = techs.map((u) => [u.user_id, `${u.user_code} — ${u.u_name}`]);
   const defs = [
     { k: "customer", label: "Customer", type: "select", options: svcCustomers, req: true, value: q.get("card") || "" },
+    { k: "cntct_code", label: "Contact person", type: "select", int: true, options: [] },
     { k: "subject", label: "Subject", req: true, max: 254, span: 2 },
     { k: "ins_id", label: "Equipment card", type: "select", int: true, options: eqs.map((e) => [e.ins_id, `${e.internal_sn || e.manuf_sn} — ${e.item_code} (${e.customer})`]), value: q.get("ins") || "" },
     { k: "item_code", label: "Item", type: "select", options: svcItems(items) },
@@ -67,8 +68,14 @@ views["service-calls"] = async (c) => {
   if ($("#sc-add")) {
     $("#sc-ins_id").onchange = () => {
       const e = eqs.find((x) => String(x.ins_id) === $("#sc-ins_id").value);
-      if (e) { $("#sc-customer").value = e.customer; $("#sc-item_code").value = e.item_code; $("#sc-internal_sn").value = e.internal_sn || ""; }
+      if (e) {
+        $("#sc-customer").value = e.customer;
+        $("#sc-customer").dispatchEvent(new Event("change"));
+        $("#sc-item_code").value = e.item_code;
+        $("#sc-internal_sn").value = e.internal_sn || "";
+      }
     };
+    linkContacts($("#sc-customer"), $("#sc-cntct_code"));
     $("#sc-add").onclick = async () => {
       const r = await act(() => post("/service/calls", readFields(defs, "sc")), (x) => `Service call ${x.call_id} added${x.contract ? ` (contract ${x.contract})` : ""}`);
       if (r) { location.hash = `#/service-calls?id=${r.call_id}`; if (typeof refreshAlertBell === "function") refreshAlertBell(); }

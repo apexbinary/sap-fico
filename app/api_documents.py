@@ -75,7 +75,8 @@ def _doc_out(doc, detail: bool = False) -> dict:
         out["expenses"] = [{"expns_code": e.expns_code, "expns_name": (object_session(doc).get(AdditionalExpense, e.expns_code).expns_name
                                                                        if object_session(doc).get(AdditionalExpense, e.expns_code) else ""),
                             "line_total": e.line_total, "total_frgn": e.total_frgn, "vat_group": e.vat_group, "vat_prcnt": e.vat_prcnt,
-                            "vat_sum": e.vat_sum, "grs_amount": e.grs_amount} for e in getattr(doc, "expenses", [])]
+                            "vat_sum": e.vat_sum, "grs_amount": e.grs_amount,
+                            "ocr_codes": [e.ocr_code, e.ocr_code2, e.ocr_code3, e.ocr_code4, e.ocr_code5]} for e in getattr(doc, "expenses", [])]
         out.update(address=doc.address, address2=doc.address2, pay_to_code=doc.pay_to_code,
                    ship_to_code=doc.ship_to_code)
         out["lines"] = [{"line_num": l.line_num, "line_status": l.line_status, "item_code": l.item_code,
@@ -162,7 +163,7 @@ class DocumentIn(BaseModel):
     doc_cur: str | None = Field(None, max_length=3)
     wt_codes: list[str] | None = None
     confirm_credit: bool = False
-    expenses: list[dict] | None = None  # [{expns_code, amount, vat_group}]
+    expenses: list[dict] | None = None  # [{expns_code, amount, vat_group, ocr_codes}]
     down_payments: list[dict] | None = None  # invoices: [{dp_entry, amount}] paid down payments to draw
     dpm_type: str = Field("R", pattern="^[RI]$")  # down payments: R request / I invoice (posted with tax)
     boe_num: str | None = Field(None, max_length=20)  # import of goods: bill of entry

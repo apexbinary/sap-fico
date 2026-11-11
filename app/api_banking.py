@@ -46,7 +46,8 @@ def _pay_out(p, detail: bool = False) -> dict:
                        "doc_trans_id": i.doc_trans_id, "doc_line": i.doc_line, "sum_applied": i.sum_applied,
                        "applied_fc": i.applied_fc, "dcnt_sum": i.dcnt_sum, "inst_id": i.inst_id} for i in p.invoices],
             accounts=[{"line_id": a.line_id, "acct_code": a.acct_code, "sum_applied": a.sum_applied,
-                       "applied_fc": a.applied_fc, "descrip": a.descrip, "prj_code": a.prj_code} for a in p.accounts])
+                       "applied_fc": a.applied_fc, "descrip": a.descrip, "prj_code": a.prj_code,
+                       "ocr_codes": [a.ocr_code, a.ocr_code2, a.ocr_code3, a.ocr_code4, a.ocr_code5]} for a in p.accounts])
     return out
 
 
@@ -87,6 +88,7 @@ class AccountLineIn(BaseModel):
     sum_applied: Decimal = Field(..., gt=0)
     descrip: str | None = Field(None, max_length=254)
     prj_code: str | None = Field(None, max_length=20)
+    ocr_codes: list[str | None] | None = None  # distribution rules of dimensions 1 - 5
 
 
 class DownPaymentIn(BaseModel):

@@ -18,6 +18,14 @@ from app.services import crm
 router = APIRouter()
 
 
+@router.get("/crm/users", tags=["CRM"], summary="Active users (activity handled by)")
+def crm_users(s: Session = Depends(get_session)) -> list[dict]:
+    from app.models.users import User
+
+    return [{"user_id": u.user_id, "user_code": u.user_code, "u_name": u.u_name}
+            for u in s.scalars(select(User).where(User.locked == "N").order_by(User.user_code))]
+
+
 @router.get("/crm/stages", tags=["CRM"], summary="Sales stages")
 def list_stages(s: Session = Depends(get_session)) -> list[dict]:
     return [{"num": x.num, "descript": x.descript, "clo_prcnt": x.clo_prcnt, "step_id": x.step_id} for x in crm.stages(s)]

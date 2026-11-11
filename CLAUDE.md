@@ -143,6 +143,8 @@ app/
                       (area SERVICE); web/service.js (service calls, contracts, equipment cards)
   services/opening.py opening balances: G/L accounts and business partners (JEs TransType -2, Ref3 OB:GL / OB:BP),
                       items (goods receipt Ref2 OPENING) against OACP OpenBalAcct; api_opening.py; web/opening.js
+  web/cfl.js          choose-from-list windows for every BP / item / account / warehouse field; web/nav.js the
+                      two-level menu; tools/ui_contract.py checks docs/dependency-matrix.md in the browser
   services/paywiz.py  payment wizard: recommendation (OPWZ / PWZ1), selection, execution
   services/dunning.py dunning terms, preview / run, letters (models/banking.py ODWZ DWZ1 DWZ2)
   services/journal.py THE posting engine: post_entry / reverse_entry (OJDT/JDT1)
@@ -188,6 +190,22 @@ docs/field-coverage.md  B1 field register: every form, column, input type, statu
   "manager"), sales and accountant (demo, password B1_DEMO_PASSWORD or sales2026 /
   account2026). Change them after the first login.
 - Checks that call services directly need no login; verify_users tests the HTTP layer.
+
+### Cross-module completeness (keep invariant — the user's top concern)
+- A new module / master / concept must reach **every earlier screen that needs it in B1** (example: warehouses
+  belong on every item line, BOM, production order, counting, audit report ...). Before a feature is done:
+  1. add its rows to `docs/dependency-matrix.md` (concept x every screen that needs it, ✅ or ⏸ with reason) and
+     add the field to the earlier screens / services / journal postings that need it;
+  2. run `python -m app.verify_all` (SQLite and PostgreSQL), `python tools/ui_contract.py <url>` (every ✅ matrix
+     row must be on its screen) and `python tools/ui_sweep.py <url>` (every menu screen as every user: no JS error,
+     no failed request, no stuck screen) — all must pass before committing;
+  3. update docs/field-coverage.md.
+- Every BP / item / account / warehouse dropdown is a choose-from-list (web/cfl.js: search, filters, paging,
+  golden arrow to the master); new fields get it automatically by their id / class (card_code, item_code,
+  ..._acct, whs_code, l-item ...) or data-cfl.
+- Line grids keep one empty row at the bottom (filling the last adds the next); empty rows are never posted.
+- Item lines show the stock of the line's warehouse (in stock / committed / ordered / available).
+- Navigation: module rail + module menu (web/nav.js) built from the nav-sep sections of index.html.
 
 ### Fields and UI (keep invariant)
 - **No standard B1 field of a built feature is silently missing.** Every form is

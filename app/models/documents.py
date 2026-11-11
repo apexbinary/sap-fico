@@ -220,6 +220,11 @@ class DocumentExpense:
     vat_sum: Mapped[Decimal] = mapped_column("VatSum", AMOUNT, default=Decimal("0"))
     vat_sum_frgn: Mapped[Decimal] = mapped_column("VatSumFrgn", AMOUNT, default=Decimal("0"))
     grs_amount: Mapped[Decimal] = mapped_column("GrsAmount", AMOUNT, default=Decimal("0"))  # gross (LC)
+    ocr_code: Mapped[str | None] = mapped_column("OcrCode", String(8))  # distribution rules of dimensions 1 - 5
+    ocr_code2: Mapped[str | None] = mapped_column("OcrCode2", String(8))
+    ocr_code3: Mapped[str | None] = mapped_column("OcrCode3", String(8))
+    ocr_code4: Mapped[str | None] = mapped_column("OcrCode4", String(8))
+    ocr_code5: Mapped[str | None] = mapped_column("OcrCode5", String(8))
 
 
 # object type -> freight class; the header gets .expenses

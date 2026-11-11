@@ -67,6 +67,7 @@ class AccountLine:
     sum_applied: Decimal  # payment currency
     descrip: str | None = None
     prj_code: str | None = None
+    ocr_codes: tuple | list | None = None  # distribution rules of dimensions 1 - 5 (RCT4 / VPM4 OcrCode .. OcrCode5)
 
 
 @dataclass
@@ -358,6 +359,10 @@ def _create(session: Session, req: PaymentRequest):
         if Decimal(a.sum_applied) <= 0:
             raise B1Error(f"Account line {n + 1}: enter a positive amount")
         check_project(session, a.prj_code, req.doc_date)
+        if a.ocr_codes and any(a.ocr_codes):
+            from app.services import costacct
+
+            a.ocr_codes = costacct.check_codes(session, a.ocr_codes, req.doc_date)
         accounts.append((a, money(a.sum_applied), lc(money(a.sum_applied))))
 
     # what the partner (or the accounts) are posted with, payment on account, exchange difference
@@ -440,7 +445,8 @@ def _create(session: Session, req: PaymentRequest):
         dp.paid_to_date += amount
     for n, (a, fc, amount_lc) in enumerate(accounts):
         pay.accounts.append(acct_cls(line_id=n, acct_code=a.acct_code, sum_applied=amount_lc,
-                                     applied_fc=fc if curr != main else ZERO, descrip=a.descrip, prj_code=a.prj_code))
+                                     applied_fc=fc if curr != main else ZERO, descrip=a.descrip, prj_code=a.prj_code,
+                                     **{k: (list(a.ocr_codes or []) + [None] * 5)[i] for i, k in enumerate(("ocr_code", "ocr_code2", "ocr_code3", "ocr_code4", "ocr_code5"))}))
     session.add(pay)
     session.flush()
     if wt_rows:
@@ -455,7 +461,7 @@ def _create(session: Session, req: PaymentRequest):
     fc = curr != main
     lines: list[JournalLineRequest] = []
 
-    def add(account=None, card=None, amount=ZERO, amount_fc=ZERO, memo=None, due=None, project=None):
+    def add(account=None, card=None, amount=ZERO, amount_fc=ZERO, memo=None, due=None, project=None, ocr=None):
         amount = sign * amount
         if not amount:
             return
@@ -463,7 +469,7 @@ def _create(session: Session, req: PaymentRequest):
         fcd, fcc = ((abs(amount_fc), ZERO) if amount > 0 else (ZERO, abs(amount_fc))) if fc and amount_fc else (ZERO, ZERO)
         lines.append(JournalLineRequest(account=account, card_code=card, debit=debit, credit=credit, fc_debit=fcd,
                                         fc_credit=fcc, fc_currency=curr if fc and amount_fc else None, line_memo=memo,
-                                        due_date=due, project=project))
+                                        due_date=due, project=project, ocr_codes=tuple(ocr) if ocr and any(ocr) else None))
 
     add(req.cash_acct, amount=cash_lc, amount_fc=cash_fc, memo="Cash")
     add(req.trsfr_acct, amount=trsfr_lc - sign * chrg if incoming else trsfr_lc + chrg, amount_fc=trsfr_fc, memo=req.trsfr_ref or "Bank transfer")
@@ -476,7 +482,7 @@ def _create(session: Session, req: PaymentRequest):
         bp_fc = money(due_pc + (on_account / rate if curr != main else ZERO)) if fc else ZERO
         add(card=bp.card_code, amount=-(target + discounts), amount_fc=-bp_fc, due=pay.doc_due_date)
     for a, a_fc, amount_lc in accounts:
-        add(a.acct_code, amount=-amount_lc, amount_fc=a_fc, memo=a.descrip, project=a.prj_code)
+        add(a.acct_code, amount=-amount_lc, amount_fc=a_fc, memo=a.descrip, project=a.prj_code, ocr=a.ocr_codes)
     for r in wt_rows:  # TDS on the advance: credited like the payment means
         add(r["account"], amount=r["wt_amnt"], memo=f"TDS {r['section']} on advance")
     if exch:

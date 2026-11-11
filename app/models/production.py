@@ -67,6 +67,8 @@ class ProductionOrder(Base):
     card_code: Mapped[str | None] = mapped_column("CardCode", String(15))  # customer (made to order)
     origin_num: Mapped[int | None] = mapped_column("OriginNum", Integer)  # sales order DocNum
     comments: Mapped[str | None] = mapped_column("Comments", String(254))
+    project: Mapped[str | None] = mapped_column("Project", String(20))  # carried to the issues / receipts and the variance
+    ocr_code: Mapped[str | None] = mapped_column("OcrCode", String(8))  # distribution rule (dimension 1) of the variance
     issued_val: Mapped[Decimal] = mapped_column("IssuedVal", Numeric(19, 6), default=Decimal("0"))  # components issued (WIP debit)
     rcpt_val: Mapped[Decimal] = mapped_column("RcptVal", Numeric(19, 6), default=Decimal("0"))  # products received (WIP credit)
     var_trans: Mapped[int | None] = mapped_column("VarTrans", Integer)  # journal entry of the variance at close

@@ -57,7 +57,9 @@ views["opening-balances"] = async (c) => {
       + '<td><button class="btn ghost small ob-del">✕</button></td>';
     tr.dataset.p = p;
     $("#ob-rows").appendChild(tr);
-    $(".ob-del", tr).onclick = () => { tr.remove(); sum(); };
+    $(".ob-del", tr).onclick = () => { tr.remove(); if (!$$("#ob-rows tr").length) addRow(); sum(); };
+    const key = $("select", tr);  // the first field (account / partner / item) of the last row adds the next row
+    if (key) key.addEventListener("change", () => { const rows = $$("#ob-rows tr"); if (rows[rows.length - 1] === tr && key.value) addRow(); });
     $$("input", tr).forEach((i) => (i.oninput = sum));
   };
   addRow();

@@ -102,7 +102,8 @@ def bom_cost(session: Session, code: str) -> Decimal:
 # ------------------------------------------------------------- production orders
 def create_order(session: Session, item_code: str, planned_qty: Decimal, post_date: date, due_date: date | None = None,
                  warehouse: str | None = None, card_code: str | None = None, comments: str | None = None,
-                 release: bool = False) -> ProductionOrder:
+                 release: bool = False, origin_num: int | None = None, project: str | None = None, ocr_code: str | None = None,
+                 line_whs: dict | None = None) -> ProductionOrder:
     bom = session.get(BillOfMaterials, item_code)
     if bom is None or bom.tree_type != "P":
         raise B1Error(f"Item {item_code} has no production bill of materials")
@@ -113,14 +114,27 @@ def create_order(session: Session, item_code: str, planned_qty: Decimal, post_da
     whs = warehouse or bom.to_wh or item.dflt_wh
     if not whs or session.get(Warehouse, whs) is None:
         raise B1Error(f"Warehouse {whs} does not exist")
+    from app.models.partners import BusinessPartner
+    from app.services.admin import check_project
+
+    if card_code and (session.get(BusinessPartner, card_code) is None or session.get(BusinessPartner, card_code).card_type == "S"):
+        raise B1Error(f"Customer {card_code} does not exist")
+    check_project(session, project or None, post_date)
+    if ocr_code:
+        from app.services import costacct
+
+        costacct.check_codes(session, (ocr_code,), post_date)
     entry = (session.scalar(select(func.max(ProductionOrder.doc_entry))) or 0) + 1
     po = ProductionOrder(doc_entry=entry, doc_num=next_number(session, "202"), type="S", status="R" if release else "P", item_code=item_code,
                          planned_qty=planned_qty, warehouse=whs, post_date=post_date, due_date=due_date or post_date, card_code=card_code,
-                         comments=comments, issued_val=ZERO, rcpt_val=ZERO)
+                         comments=comments, issued_val=ZERO, rcpt_val=ZERO, origin_num=origin_num, project=project or None, ocr_code=ocr_code or None)
     for n, l in enumerate(bom.lines):
         base = l.quantity / bom.qauntity
+        lw = (line_whs or {}).get(str(n)) or (line_whs or {}).get(n) or l.warehouse or whs
+        if session.get(Warehouse, lw) is None:
+            raise B1Error(f"Component {l.code}: warehouse {lw} does not exist")
         po.lines.append(ProductionOrderLine(line_num=n, item_code=l.code, base_qty=base, planned_qty=(base * planned_qty).quantize(Decimal("0.000001")),
-                                            issued_qty=ZERO, issued_val=ZERO, warehouse=l.warehouse or whs, issue_type=l.issue_mthd))
+                                            issued_qty=ZERO, issued_val=ZERO, warehouse=lw, issue_type=l.issue_mthd))
     session.add(po)
     session.commit()
     return po
@@ -144,7 +158,7 @@ def release(session: Session, entry: int) -> ProductionOrder:
 
 def _issue(session: Session, po: ProductionOrder, on: date, items: list[tuple[ProductionOrderLine, Decimal, list | None]], memo: str) -> None:
     det = _det(session, on)
-    lines = [documents.DocLineRequest(item_code=l.item_code, quantity=q, whs_code=l.warehouse, acct_code=det.wip_acct,
+    lines = [documents.DocLineRequest(item_code=l.item_code, quantity=q, whs_code=l.warehouse, acct_code=det.wip_acct, project=po.project,
                                       batches=b if b and session.get(Item, l.item_code).man_btch_num == "Y" else None,
                                       serials=b if b and session.get(Item, l.item_code).man_ser_num == "Y" else None)
              for l, q, b in items if q > 0]
@@ -210,7 +224,7 @@ def receive(session: Session, entry: int, on: date, quantity: Decimal, batches: 
         item = session.get(Item, po.item_code)
         doc = documents.create_document(session, documents.DocumentRequest(
             obj="59", doc_date=on, ref2=f"WO{po.doc_num}", comments=f"Receipt from production order {po.doc_num}",
-            lines=[documents.DocLineRequest(item_code=po.item_code, quantity=quantity, whs_code=po.warehouse, price=price, acct_code=det.wip_acct,
+            lines=[documents.DocLineRequest(item_code=po.item_code, quantity=quantity, whs_code=po.warehouse, price=price, acct_code=det.wip_acct, project=po.project,
                                             batches=batches if item.man_btch_num == "Y" else None,
                                             serials=batches if item.man_ser_num == "Y" else None)]), commit=False)
         po.cmplt_qty += quantity
@@ -232,8 +246,9 @@ def close(session: Session, entry: int, on: date) -> ProductionOrder:
     try:
         if diff:
             je = journal.post_entry(session, journal.JournalRequest(
-                ref_date=on, memo=f"Production variance WO{po.doc_num}", ref3=f"WO{po.doc_num}", manual=False, trans_type="202", lines=[
-                    journal.JournalLineRequest(account=det.wip_var_acct, debit=diff if diff > 0 else ZERO, credit=-diff if diff < 0 else ZERO),
+                ref_date=on, memo=f"Production variance WO{po.doc_num}", ref3=f"WO{po.doc_num}", manual=False, trans_type="202", project=po.project, lines=[
+                    journal.JournalLineRequest(account=det.wip_var_acct, debit=diff if diff > 0 else ZERO, credit=-diff if diff < 0 else ZERO,
+                                               project=po.project, ocr_codes=(po.ocr_code, None, None, None, None) if po.ocr_code else None),
                     journal.JournalLineRequest(account=det.wip_acct, debit=-diff if diff < 0 else ZERO, credit=diff if diff > 0 else ZERO)]),
                 commit=False)
             po.var_trans = je.trans_id
@@ -262,6 +277,7 @@ def out(session: Session, po: ProductionOrder) -> dict:
     return {"doc_entry": po.doc_entry, "doc_num": po.doc_num, "status": po.status, "status_name": STATUS[po.status], "item_code": po.item_code,
             "item_name": item.item_name if item else None, "planned_qty": po.planned_qty, "cmplt_qty": po.cmplt_qty, "warehouse": po.warehouse,
             "post_date": po.post_date, "due_date": po.due_date, "close_date": po.close_date, "card_code": po.card_code, "comments": po.comments,
+            "origin_num": po.origin_num, "project": po.project, "ocr_code": po.ocr_code,
             "issued_val": po.issued_val, "rcpt_val": po.rcpt_val, "wip": po.issued_val - po.rcpt_val if po.status != "L" else ZERO,
             "unit_cost": unit_cost(po, session), "var_trans": po.var_trans,
             "lines": [{"line_num": l.line_num, "item_code": l.item_code, "item_name": names.get(l.item_code), "base_qty": l.base_qty,

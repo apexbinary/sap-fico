@@ -64,6 +64,7 @@ function applyUser() {
     while (n && !n.classList.contains("nav-sep")) { if (n.style.display !== "none") any = true; n = n.nextElementSibling; }
     sep.style.display = any ? "" : "none";
   });
+  if (typeof navSync === "function") navSync();  // modules without authorized entries leave the rail
 }
 
 views.password = async (c) => {

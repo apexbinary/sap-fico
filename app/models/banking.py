@@ -112,6 +112,11 @@ class PaymentAccount:
     applied_fc: Mapped[Decimal] = mapped_column("AppliedFC", AMOUNT, default=Decimal("0"))
     descrip: Mapped[str | None] = mapped_column("Descrip", String(254))
     prj_code: Mapped[str | None] = mapped_column("PrjCode", String(20))
+    ocr_code: Mapped[str | None] = mapped_column("OcrCode", String(8))  # distribution rules of dimensions 1 - 5
+    ocr_code2: Mapped[str | None] = mapped_column("OcrCode2", String(8))
+    ocr_code3: Mapped[str | None] = mapped_column("OcrCode3", String(8))
+    ocr_code4: Mapped[str | None] = mapped_column("OcrCode4", String(8))
+    ocr_code5: Mapped[str | None] = mapped_column("OcrCode5", String(8))
 
 
 def _child(name: str, mixin: type, table: str, header: str, doc_col: str) -> type:

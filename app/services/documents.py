@@ -136,6 +136,7 @@ class ExpenseRequest:
     expns_code: int
     amount: Decimal
     vat_group: str | None = None  # default: the expense's output / input tax code
+    ocr_codes: tuple | list | None = None  # distribution rules of dimensions 1 - 5 (xxx3 OcrCode .. OcrCode5)
 
 
 @dataclass
@@ -501,8 +502,13 @@ def _create(session: Session, req: DocumentRequest):
         comps = [] if erc else tax.split(session, etg, net_fc)
         vat_comps = [(account, money(amount * rate)) for account, amount, _ in comps]
         rc_comps = [(i, o, money(a * rate)) for i, o, a, _ in tax.reverse_charge(session, etg, net_fc, _determination(session, req.doc_date).imp_tax_acct)]
+        dims = None
+        if er.ocr_codes and any(er.ocr_codes):
+            from app.services import costacct
+
+            dims = costacct.check_codes(session, er.ocr_codes, req.doc_date)
         expenses.append(dict(ex=ex, tg=etg, net_fc=net_fc, vat_fc=sum((a for _, a, _ in comps), ZERO), net=money(net_fc * rate),
-                             vat=sum((a for _, a in vat_comps), ZERO), vat_comps=vat_comps, rc_comps=rc_comps))
+                             vat=sum((a for _, a in vat_comps), ZERO), vat_comps=vat_comps, rc_comps=rc_comps, dims=dims))
     exp_net, exp_vat = sum((e["net"] for e in expenses), ZERO), sum((e["vat"] for e in expenses), ZERO)
     exp_net_fc, exp_vat_fc = sum((e["net_fc"] for e in expenses), ZERO), sum((e["vat_fc"] for e in expenses), ZERO)
 
@@ -565,7 +571,8 @@ def _create(session: Session, req: DocumentRequest):
         ecls = DOCUMENT_EXPENSES[d.obj]
         doc.expenses = [ecls(line_num=n, expns_code=e["ex"].expns_code, line_total=e["net"], total_frgn=e["net_fc"] if fc else ZERO,
                              vat_group=e["tg"].code if e["tg"] else None, vat_prcnt=e["tg"].rate if e["tg"] else ZERO,
-                             vat_sum=e["vat"], vat_sum_frgn=e["vat_fc"] if fc else ZERO, grs_amount=e["net"] + e["vat"])
+                             vat_sum=e["vat"], vat_sum_frgn=e["vat_fc"] if fc else ZERO, grs_amount=e["net"] + e["vat"],
+                             **dict(zip(("ocr_code", "ocr_code2", "ocr_code3", "ocr_code4", "ocr_code5"), e["dims"] or (None,) * 5)))
                         for n, e in enumerate(expenses)]
     session.add(doc)
     session.flush()
@@ -575,7 +582,9 @@ def _create(session: Session, req: DocumentRequest):
         # freight: revenue (sales) / expense (purchasing) account and its tax, signs as for the lines
         for e in expenses:
             out = (d.side, d.kind) in {("S", "invoice"), ("P", "credit")}
+            ctx.dims = e["dims"]  # the freight's distribution rules on its revenue / expense account
             ctx.post(e["ex"].rev_acct if d.side == "S" else e["ex"].expns_acct, -e["net"] if out else e["net"])
+            ctx.dims = None
             _post_tax(ctx, e["tg"], e["vat_comps"], -1 if out else 1)
             _post_reverse_charge(ctx, e["tg"], e["rc_comps"])
     for line, x in zip(doc.lines, lines):

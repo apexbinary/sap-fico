@@ -42,12 +42,17 @@ class OrderIn(BaseModel):
     card_code: str | None = None
     comments: str | None = Field(None, max_length=254)
     release: bool = False
+    origin_num: int | None = None  # sales order no. (made to order)
+    project: str | None = Field(None, max_length=20)
+    ocr_code: str | None = Field(None, max_length=8)
+    line_whs: dict[str, str] | None = None  # component line no. -> warehouse (default: the BOM line's, else the order's)
 
 
 @router.post("/production/orders", tags=["Production"], summary="Add a production order (components from the BOM)")
 def add_order(body: OrderIn, s: Session = Depends(get_session)) -> dict:
     return production.out(s, run(lambda: production.create_order(s, body.item_code, body.planned_qty, body.post_date, body.due_date,
-                                                                 body.warehouse, body.card_code, body.comments, body.release)))
+                                                                 body.warehouse, body.card_code, body.comments, body.release,
+                                                                 body.origin_num, body.project, body.ocr_code, body.line_whs)))
 
 
 @router.get("/production/orders/{entry}", tags=["Production"], summary="A production order")

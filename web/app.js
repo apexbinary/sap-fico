@@ -161,6 +161,7 @@ function route() {
   const kind = query().get("kind");
   $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.obj ? a.dataset.obj === obj && view.startsWith("doc")
     : a.dataset.kind ? a.dataset.kind === kind && view.startsWith("payment") : a.dataset.view === view));
+  if (typeof navSync === "function") navSync();  // two-level menu: select the module of this screen
   const c = $("#content");
   const area = obj ? areaOfObj(obj) : AREA_OF_VIEW[view];
   if (area && !may(area)) { c.innerHTML = `<div class="empty">No authorization for ${esc(state.user.areas[area] || area)}.</div>`; return; }
@@ -194,6 +195,57 @@ function jeTable(jes) {
 const TRANS_TYPES = { "-2": "OB", "25": "DP", "30": "JE", "13": "IN", "14": "CN", "15": "DN", "16": "RE", "18": "PU", "19": "PC", "20": "PD",
   "21": "PR", "24": "RC", "46": "PS", "59": "SI", "60": "SO", "67": "IM", "23": "QT", "17": "OR", "22": "PO", "540000006": "PQ" };
 const transTypeName = (t) => TRANS_TYPES[t] || t;
+
+// contact persons (OCPR) of the business partner chosen in bpSel fill cpSel; keeps `keep` when it is one of them
+async function linkContacts(bpSel, cpSel, keep) {
+  if (!bpSel || !cpSel) return;
+  const fill = async () => {
+    const code = bpSel.value, cur = keep ?? cpSel.value;
+    keep = undefined;
+    const bp = code ? await api(`/partners/${encodeURIComponent(code)}`).catch(() => null) : null;
+    const rows = (bp && bp.contacts ? bp.contacts : []).filter((x) => x.active !== false);
+    cpSel.innerHTML = opt("", rows.length ? "" : "— none —") + rows.map((x) => opt(x.cntct_code, x.name, String(cur ?? ""))).join("");
+  };
+  bpSel.addEventListener("change", fill);
+  await fill();
+}
+
+// stock of an item per warehouse (OITW), cached briefly for the document lines
+const ITEM_STOCK = {};
+async function itemStock(code) {
+  const c = ITEM_STOCK[code];
+  if (c && Date.now() - c.t < 15000) return c.item;
+  const item = await api(`/items/${encodeURIComponent(code)}`);
+  ITEM_STOCK[code] = { t: Date.now(), item };
+  return item;
+}
+// under the line's warehouse: in stock / committed / ordered / available there; warehouse options show what is
+// available in each; red when an issuing line needs more than is in stock (issue = deliveries, invoices, issues ...)
+async function lineStock(tr, issue) {
+  $$(".l-stock", tr).forEach((e) => e.remove());
+  const sel = $(".l-item", tr), code = sel && sel.value;
+  if (!code) return;
+  const item = await itemStock(code).catch(() => null);
+  if (!item || !item.invnt_item || !sel.isConnected || sel.value !== code) return;
+  const per = Number(tr.dataset.per || 1), qty = Number(($(".l-qty", tr) || {}).value || 0) * per;
+  [".l-from", ".l-whs"].forEach((cls) => {
+    const w = $(cls, tr);
+    if (!w) return;
+    [...w.options].forEach((o) => {
+      if (!o.dataset.label) o.dataset.label = o.textContent;
+      const r = item.warehouses.find((x) => x.whs_code === o.value);
+      o.textContent = r ? `${o.dataset.label} · ${qtyFmt(r.available)} avail.` : o.dataset.label;
+    });
+    if (cls === ".l-whs" && $(".l-from", tr)) return;  // transfer: the stock that matters is in the from-warehouse
+    const r = item.warehouses.find((x) => x.whs_code === w.value) || { on_hand: 0, is_commited: 0, on_order: 0, available: 0 };
+    const short = issue && qty > Number(r.on_hand);
+    const div = document.createElement("div");
+    div.className = `l-stock${short ? " short" : ""}`;
+    div.title = `${item.item_code} in warehouse ${w.value}: in stock ${qtyFmt(r.on_hand)}, committed (orders) ${qtyFmt(r.is_commited)}, ordered (purchase orders) ${qtyFmt(r.on_order)}, available ${qtyFmt(r.available)}; all warehouses ${qtyFmt(item.on_hand)}`;
+    div.textContent = `Whs ${w.value}: stock ${qtyFmt(r.on_hand)} · committed ${qtyFmt(r.is_commited)} · ordered ${qtyFmt(r.on_order)} · avail. ${qtyFmt(r.available)}${short ? " — not enough" : ""}`;
+    w.parentElement.appendChild(div);
+  });
+}
 // origin of a journal entry -> the document that created it
 const docLink = (type, entry, label) => (type === "24" || type === "46") && entry
   ? `<a href="#/payments?kind=${type === "24" ? "incoming" : "outgoing"}&entry=${entry}" onclick="event.stopPropagation()">${esc(label)}</a>`
@@ -239,7 +291,7 @@ views["journal-entry"] = async (c) => {
     const tr = document.createElement("tr");
     const bps = state.partners.filter((b) => b.card_type !== "L" && !b.frozen)
       .map((b) => `<option value="BP:${esc(b.card_code)}">${esc(b.card_code)} — ${esc(b.card_name)}</option>`).join("");
-    tr.innerHTML = `<td><select class="je-acct"><optgroup label="G/L accounts">${accountOptions((a) => !a.control && !a.bloc_man_pos && !a.frozen)}</optgroup>
+    tr.innerHTML = `<td><select class="je-acct">${opt("", "— account / BP —")}<optgroup label="G/L accounts">${accountOptions((a) => !a.control && !a.bloc_man_pos && !a.frozen)}</optgroup>
       <optgroup label="Business partners">${bps}</optgroup></select></td><td class="mono help je-ctrl"></td>
       <td><select class="je-cur">${opt("", "LC")}${O.currencies().filter(([v]) => v !== state.company.main_curncy).map(([v]) => opt(v, v)).join("")}</select></td>
       <td class="num"><input class="je-fcd" type="number" step="0.01" min="0" style="width:90px" disabled></td>
@@ -270,7 +322,9 @@ views["journal-entry"] = async (c) => {
     $(".je-cur", tr).onchange = fcSync;
     $(".je-fcd", tr).oninput = fcSync; $(".je-fcc", tr).oninput = fcSync;
     tr.fcSync = fcSync;
-    $(".je-del", tr).onclick = () => { tr.remove(); recalc(); };
+    $(".je-del", tr).onclick = () => { tr.remove(); if (!$$("#je-lines tr").length) addLine(); recalc(); };
+    // one empty row stays at the bottom: choosing the account of the last row adds the next (empty rows are not posted)
+    $(".je-acct", tr).addEventListener("change", () => { const rows = $$("#je-lines tr"); if (rows[rows.length - 1] === tr && $(".je-acct", tr).value) addLine(); });
   };
   $("#je-ref_date").addEventListener("change", () => $$("#je-lines tr").forEach((tr) => tr.fcSync()));
   const recalc = () => {
@@ -282,11 +336,11 @@ views["journal-entry"] = async (c) => {
     $("#je-post").disabled = !ok;
   };
   $("#je-add").onclick = addLine;
-  addLine(); addLine();
+  addLine();
   $("#je-post").onclick = async () => {
     const target = (v) => (v.startsWith("BP:") ? { card_code: v.slice(3) } : { account: v });
     const val = (tr, cls) => $(cls, tr).value || null;
-    const lines = $$("#je-lines tr").map((tr) => ({ ...target($(".je-acct", tr).value), fc_currency: val(tr, ".je-cur"),
+    const lines = $$("#je-lines tr").filter((tr) => $(".je-acct", tr).value && (Number($(".je-debit", tr).value || 0) || Number($(".je-credit", tr).value || 0))).map((tr) => ({ ...target($(".je-acct", tr).value), fc_currency: val(tr, ".je-cur"),
       fc_debit: Number($(".je-fcd", tr).value || 0), fc_credit: Number($(".je-fcc", tr).value || 0), debit: Number($(".je-debit", tr).value || 0),
       credit: Number($(".je-credit", tr).value || 0), due_date: val(tr, ".je-due"), line_memo: val(tr, ".je-lm"),
       ref1: val(tr, ".je-r1"), ref2: val(tr, ".je-r2"), project: val(tr, ".je-prj"), ocr_codes: readDims(tr) }));
@@ -663,7 +717,21 @@ views.doc = async (c) => {
     };
     $("#d-lines").appendChild(tr);
     $$("input,select", tr).forEach((i) => i.addEventListener("input", recalc));
-    $(".l-del", tr).onclick = () => { tr.remove(); recalc(); };
+    $(".l-del", tr).onclick = () => { tr.remove(); if (!$$("#d-lines tr").length) addLine(); recalc(); };
+    // stock of the item in the line's warehouse(s): in stock / committed / ordered / available (OITW)
+    const showStock = () => {  // quantities of the line are in its unit: x items per sales / purchase unit
+      const it = items.find((x) => x.item_code === ($(".l-item", tr) || {}).value);
+      tr.dataset.per = !it ? 1 : side === "S" ? (it.sal_unit_msr ? Number(it.num_in_sale || 1) : 1) : side === "P" ? (it.buy_unit_msr ? Number(it.num_in_buy || 1) : 1) : 1;
+      return lineStock(tr, (side === "S" && ["order", "delivery", "invoice"].includes(t.kind)) || (side === "I" && t.kind !== "receipt"));
+    };
+    $$(".l-whs, .l-from", tr).forEach((w) => w.addEventListener("change", showStock));
+    if ($(".l-qty", tr)) $(".l-qty", tr).addEventListener("input", showStock);
+    if (sel) sel.addEventListener("change", showStock);
+    showStock();
+    // B1 keeps one empty row at the bottom: filling the last row adds the next (empty rows are not posted)
+    const grow = () => { const rows = $$("#d-lines tr"); if (rows[rows.length - 1] === tr && !tr.base && ($(".l-item", tr) || $(".l-acct", tr) || {}).value) addLine(); };
+    const key = $(".l-item", tr) || (type() === "S" && side !== "I" ? $(".l-acct", tr) : null);
+    if (key) key.addEventListener("change", grow);
     recalc();
   };
   const round = (n) => Math.round(n * 100) / 100;
@@ -711,6 +779,7 @@ views.doc = async (c) => {
     row.innerHTML = `<select class="fr-code">${fr.map((e) => opt(e.expns_code, `${e.expns_code} — ${e.expns_name}`)).join("")}</select>
       <input class="fr-amt" type="number" min="0" step="0.01" placeholder="Net amount">
       <select class="fr-vat">${opt("", "")}${taxes.map((x) => opt(x.code, x.code)).join("")}</select>
+      ${dimCols().length ? `<span class="fr-dims">${dimCells([]).replace(/<\/?td>/g, "")}</span>` : ""}
       <button class="btn small ghost fr-del" type="button">&#10005;</button>`;
     $("#d-freight").appendChild(row);
     const setDefault = () => { $(".fr-vat", row).value = taxOf($(".fr-code", row).value) || ""; const e = fr.find((x) => String(x.expns_code) === $(".fr-code", row).value);
@@ -788,7 +857,7 @@ views.doc = async (c) => {
     if ($("#d-dps")) body.down_payments = $$("#d-dps tr[data-dp]").filter((tr) => $(".dp-pick", tr).checked)
       .map((tr) => ({ dp_entry: Number(tr.dataset.dp), amount: Number($(".dp-sum", tr).value || 0) }));
     if (side !== "I") body.expenses = $$("#d-freight .fr-row").map((r) => ({ expns_code: Number($(".fr-code", r).value),
-      amount: Number($(".fr-amt", r).value || 0), vat_group: $(".fr-vat", r).value || null })).filter((e) => e.amount > 0);
+      amount: Number($(".fr-amt", r).value || 0), vat_group: $(".fr-vat", r).value || null, ocr_codes: readDims(r) })).filter((e) => e.amount > 0);
     $$("#d-lines tr").forEach((tr) => {
       const val = (cls) => { const e = $(cls, tr); return e && e.value !== "" ? e.value : null; };
       const num = (cls) => { const v = val(cls); return v === null ? null : Number(v); };
@@ -844,17 +913,25 @@ views.doc = async (c) => {
 
 // ---------- Inventory audit report (OINM) ----------
 views["inventory-audit"] = async (c) => {
-  const code = query().get("item") || "";
-  const [items, rows] = await Promise.all([api("/items"), api(`/inventory/journal?limit=300${code ? `&item_code=${encodeURIComponent(code)}` : ""}`)]);
+  const code = query().get("item") || "", whs = query().get("whs") || "";
+  const [items, rows] = await Promise.all([api("/items"), api(`/inventory/journal?limit=300${code ? `&item_code=${encodeURIComponent(code)}` : ""}${whs ? `&warehouse=${encodeURIComponent(whs)}` : ""}`)]);
   c.innerHTML = `<div class="page-head"><div><h1>Inventory Audit Report</h1><div class="sub">Warehouse journal (OINM): every stock movement and revaluation with its value</div></div></div>
-    <div class="toolbar"><div class="field"><label>Item</label><select id="ia-item">${opt("", "All items", code)}${items.filter((i) => i.invnt_item).map((i) => opt(i.item_code, `${i.item_code} — ${i.item_name}`, code)).join("")}</select></div></div>
+    <div class="toolbar"><div class="field"><label>Item</label><select id="ia-item">${opt("", "All items", code)}${items.filter((i) => i.invnt_item).map((i) => opt(i.item_code, `${i.item_code} — ${i.item_name}`, code)).join("")}</select></div>
+      <div class="field"><label>Warehouse</label><select id="ia-whs">${opt("", "All warehouses", whs)}${O.warehouses().map(([v, l]) => opt(v, l, whs)).join("")}</select></div></div>
     <div class="card"><table><thead><tr><th>#</th><th>Date</th><th>Document</th><th>Item</th><th>Whs</th><th class="num">In</th><th class="num">Out</th>
       <th class="num">Price</th><th class="num">Value change</th><th class="num">Item cost after</th><th>BP</th><th>JE</th></tr></thead>
       <tbody>${rows.map((r) => `<tr><td class="mono">${r.trans_num}</td><td>${r.doc_date}</td><td><a href="#/docs?obj=${r.trans_type}&entry=${r.doc_entry}">${esc(r.name)} ${esc(r.doc_num)}</a></td>
         <td class="mono">${esc(r.item_code)}</td><td>${esc(r.warehouse)}</td><td class="num">${Number(r.in_qty) ? qtyFmt(r.in_qty) : ""}</td><td class="num">${Number(r.out_qty) ? qtyFmt(r.out_qty) : ""}</td>
         <td class="num">${fmt(r.price)}</td><td class="num">${fmt(r.trans_value)}</td><td class="num">${fmt(r.calc_price)}</td><td class="mono">${esc(r.card_code || "")}</td>
         <td>${r.trans_id ? `<a href="#/journal?id=${r.trans_id}">${r.trans_id}</a>` : ""}</td></tr>`).join("") || `<tr><td colspan="12" class="empty">No stock movements yet.</td></tr>`}</tbody></table></div>`;
-  $("#ia-item").onchange = (e) => (location.hash = `#/inventory-audit${e.target.value ? `?item=${encodeURIComponent(e.target.value)}` : ""}`);
+  const go = () => {
+    const p = new URLSearchParams();
+    if ($("#ia-item").value) p.set("item", $("#ia-item").value);
+    if ($("#ia-whs").value) p.set("whs", $("#ia-whs").value);
+    location.hash = `#/inventory-audit${p.toString() ? `?${p}` : ""}`;
+  };
+  $("#ia-item").onchange = go;
+  $("#ia-whs").onchange = go;
 };
 
 // ---------- Financial reports ----------

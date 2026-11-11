@@ -51,22 +51,32 @@ views["production-orders"] = async (c) => {
   const po = id ? await api(`/production/orders/${id}`) : null;
   const prodBoms = boms.filter((b) => b.tree_type === "P");
   const st = (s) => `<span class="status ${s === "R" ? "O" : s === "C" ? "X" : "C"}">${{ P: "Planned", R: "Released", L: "Closed", C: "Canceled" }[s]}</span>`;
+  const dim1 = ((state.costacct || {}).rules || []).filter((r) => r.dim_code === 1 && r.active).map((r) => [r.ocr_code, `${r.ocr_code} — ${r.ocr_name}`]);
+  const newDefs = [  // B1 production order header: product, quantities, dates, warehouse, customer / sales order, project, distribution rule
+    { k: "item_code", label: "Product", type: "select", blank: false, req: true, options: prodBoms.map((b) => [b.code, `${b.code} — ${b.item_name || ""}`]) },
+    { k: "planned_qty", label: "Planned quantity", type: "number", step: "any", min: 0, req: true, value: 1 },
+    { k: "warehouse", label: "Warehouse (receipt)", type: "select", blank: false, options: () => O.warehouses() },
+    { k: "post_date", label: "Order date", type: "date", value: today() }, { k: "due_date", label: "Due date", type: "date", value: today() },
+    { k: "card_code", label: "Customer", type: "select", options: () => state.partners.filter((b) => b.card_type === "C").map((b) => [b.card_code, `${b.card_code} — ${b.card_name}`]) },
+    { k: "origin_num", label: "Sales order no.", type: "number", step: 1, min: 1 },
+    { k: "project", label: "Project", type: "select", options: () => O.projects() },
+    ...(dim1.length ? [{ k: "ocr_code", label: "Distribution rule", type: "select", options: dim1 }] : []),
+    { k: "comments", label: "Remarks", max: 254, span: 2 }, { k: "release", label: "Release", type: "check", value: true },
+  ];
   c.innerHTML = `<div class="page-head"><div><h1>Production Orders</h1><div class="sub">Issue components, receive products, close with the variance</div></div>
       <a class="btn" href="#/production-orders?id=">+ New production order</a></div>
     <div class="card"><table><thead><tr><th>No.</th><th>Product</th><th class="num">Planned</th><th class="num">Completed</th><th>Due</th><th class="num">WIP</th><th>Status</th></tr></thead><tbody>
       ${list.map((o) => `<tr style="cursor:pointer" onclick="location.hash='#/production-orders?id=${o.doc_entry}'"><td>${o.doc_num}</td><td>${esc(o.item_code)} ${esc(o.item_name || "")}</td>
         <td class="num">${qtyFmt(o.planned_qty)}</td><td class="num">${qtyFmt(o.cmplt_qty)}</td><td>${o.due_date}</td><td class="num">${fmt(o.wip)}</td><td>${st(o.status)}</td></tr>`).join("")
         || '<tr><td colspan="7" class="empty">No production orders.</td></tr>'}</tbody></table></div>
-    ${id === "" ? `<div class="card"><div class="card-head">New production order</div><div class="card-body"><div class="form-grid">
-        <div class="field"><label class="req">Product</label><select id="no-item">${prodBoms.map((b) => opt(b.code, `${b.code} — ${b.item_name || ""}`)).join("")}</select></div>
-        <div class="field"><label class="req">Planned quantity</label><input id="no-qty" type="number" step="any" min="0" value="1"></div>
-        <div class="field"><label>Order date</label><input id="no-date" type="date" value="${today()}"></div>
-        <div class="field"><label>Due date</label><input id="no-due" type="date" value="${today()}"></div>
-        <div class="field check"><label><input type="checkbox" id="no-rel" checked> Release</label></div></div>
+    ${id === "" ? `<div class="card"><div class="card-head">New production order</div><div class="card-body"><div class="form-grid">${fieldsHtml(newDefs, {}, "no")}</div>
+        <h3 class="section">Components (from the bill of materials) — warehouse to issue from</h3>
+        <table class="lines"><thead><tr><th>#</th><th>Component</th><th class="num">Per unit</th><th>Issue method</th><th>Warehouse</th></tr></thead><tbody id="no-lines"></tbody></table>
         ${prodBoms.length ? "" : '<div class="help">Create a production bill of materials first.</div>'}
         <button class="btn" id="no-add" style="margin-top:8px"${prodBoms.length ? "" : " disabled"}>Add</button></div></div>` : ""}
     ${po ? `<div class="card"><div class="card-head"><span>Production order ${po.doc_num}: ${esc(po.item_code)} ${esc(po.item_name || "")} ${st(po.status)}</span>
         <span class="help">planned ${qtyFmt(po.planned_qty)} · completed ${qtyFmt(po.cmplt_qty)} · issued ${fmt(po.issued_val)} · received ${fmt(po.rcpt_val)} · cost / unit ${fmt(po.unit_cost)}</span></div>
+      <div class="card-body help">Warehouse ${esc(po.warehouse)}${po.card_code ? ` · customer <a href="#/partners?code=${encodeURIComponent(po.card_code)}">${esc(po.card_code)}</a>` : ""}${po.origin_num ? ` · sales order ${po.origin_num}` : ""}${po.project ? ` · project ${esc(po.project)}` : ""}${po.ocr_code ? ` · distribution rule ${esc(po.ocr_code)}` : ""}${po.comments ? ` · ${esc(po.comments)}` : ""}</div>
       <table class="lines"><thead><tr><th>#</th><th>Component</th><th class="num">Per unit</th><th class="num">Planned</th><th class="num">Issued</th><th class="num">Issued value</th><th>Whs</th><th>Method</th><th class="num w-amt">Issue now</th></tr></thead><tbody>
         ${po.lines.map((l) => `<tr data-line="${l.line_num}"><td>${l.line_num + 1}</td><td>${esc(l.item_code)} ${esc(l.item_name || "")}</td><td class="num">${qtyFmt(l.base_qty)}</td>
           <td class="num">${qtyFmt(l.planned_qty)}</td><td class="num">${qtyFmt(l.issued_qty)}</td><td class="num">${fmt(l.issued_val)}</td><td>${esc(l.warehouse)}</td>
@@ -79,8 +89,21 @@ views["production-orders"] = async (c) => {
           <button class="btn" id="po-recv">Receipt from production</button><button class="btn secondary" id="po-close">Close</button>` : ""}
         ${["P", "R"].includes(po.status) ? '<button class="btn ghost" id="po-cancel">Cancel</button>' : ""}
         ${po.var_trans ? `<a href="#/journal?id=${po.var_trans}">Variance journal entry</a>` : ""}</div></div>` : ""}`;
+  if (id === "" && $("#no-item_code")) {  // components of the chosen product with their warehouses
+    const showLines = () => {
+      const b = prodBoms.find((x) => x.code === $("#no-item_code").value);
+      if (b && !$("#no-warehouse").dataset.touched) $("#no-warehouse").value = b.to_wh || $("#no-warehouse").value;
+      $("#no-lines").innerHTML = b ? b.lines.map((l, n) => `<tr><td>${n + 1}</td><td>${esc(l.code)} ${esc(l.item_name || "")}</td><td class="num">${qtyFmt(Number(l.quantity) / Number(b.qauntity || 1))}</td>
+        <td>${l.issue_mthd === "B" ? "Backflush" : "Manual"}</td><td><select class="nl-whs" data-n="${n}">${O.warehouses().map(([v, lb]) => opt(v, lb, l.warehouse || $("#no-warehouse").value)).join("")}</select></td></tr>`).join("")
+        : '<tr><td colspan="5" class="empty">Choose the product.</td></tr>';
+    };
+    $("#no-item_code").addEventListener("change", showLines);
+    $("#no-warehouse").addEventListener("change", () => { $("#no-warehouse").dataset.touched = "1"; });
+    showLines();
+  }
   if (id === "" && $("#no-add")) $("#no-add").onclick = async () => {
-    const body = { item_code: $("#no-item").value, planned_qty: Number($("#no-qty").value || 0), post_date: $("#no-date").value, due_date: $("#no-due").value, release: $("#no-rel").checked };
+    const f = readFields(newDefs, "no");
+    const body = { ...f, line_whs: Object.fromEntries($$("#no-lines .nl-whs").map((s) => [s.dataset.n, s.value])) };
     const r = await act(() => post("/production/orders", body), (x) => `Production order ${x.doc_num} added`);
     if (r) location.hash = `#/production-orders?id=${r.doc_entry}`;
   };

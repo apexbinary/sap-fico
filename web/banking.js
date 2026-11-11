@@ -70,8 +70,9 @@ async function paymentDetail(el, kind, entry) {
         <td><a href="#/journal?id=${i.doc_trans_id}">${i.doc_trans_id}</a></td><td class="num">${fmt(i.sum_applied)}</td>
         <td class="num">${Number(i.dcnt_sum) ? fmt(i.dcnt_sum) : ""}</td><td>${i.inst_id || ""}</td>
         <td class="num">${Number(i.applied_fc) ? fmt(i.applied_fc) : ""}</td></tr>`).join("")}</tbody></table>` : ""}
-    ${p.accounts.length ? `<table><thead><tr><th>G/L account</th><th>Name</th><th>Description</th><th>Project</th><th class="num">Amount (LC)</th></tr></thead><tbody>
-      ${p.accounts.map((a) => `<tr><td class="mono">${esc(a.acct_code)}</td><td>${esc(name(a.acct_code))}</td><td>${esc(a.descrip || "")}</td><td>${esc(a.prj_code || "")}</td><td class="num">${fmt(a.sum_applied)}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${p.accounts.length ? `<table><thead><tr><th>G/L account</th><th>Name</th><th>Description</th><th>Project</th><th>Distribution rules</th><th class="num">Amount (LC)</th></tr></thead><tbody>
+      ${p.accounts.map((a) => `<tr><td class="mono">${esc(a.acct_code)}</td><td>${esc(name(a.acct_code))}</td><td>${esc(a.descrip || "")}</td><td>${esc(a.prj_code || "")}</td>
+        <td>${esc(dimText(a.ocr_codes))}</td><td class="num">${fmt(a.sum_applied)}</td></tr>`).join("")}</tbody></table>` : ""}
     <div class="card-body"><h3 class="section">Payment means</h3><div style="overflow-x:auto"><table><thead><tr><th>Means</th><th>G/L account</th><th>Details</th><th class="num">Amount (LC)</th>${p.doc_curr !== state.company.main_curncy ? `<th class="num">Amount (${esc(p.doc_curr)})</th>` : ""}</tr></thead><tbody>
       ${Number(p.cash_sum) ? `<tr><td>Cash</td><td class="mono">${esc(p.cash_acct)}</td><td></td><td class="num">${fmt(p.cash_sum)}</td>${p.doc_curr !== state.company.main_curncy ? `<td class="num">${fmt(p.cash_sum_fc)}</td>` : ""}</tr>` : ""}
       ${Number(p.trsfr_sum) ? `<tr><td>Bank transfer</td><td class="mono">${esc(p.trsfr_acct)}</td><td>${esc(p.trsfr_date || "")} ${esc(p.trsfr_ref || "")}${Number(p.bank_chrg) ? ` · bank charges ${fmt(p.bank_chrg)}` : ""}</td>
@@ -142,14 +143,15 @@ views.payment = async (c) => {
     const t = type(), code = $("#p-card_code").value;
     if (t === "A") {
       $("#p-items-head").textContent = "G/L account lines";
-      $("#p-items").innerHTML = `<table class="lines"><thead><tr><th>G/L account</th><th>Description</th><th>Project</th><th class="num w-amt">Amount</th><th></th></tr></thead><tbody id="p-acct"></tbody></table>
+      $("#p-items").innerHTML = `<table class="lines"><thead><tr><th>G/L account</th><th>Description</th><th>Project</th>${dimHead()}<th class="num w-amt">Amount</th><th></th></tr></thead><tbody id="p-acct"></tbody></table>
         <div class="card-body"><button class="btn secondary small" id="p-acct-add">+ Line</button></div>`;
       const addAcct = () => {
         const tr = document.createElement("tr");
         tr.innerHTML = `<td><select class="a-acct">${opt("", "— account —")}${accountOptions((a) => !a.control)}</select></td><td><input class="a-desc" maxlength="254"></td>
-          <td><select class="a-prj">${opt("", "")}${O.projects().map(([v, l]) => opt(v, l)).join("")}</select></td>
+          <td><select class="a-prj">${opt("", "")}${O.projects().map(([v, l]) => opt(v, l)).join("")}</select></td>${dimCells([])}
           <td class="num"><input class="a-sum" type="number" step="0.01" min="0"></td><td><button class="btn ghost small a-del">✕</button></td>`;
         $("#p-acct").appendChild(tr);
+        $(".a-acct", tr).addEventListener("change", () => { const rows = $$("#p-acct tr"); if (rows[rows.length - 1] === tr && $(".a-acct", tr).value) addAcct(); });
         $(".a-sum", tr).oninput = recalc;
         $(".a-del", tr).onclick = () => { tr.remove(); recalc(); };
       };
@@ -262,7 +264,8 @@ views.payment = async (c) => {
     });
     if (type() === "A") $$("#p-acct tr").forEach((tr) => {
       const acct = $(".a-acct", tr).value;
-      if (acct) body.accounts.push({ acct_code: acct, sum_applied: Number($(".a-sum", tr).value || 0), descrip: $(".a-desc", tr).value || null, prj_code: $(".a-prj", tr).value || null });
+      if (acct) body.accounts.push({ acct_code: acct, sum_applied: Number($(".a-sum", tr).value || 0), descrip: $(".a-desc", tr).value || null,
+        prj_code: $(".a-prj", tr).value || null, ocr_codes: readDims(tr) });
     });
     else $$("#p-items tr[data-n]").forEach((tr) => {
       if ($(".i-pick", tr).checked) body.items.push({ trans_id: tr.item.trans_id, line_id: tr.item.line_id, sum_applied: Number($(".i-sum", tr).value || 0),

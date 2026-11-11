@@ -482,6 +482,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 |---|---|---|---|
 | BOM: parent item, type (production / sales / assembly / template), quantity, warehouse; components with quantity, warehouse, issue method (manual / backflush) | OITT Code / TreeType / Qauntity / ToWH, ITT1 Code / Quantity / Warehouse / IssueMthd | dropdown / number | ✅ cycles refused; BOM cost |
 | Production order: product, planned / completed quantity, warehouse, dates, status planned / released / closed / canceled; components with base / planned / issued quantity and value | OWOR, WOR1 (+ IssuedVal / RcptVal) | dropdown / number / date | ✅ |
+| Production order: customer, sales order no., remarks, project (on its goods issues / receipts and variance), distribution rule (variance), component warehouse | OWOR CardCode / OriginNum / Comments / Project / OcrCode, WOR1 wareHouse | dropdown / number / text | ✅ |
 | Issue for production (goods issue against WIP), receipt from production (backflush, product at component cost), close (WIP balance to production variance) | OACP WipAcct 118000 / WipVarAcct 514000 | — | ✅ ordinary goods issues / receipts (Ref2 WO<no>) |
 | MRP: demand (sales orders, production components, minimum level) vs. supply (stock, purchase orders, production), multi-level through BOMs, minimum order quantity, lead time, preferred vendor; recommendations to purchase / production orders | | date / checkbox / number | ✅ computed on request |
 | Routings / resources (B1 9.1+ resources), sales and assembly BOM explosion on documents, disassembly orders, rejected quantity, MRP scenarios saved, forecasts | | — | ⏸ |
@@ -618,6 +619,7 @@ purchase quotation, order, goods receipt PO, goods return, A/P invoice, A/P cred
 |---|---|---|---|
 | Code, name, revenue account, expense account, output / input tax code, SAC code, default amount | OEXD ExpnsCode / ExpnsName / RevAcct / ExpnsAcct / VatGroupO / VatGroupI / SACCode / FixAmnt | text / dropdown / number | ✅ seeded: 1 Freight, 2 Insurance, 3 Packing |
 | Document freight lines: code, net amount, tax code, tax, gross; header total freight | QUT3 ... RPC3 ExpnsCode / LineTotal / TotalFrgn / VatGroup / VatPrcnt / VatSum / GrsAmount; TotalExpns / TotalExpFC | dropdown / number | ✅ no header discount, GST kind switched like lines, posted on invoices / credit memos |
+| Freight distribution rules (dimensions 1 - 5) | QUT3 ... RPC3 OcrCode / OcrCode2-5 | dropdown | ✅ on the freight revenue / expense line |
 | Freight in GST returns (SAC, taxable value), e-invoice (service item), print | | — | ✅ |
 | Distribution method (to item cost / landed costs), freight copied from the base document, freight in installments by line, freight on inventory documents | DistrbMthd | — | ⏸ |
 
@@ -752,7 +754,8 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | Description | Descrip | text | ✅ |
 | Project | PrjCode | dropdown | ✅ |
 | Amount | SumApplied / AppliedFC | number | ✅ |
-| Tax group, distribution rule | VatGroup, OcrCode | — | ⏸ VAT on account payments and cost accounting not built |
+| Distribution rules (dimensions 1 - 5) | OcrCode / OcrCode2-5 | dropdown | ✅ on the account's journal line |
+| Tax group | VatGroup | — | ⏸ GST on account payments not built |
 
 ### Payment means
 | Field | Column | Type | Status |
@@ -839,3 +842,13 @@ Document, date, item, warehouse, in/out quantity, price, value change, item cost
 | Properties, attachments, pictures, user-defined fields, document printing / layouts, approval procedures, drafts, authorizations | not in the agreed scope |
 | Localization fields (indicator, stamp tax, GLN, tax office) | not in the agreed scope |
 | India: GSTR filing formats, e-invoicing (IRN / QR), e-way bill, TDS / TCS, reverse charge | not built yet |
+
+### Choose from list and line grids (all screens)
+| Function | Status |
+|---|---|
+| BP / item / G/L account / warehouse dropdowns open a list window: search over all columns, filters (type, group, city / item group, inventory, stock / drawer), 15 per page, current value marked; offers only the values the field allows | ✅ web/cfl.js |
+| Golden arrow next to the field opens the master record (business partner, item, account; warehouses: the warehouse list) | ✅ |
+| Item lines: stock of the line's warehouse (in stock / committed / ordered / available), warehouse options with the available quantity, shortage marked on issuing documents | ✅ |
+| One empty row at the bottom of document, journal entry, payment account and opening balance grids; empty rows are not posted | ✅ |
+| Two-level menu: module rail and the module's menu | ✅ web/nav.js |
+| Cross-module dependency matrix checked in the browser | ✅ docs/dependency-matrix.md, tools/ui_contract.py |

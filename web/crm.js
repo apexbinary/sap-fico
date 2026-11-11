@@ -20,6 +20,8 @@ views.opportunities = async (c) => {
         <div class="field"><label>Stage</label><select id="op-stage">${stages.map((s) => opt(s.num, `${s.descript} (${Number(s.clo_prcnt)} %)`)).join("")}</select></div>
         <div class="field"><label>Potential amount</label><input id="op-amt" type="number" step="0.01" min="0"></div>
         <div class="field"><label>Predicted closing</label><input id="op-pred" type="date"></div>
+        <div class="field"><label>Contact person</label><select id="op-cpr"></select></div>
+        <div class="field"><label>Sales employee</label><select id="op-slp">${O.salesEmployees().map(([v, l]) => opt(v, l)).join("")}</select></div>
         <div class="field" style="grid-column:span 2"><label>Remarks</label><input id="op-memo" maxlength="254"></div></div>
         <button class="btn" id="op-add" style="margin-top:8px">Add</button></div></div>` : ""}
     ${o ? `<div class="card"><div class="card-head"><span>Opportunity ${o.oppr_id}: ${esc(o.name)} — ${esc(o.card_name || o.card_code)} <span class="status ${ST[o.status]}">${o.status_name}</span></span>
@@ -37,9 +39,17 @@ views.opportunities = async (c) => {
           <button class="btn ghost" id="os-lost">Lost</button><a class="btn ghost" href="#/activities?id=&opr=${o.oppr_id}&card=${encodeURIComponent(o.card_code)}">+ Activity</a></div></div>` : ""}
       <div class="card-body"><h3 class="section">Activities</h3><table><tbody>${o.activities.map((a) => `<tr style="cursor:pointer" onclick="location.hash='#/activities?id=${a.clg_code}'">
         <td>${a.recontact} ${esc(a.begin_time || "")}</td><td>${esc(a.action_name)}</td><td>${esc(a.details)}</td><td>${a.closed ? "done" : ""}</td></tr>`).join("") || '<tr><td class="empty">No activities.</td></tr>'}</tbody></table></div></div>` : ""}`;
+  if ($("#op-card")) {
+    linkContacts($("#op-card"), $("#op-cpr"));
+    $("#op-card").addEventListener("change", () => {  // the partner's sales employee by default
+      const b = state.partners.find((x) => x.card_code === $("#op-card").value);
+      if (b && b.slp_code != null) $("#op-slp").value = String(b.slp_code);
+    });
+  }
   if ($("#op-add")) $("#op-add").onclick = async () => {
     const body = { name: $("#op-name").value, card_code: $("#op-card").value, stage: Number($("#op-stage").value), max_sum_loc: Number($("#op-amt").value || 0),
-      pred_date: $("#op-pred").value || null, memo: $("#op-memo").value || null };
+      pred_date: $("#op-pred").value || null, memo: $("#op-memo").value || null,
+      cpr_code: $("#op-cpr").value ? Number($("#op-cpr").value) : null, slp_code: $("#op-slp").value !== "" ? Number($("#op-slp").value) : null };
     const r = await act(() => post("/crm/opportunities", body), (x) => `Opportunity ${x.oppr_id} added`);
     if (r) location.hash = `#/opportunities?id=${r.oppr_id}`;
   };
@@ -56,10 +66,18 @@ views.activities = async (c) => {
   const mine = q.get("all") !== "1";
   const data = await api(`/crm/activities?${mine && state.user ? `user_id=${state.user.user_id}&` : ""}open_only=${q.get("done") === "1" ? "false" : "true"}`);
   const edit = id && id !== "" && (await api("/crm/activities")).activities.find((a) => String(a.clg_code) === id);
+  const [users, opps] = await Promise.all([api("/crm/users").catch(() => []), api("/crm/opportunities?status=O").catch(() => [])]);
   const defs = [
     { k: "action", label: "Activity", type: "select", blank: false, options: Object.entries(data.actions), value: "C" },
     { k: "details", label: "Subject", req: true, max: 100, span: 2 },
     { k: "card_code", label: "Business partner", type: "select", options: state.partners.map((p) => [p.card_code, `${p.card_code} — ${p.card_name}`]), value: q.get("card") || "" },
+    { k: "cntct_code", label: "Contact person", type: "select", int: true, options: [] },
+    { k: "attend_user", label: "Handled by", type: "select", int: true, blank: false, options: users.map((u) => [u.user_id, `${u.user_code} — ${u.u_name}`]),
+      value: state.user ? state.user.user_id : "" },
+    { k: "opr_id", label: "Opportunity", type: "select", int: true, options: opps.map((o) => [o.oppr_id, `${o.oppr_id} — ${o.name}`]), value: q.get("opr") || "" },
+    { k: "doc_type", label: "Linked document type", type: "select", options: [["23", "Sales quotation"], ["17", "Sales order"], ["15", "Delivery"], ["13", "A/R invoice"],
+      ["22", "Purchase order"], ["18", "A/P invoice"], ["191", "Service call"]], value: q.get("call") ? "191" : "" },
+    { k: "doc_entry", label: "Linked document no. (entry)", type: "number", step: 1, min: 1, value: q.get("call") || "" },
     { k: "recontact", label: "Date", type: "date", value: today(), req: true }, { k: "begin_time", label: "Start (HH:MM)", max: 5 }, { k: "end_time", label: "End (HH:MM)", max: 5 },
     { k: "priority", label: "Priority", type: "select", blank: false, options: Object.entries(data.priorities), value: "1" },
     { k: "location", label: "Location", max: 100 }, { k: "notes", label: "Notes", type: "textarea", max: 1000, span: 3 },
@@ -75,10 +93,10 @@ views.activities = async (c) => {
         || '<tr><td colspan="8" class="empty">No activities.</td></tr>'}</tbody></table></div>
     ${id !== null ? `<div class="card"><div class="card-head">${edit ? `Activity ${edit.clg_code}` : "New activity"}</div><div class="card-body">
       <div class="form-grid">${fieldsHtml(defs, edit || {}, "ac")}</div><button class="btn" id="ac-save" style="margin-top:8px">${edit ? "Update" : "Add"}</button></div></div>` : ""}`;
+  if ($("#ac-card_code")) linkContacts($("#ac-card_code"), $("#ac-cntct_code"), edit ? edit.cntct_code : null);
   if ($("#ac-save")) $("#ac-save").onclick = async () => {
     const body = readFields(defs, "ac");
-    if (!edit && q.get("opr")) body.opr_id = Number(q.get("opr"));
-    if (!edit && q.get("call")) Object.assign(body, { doc_type: "191", doc_entry: Number(q.get("call")) });  // linked service call
+    if (!body.doc_type) body.doc_entry = null;
     const r = edit ? await act(() => patch(`/crm/activities/${edit.clg_code}`, body), "Activity updated") : await act(() => post("/crm/activities", body), "Activity added");
     if (r) { location.hash = `#/activities?r=${Date.now()}`; if (typeof refreshAlertBell === "function") refreshAlertBell(); }
   };
